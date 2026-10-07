@@ -314,7 +314,7 @@ void MainWindow::createActions()
     });
     m_actCompare->setCheckable(true);
     view->addSeparator();
-    view->addAction(tr("Toggle Side &Panels"), QKeySequence(Qt::Key_Tab), this, &MainWindow::toggleSidePanels);
+    view->addAction(tr("Toggle Side &Panels"), QKeySequence(Qt::CTRL | Qt::Key_Tab), this, &MainWindow::toggleSidePanels);
     auto addToggle = [&](QDockWidget* d, const QString& text, const QKeySequence& key) {
         QAction* a = d->toggleViewAction();
         a->setText(text);
@@ -360,7 +360,7 @@ void MainWindow::createActions()
                                     "<tr><td><b>Ctrl+U</b></td><td>Auto tone</td></tr>"
                                     "<tr><td><b>Ctrl+Z / Ctrl+Shift+Z</b></td><td>Undo / redo</td></tr>"
                                     "<tr><td><b>Ctrl+Shift+C / V</b></td><td>Copy / paste settings (to all selected)</td></tr>"
-                                    "<tr><td><b>Tab, F6, F7, F8</b></td><td>Hide panels</td></tr>"
+                                    "<tr><td><b>Ctrl+Tab, F6, F7, F8</b></td><td>Hide panels</td></tr>"
                                     "<tr><td><b>Shift+F6, F7, F8</b></td><td>Auto hide &amp; show panels</td></tr>"
                                     "</table>"));
     });

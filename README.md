@@ -31,7 +31,7 @@ The binary is `build/src/app/silma`.
 `silma` opens the last batch; `silma TRIP.silma` opens a specific one.
 Keyboard: Left/Right navigate, X/U reject/unreject, Z or click toggles fit/1:1, wheel zooms,
 `\` before/after, C compare, R crop tool, Q heal tool, Ctrl+I metadata, Ctrl+U auto tone, Ctrl+Z / Ctrl+Shift+Z undo/redo,
-Ctrl+Shift+C/V copy/paste settings, Tab / F6 / F7 / F8 hide panels, the pin button in a panel title (or Shift+F6 / F7 / F8) switches the filmstrip, left or right panel to auto hide & show (the panel slides in while the mouse is at that window edge).
+Ctrl+Shift+C/V copy/paste settings, Ctrl+Tab / F6 / F7 / F8 hide panels (Tab moves between controls), the pin button in a panel title (or Shift+F6 / F7 / F8) switches the filmstrip, left or right panel to auto hide & show (the panel slides in while the mouse is at that window edge).
 
 ## CLI (also meant for AI agents)
 
