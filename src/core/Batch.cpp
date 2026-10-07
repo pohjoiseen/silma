@@ -390,6 +390,13 @@ QString Batch::setHistoryPos(qint64 photoId, int pos)
     return s;
 }
 
+qint64 Batch::dataVersion()
+{
+    auto st = m_db.prepare("PRAGMA data_version");
+    st.step();
+    return st.i64(0);
+}
+
 // ---- state -----------------------------------------------------------------
 
 QString Batch::state(const QString& key, const QString& def)

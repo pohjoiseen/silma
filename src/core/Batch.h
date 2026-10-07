@@ -99,6 +99,9 @@ public:
     QString state(const QString& key, const QString& def = {});
     void setState(const QString& key, const QString& value);
 
+    // Changes whenever another connection (e.g. the CLI) commits to the database.
+    qint64 dataVersion();
+
     QString relativize(const QString& absPath) const;
     QString absolutize(const QString& stored) const;
 

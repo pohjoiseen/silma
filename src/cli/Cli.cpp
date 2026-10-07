@@ -730,6 +730,17 @@ std::map<QString, Command> commands()
             throw CliError(QStringLiteral("%1 export(s) failed").arg(errors.size()).toStdString());
     }};
 
+    m["show"] = {"show PHOTO", "Make a running GUI display this photo", {}, {}, true, [](const Args& a, Batch* b, bool json) {
+        auto ps = resolvePhotos(*b, a.positional());
+        if (ps.size() != 1)
+            fail("show takes exactly one photo");
+        b->setState("gui.goto", QString::number(ps[0].id));
+        if (json)
+            printJson(QJsonObject{{"id", ps[0].id}});
+        else
+            out() << "Requested GUI to show " << ps[0].fileName << '\n';
+    }};
+
     m["probe"] = {"probe RAWFILE [--half]", "Decode a raw file and report timing/color data (debug)", {}, {"half"}, false, [](const Args& a, Batch*, bool json) {
         if (a.positional().size() != 1)
             fail("probe takes one file");
@@ -761,6 +772,9 @@ std::map<QString, Command> commands()
 
 bool isCliInvocation(const QStringList& args)
 {
+    // "silma" and "silma FILE.silma" open the GUI; everything else is a CLI command.
+    if (args.size() == 2 && args[1].endsWith(QLatin1String(".silma")))
+        return false;
     return args.size() > 1;
 }
 
