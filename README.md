@@ -14,6 +14,7 @@ instead of `onnxruntime-cpu`; Silmä picks the GPU provider automatically
     cmake -S . -B build -G Ninja
     ninja -C build
     ctest --test-dir build        # GUI test needs QT_QPA_PLATFORM=offscreen when headless
+    sudo cmake --install build    # binary, desktop entry and .silma file type (then update-mime-database)
 
 The binary is `build/src/app/silma`.
 

@@ -30,3 +30,7 @@ add_subdirectory(src/app)
 
 enable_testing()
 add_subdirectory(tests)
+
+include(GNUInstallDirs)
+install(FILES data/silma.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+install(FILES data/silma-mime.xml DESTINATION ${CMAKE_INSTALL_DATADIR}/mime/packages)

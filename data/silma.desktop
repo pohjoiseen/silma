@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Silmä
+GenericName=Raw Photo Developer
+Comment=Cull and develop raw photos
+Exec=silma %f
+Icon=camera-photo
+Terminal=false
+Categories=Graphics;Photography;Qt;
+MimeType=application/x-silma-batch;
+Keywords=raw;photo;develop;lightroom;nef;dng;
