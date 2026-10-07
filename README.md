@@ -6,6 +6,7 @@ Develop module. See `SPEC.md` for the goals.
 ## Building
 
 Dependencies (Arch): `cmake ninja qt6-base libraw exiv2 lensfun libjpeg-turbo libtiff sqlite lcms2 opencv onnxruntime-cpu`.
+Optional: `kcolorscheme` (KDE color schemes: the app defaults to Breeze Dark and offers the installed schemes under View → Color Scheme; without it a built-in dark palette is used).
 
 For GPU-accelerated AI denoise install `onnxruntime-opt-rocm` (AMD) or `onnxruntime-cuda`
 instead of `onnxruntime-cpu`; Silmä picks the GPU provider automatically

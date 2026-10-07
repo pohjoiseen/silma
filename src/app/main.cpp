@@ -1,4 +1,5 @@
 #include "Cli.h"
+#include "ColorScheme.h"
 #include "MainWindow.h"
 
 #include <QApplication>
@@ -28,6 +29,8 @@ int main(int argc, char** argv)
     QApplication::setApplicationDisplayName(QStringLiteral("Silmä"));
     QApplication::setDesktopFileName(QStringLiteral("silma"));
     QApplication::setWindowIcon(QIcon::fromTheme(QStringLiteral("camera-photo")));
+
+    silma::applyColorScheme();
 
     silma::MainWindow w;
     w.show();

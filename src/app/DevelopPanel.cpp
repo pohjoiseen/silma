@@ -6,18 +6,47 @@
 #include <QComboBox>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QPushButton>
 #include <QScrollArea>
 #include <QSlider>
 #include <QSettings>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 namespace silma {
 
+namespace {
+
+// Compact text button (push buttons in most styles are wide and tall).
+QToolButton* smallButton(const QString& text, QWidget* parent)
+{
+    auto* b = new QToolButton(parent);
+    b->setText(text);
+    b->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    return b;
+}
+
+// Buttons sharing a row split its width evenly.
+QToolButton* rowButton(const QString& text, QWidget* parent)
+{
+    auto* b = smallButton(text, parent);
+    b->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    return b;
+}
+
+// Secondary text that follows the color scheme.
+void makeDim(QLabel* l) { l->setForegroundRole(QPalette::PlaceholderText); }
+
+} // namespace
+
 DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
 {
+    // Slightly smaller text than the rest of the UI: the panel holds many controls.
+    QFont f = font();
+    f.setPointSizeF(f.pointSizeF() * 0.9);
+    setFont(f);
     auto* outer = new QVBoxLayout(this);
-    outer->setContentsMargins(4, 4, 4, 4);
+    outer->setContentsMargins(4, 4, 0, 4);
+    outer->setSpacing(4);
     m_histogram = new HistogramWidget(this);
     outer->addWidget(m_histogram);
 
@@ -27,8 +56,8 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     auto* content = new QWidget(scroll);
     auto* layout = new QVBoxLayout(content);
-    layout->setContentsMargins(0, 0, 6, 0);
-    layout->setSpacing(2);
+    layout->setContentsMargins(0, 0, 4, 0);
+    layout->setSpacing(0);
     scroll->setWidget(content);
     outer->addWidget(scroll, 1);
 
@@ -59,10 +88,10 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
 
     // Tone
     auto* tone = addSection(layout, "tone", tr("Tone"), true);
-    auto* autoTone = new QPushButton(tr("Auto"), tone);
+    auto* autoTone = smallButton(tr("Auto"), tone);
     autoTone->setToolTip(tr("Automatic tone (Ctrl+U)"));
     tone->addHeaderWidget(autoTone);
-    connect(autoTone, &QPushButton::clicked, this, &DevelopPanel::autoToneRequested);
+    connect(autoTone, &QToolButton::clicked, this, &DevelopPanel::autoToneRequested);
     addSliders(tone, "tone");
 
     auto* presence = addSection(layout, "presence", tr("Presence"), true);
@@ -75,7 +104,7 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
         m_curveChannel = new QComboBox(curve);
         m_curveChannel->addItems({tr("RGB"), tr("Red"), tr("Green"), tr("Blue")});
         row->addWidget(m_curveChannel, 1);
-        auto* reset = new QPushButton(tr("Reset"), curve);
+        auto* reset = smallButton(tr("Reset"), curve);
         row->addWidget(reset);
         curve->contentLayout()->addLayout(row);
         m_curve = new CurveWidget(curve);
@@ -86,7 +115,7 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
             *t[ch] = c;
             emitEdit(tr("Tone Curve"), final);
         });
-        connect(reset, &QPushButton::clicked, this, [this] {
+        connect(reset, &QToolButton::clicked, this, [this] {
             CurvePoints* t[4] = {&m_settings.curveRgb, &m_settings.curveR, &m_settings.curveG, &m_settings.curveB};
             t[m_curveChannel->currentIndex()]->points.clear();
             m_curve->setSettings(m_settings);
@@ -98,7 +127,7 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
     auto* lens = addSection(layout, "lens", tr("Lens Corrections"), false);
     m_lensInfo = new QLabel(lens);
     m_lensInfo->setWordWrap(true);
-    m_lensInfo->setStyleSheet(QStringLiteral("color: palette(mid);"));
+    makeDim(m_lensInfo);
     lens->contentLayout()->addWidget(m_lensInfo);
     addSliders(lens, "lens");
 
@@ -109,9 +138,9 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
         row->addWidget(new QLabel(tr("Upright:"), transform));
         const QStringList names = {tr("Vertical"), tr("Horizontal"), tr("Both")};
         for (int i = 0; i < 3; ++i) {
-            auto* b = new QPushButton(names[i], transform);
+            auto* b = rowButton(names[i], transform);
             b->setToolTip(tr("Automatically straighten using detected lines"));
-            connect(b, &QPushButton::clicked, this, [this, i] { emit autoUprightRequested(i); });
+            connect(b, &QToolButton::clicked, this, [this, i] { emit autoUprightRequested(i); });
             row->addWidget(b);
         }
         transform->contentLayout()->addLayout(row);
@@ -122,24 +151,24 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
     auto* crop = addSection(layout, "crop", tr("Crop"), false);
     {
         auto* row = new QHBoxLayout();
-        m_cropTool = new QPushButton(tr("Crop Tool"), crop);
+        m_cropTool = rowButton(tr("Crop Tool"), crop);
         m_cropTool->setCheckable(true);
         m_cropTool->setToolTip(tr("Edit the crop on the image (R)"));
         row->addWidget(m_cropTool);
-        auto* autoCrop = new QPushButton(tr("Auto"), crop);
+        auto* autoCrop = rowButton(tr("Auto"), crop);
         autoCrop->setToolTip(tr("Largest crop without empty borders"));
         row->addWidget(autoCrop);
-        auto* reset = new QPushButton(tr("Reset"), crop);
+        auto* reset = rowButton(tr("Reset"), crop);
         row->addWidget(reset);
         crop->contentLayout()->addLayout(row);
         m_cropLock = new QCheckBox(tr("Keep aspect ratio"), crop);
         crop->contentLayout()->addWidget(m_cropLock);
-        connect(m_cropTool, &QPushButton::toggled, this, [this](bool on) {
+        connect(m_cropTool, &QToolButton::toggled, this, [this](bool on) {
             if (!m_updating)
                 emit cropToolToggled(on);
         });
-        connect(autoCrop, &QPushButton::clicked, this, &DevelopPanel::autoCropRequested);
-        connect(reset, &QPushButton::clicked, this, [this] {
+        connect(autoCrop, &QToolButton::clicked, this, &DevelopPanel::autoCropRequested);
+        connect(reset, &QToolButton::clicked, this, [this] {
             m_settings.crop = QRectF(0, 0, 1, 1);
             emitEdit(tr("Reset Crop"), true);
         });
@@ -155,11 +184,11 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
     auto* heal = addSection(layout, "heal", tr("Heal"), false);
     {
         auto* row = new QHBoxLayout();
-        m_healTool = new QPushButton(tr("Heal Tool"), heal);
+        m_healTool = rowButton(tr("Heal Tool"), heal);
         m_healTool->setCheckable(true);
         m_healTool->setToolTip(tr("Click on the image to remove a spot with generative fill (Q). Alt+click removes a spot."));
         row->addWidget(m_healTool);
-        auto* clear = new QPushButton(tr("Clear All"), heal);
+        auto* clear = rowButton(tr("Clear All"), heal);
         row->addWidget(clear);
         heal->contentLayout()->addLayout(row);
         auto* sizeRow = new QHBoxLayout();
@@ -171,9 +200,9 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
         heal->contentLayout()->addLayout(sizeRow);
         m_healInfo = new QLabel(tr("Uses the LaMa inpainting model (downloaded on first use)."), heal);
         m_healInfo->setWordWrap(true);
-        m_healInfo->setStyleSheet(QStringLiteral("color: palette(mid);"));
+        makeDim(m_healInfo);
         heal->contentLayout()->addWidget(m_healInfo);
-        connect(m_healTool, &QPushButton::toggled, this, [this](bool on) {
+        connect(m_healTool, &QToolButton::toggled, this, [this](bool on) {
             if (!m_updating)
                 emit healToolToggled(on);
         });
@@ -181,18 +210,18 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
             QSettings().setValue("heal/size", v);
             emit healSizeChanged(v / 1000.0);
         });
-        connect(clear, &QPushButton::clicked, this, &DevelopPanel::healClearRequested);
+        connect(clear, &QToolButton::clicked, this, &DevelopPanel::healClearRequested);
     }
 
     auto* detail = addSection(layout, "detail", tr("Detail"), false);
     addSliders(detail, "detail");
-    auto* ai = new QPushButton(tr("AI Denoise..."), detail);
+    auto* ai = smallButton(tr("AI Denoise..."), detail);
     ai->setToolTip(tr("Denoise with a neural network into a new DNG photo"));
     detail->contentLayout()->addWidget(ai);
-    connect(ai, &QPushButton::clicked, this, &DevelopPanel::aiDenoiseRequested);
+    connect(ai, &QToolButton::clicked, this, &DevelopPanel::aiDenoiseRequested);
 
     layout->addStretch(1);
-    setMinimumWidth(280);
+    setMinimumWidth(240);
 }
 
 CollapsibleSection* DevelopPanel::addSection(QVBoxLayout* layout, const QString& id, const QString& title, bool expanded)

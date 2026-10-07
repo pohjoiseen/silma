@@ -14,6 +14,32 @@ class QComboBox;
 
 namespace silma {
 
+// Clickable section title: disclosure arrow and bold text, left aligned.
+class SectionHeader : public QWidget {
+    Q_OBJECT
+public:
+    SectionHeader(const QString& title, QWidget* parent = nullptr);
+    void setExpanded(bool e);
+    bool isExpanded() const { return m_expanded; }
+    QSize sizeHint() const override;
+    QSize minimumSizeHint() const override { return sizeHint(); }
+
+signals:
+    void toggled(bool expanded);
+
+protected:
+    void paintEvent(QPaintEvent*) override;
+    void mousePressEvent(QMouseEvent*) override;
+    void enterEvent(QEnterEvent*) override;
+    void leaveEvent(QEvent*) override;
+
+private:
+    QFont titleFont() const;
+    QString m_title;
+    bool m_expanded = true;
+    bool m_hover = false;
+};
+
 // A titled, collapsible section for the develop panel.
 class CollapsibleSection : public QWidget {
     Q_OBJECT
@@ -29,7 +55,7 @@ signals:
     void toggled(bool expanded);
 
 private:
-    QToolButton* m_header;
+    SectionHeader* m_header;
     QWidget* m_content;
     QVBoxLayout* m_layout;
     QWidget* m_headerRow;

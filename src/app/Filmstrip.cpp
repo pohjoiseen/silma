@@ -13,6 +13,8 @@ void PhotoListModel::reload(std::optional<qint64> importId)
     beginResetModel();
     m_importId = importId;
     m_photos = m_batch ? m_batch->photos(importId) : QList<PhotoInfo>();
+    m_thumbs.clear();
+    m_missingThumbs.clear();
     m_edited.clear();
     for (const auto& p : m_photos)
         if (p.historyPos > 0)
@@ -37,6 +39,13 @@ void PhotoListModel::refresh()
     for (const auto& p : m_photos)
         if (p.historyPos > 0)
             m_edited.insert(p.id);
+    if (!m_missingThumbs.isEmpty()) {
+        // Thumbnails may have arrived (e.g. an import writes them after the photo rows);
+        // item sizes depend on their aspect ratio, so lay the strip out again.
+        m_missingThumbs.clear();
+        emit layoutAboutToBeChanged();
+        emit layoutChanged();
+    }
     if (!m_photos.isEmpty())
         emit dataChanged(index(0), index(int(m_photos.size()) - 1));
 }
@@ -73,7 +82,11 @@ QVariant PhotoListModel::data(const QModelIndex& idx, int role) const
         QByteArray jpeg = m_batch ? m_batch->thumbnail(p.id) : QByteArray();
         if (!jpeg.isEmpty())
             px.loadFromData(jpeg, "JPEG");
-        m_thumbs.insert(p.id, new QPixmap(px));
+        // Only cache real thumbnails: a missing one may be written later.
+        if (px.isNull())
+            m_missingThumbs.insert(p.id);
+        else
+            m_thumbs.insert(p.id, new QPixmap(px));
         return px;
     }
     case IdRole: return p.id;

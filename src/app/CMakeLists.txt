@@ -7,3 +7,14 @@ target_link_libraries(silmaapp PUBLIC silmacore Qt6::Widgets)
 add_executable(silma main.cpp)
 target_link_libraries(silma PRIVATE silmaapp)
 install(TARGETS silma)
+
+# KDE color schemes (optional): lets the app default to Breeze Dark and offer the
+# installed schemes like other KDE applications.
+find_package(KF6ColorScheme QUIET)
+if(KF6ColorScheme_FOUND)
+  target_link_libraries(silmaapp PUBLIC KF6::ColorScheme)
+  target_compile_definitions(silmaapp PRIVATE SILMA_HAVE_KCOLORSCHEME)
+  message(STATUS "KDE color schemes: enabled")
+else()
+  message(STATUS "KDE color schemes: not found, using a built-in dark palette")
+endif()

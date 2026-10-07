@@ -4,6 +4,7 @@
 
 #include <QDoubleSpinBox>
 #include <QEvent>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMouseEvent>
@@ -18,41 +19,107 @@ namespace silma {
 
 // ---- CollapsibleSection -------------------------------------------------------
 
+SectionHeader::SectionHeader(const QString& title, QWidget* parent) : QWidget(parent), m_title(title)
+{
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    setCursor(Qt::PointingHandCursor);
+}
+
+QFont SectionHeader::titleFont() const
+{
+    QFont f = font();
+    f.setBold(true);
+    return f;
+}
+
+QSize SectionHeader::sizeHint() const
+{
+    QFontMetrics fm(titleFont());
+    return {fm.horizontalAdvance(m_title) + fm.height() + 8, fm.height() + 6};
+}
+
+void SectionHeader::setExpanded(bool e)
+{
+    if (e == m_expanded)
+        return;
+    m_expanded = e;
+    update();
+    emit toggled(e);
+}
+
+void SectionHeader::mousePressEvent(QMouseEvent* e)
+{
+    if (e->button() == Qt::LeftButton)
+        setExpanded(!m_expanded);
+}
+
+void SectionHeader::enterEvent(QEnterEvent*)
+{
+    m_hover = true;
+    update();
+}
+
+void SectionHeader::leaveEvent(QEvent*)
+{
+    m_hover = false;
+    update();
+}
+
+void SectionHeader::paintEvent(QPaintEvent*)
+{
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    const QPalette& pal = palette();
+    QColor fg = pal.color(QPalette::WindowText);
+    if (!m_hover)
+        fg.setAlphaF(0.85f);
+    // Disclosure triangle.
+    const double h = height(), a = std::round(h * 0.18);
+    QPointF c(a + 3, h / 2);
+    QPolygonF tri;
+    if (m_expanded)
+        tri << c + QPointF(-a, -a * 0.5) << c + QPointF(a, -a * 0.5) << c + QPointF(0, a * 0.6);
+    else
+        tri << c + QPointF(-a * 0.5, -a) << c + QPointF(-a * 0.5, a) << c + QPointF(a * 0.6, 0);
+    p.setPen(Qt::NoPen);
+    p.setBrush(fg);
+    p.drawPolygon(tri);
+    p.setPen(fg);
+    p.setFont(titleFont());
+    p.drawText(rect().adjusted(int(2 * a + 8), 0, 0, 0), Qt::AlignVCenter | Qt::AlignLeft, m_title);
+}
+
 CollapsibleSection::CollapsibleSection(const QString& title, QWidget* parent) : QWidget(parent)
 {
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(0);
+    // Separator line above each section.
+    auto* line = new QFrame(this);
+    line->setFrameShape(QFrame::HLine);
+    line->setFrameShadow(QFrame::Plain);
+    line->setForegroundRole(QPalette::Mid);
+    outer->addWidget(line);
     m_headerRow = new QWidget(this);
     auto* hl = new QHBoxLayout(m_headerRow);
-    hl->setContentsMargins(0, 2, 0, 2);
-    m_header = new QToolButton(m_headerRow);
-    m_header->setText(title);
-    m_header->setCheckable(true);
-    m_header->setChecked(true);
-    m_header->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    m_header->setArrowType(Qt::DownArrow);
-    m_header->setAutoRaise(true);
-    QFont f = m_header->font();
-    f.setBold(true);
-    m_header->setFont(f);
-    m_header->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    hl->addWidget(m_header);
+    hl->setContentsMargins(0, 1, 0, 1);
+    hl->setSpacing(4);
+    m_header = new SectionHeader(title, m_headerRow);
+    hl->addWidget(m_header, 1);
     outer->addWidget(m_headerRow);
     m_content = new QWidget(this);
     m_layout = new QVBoxLayout(m_content);
-    m_layout->setContentsMargins(8, 2, 4, 8);
-    m_layout->setSpacing(2);
+    m_layout->setContentsMargins(4, 0, 2, 6);
+    m_layout->setSpacing(1);
     outer->addWidget(m_content);
-    connect(m_header, &QToolButton::toggled, this, [this](bool on) {
+    connect(m_header, &SectionHeader::toggled, this, [this](bool on) {
         m_content->setVisible(on);
-        m_header->setArrowType(on ? Qt::DownArrow : Qt::RightArrow);
         emit toggled(on);
     });
 }
 
-void CollapsibleSection::setExpanded(bool e) { m_header->setChecked(e); }
-bool CollapsibleSection::isExpanded() const { return m_header->isChecked(); }
+void CollapsibleSection::setExpanded(bool e) { m_header->setExpanded(e); }
+bool CollapsibleSection::isExpanded() const { return m_header->isExpanded(); }
 void CollapsibleSection::addHeaderWidget(QWidget* w) { m_headerRow->layout()->addWidget(w); }
 
 // ---- ParamSlider ---------------------------------------------------------------
@@ -64,13 +131,15 @@ constexpr int kSliderSteps = 1000;
 ParamSlider::ParamSlider(const ParamDef& def, QWidget* parent)
     : QWidget(parent), m_def(def), m_value(def.def), m_mired(QLatin1String(def.key) == QLatin1String("temperature"))
 {
-    auto* l = new QGridLayout(this);
+    // One row: label, slider, value (like Lightroom).
+    auto* l = new QHBoxLayout(this);
     l->setContentsMargins(0, 0, 0, 0);
-    l->setHorizontalSpacing(6);
-    l->setVerticalSpacing(0);
+    l->setSpacing(6);
     m_label = new QLabel(QString::fromUtf8(def.label), this);
     m_label->setToolTip(tr("Double-click to reset"));
     m_label->installEventFilter(this);
+    // Common label width so the sliders line up across sections.
+    m_label->setFixedWidth(fontMetrics().horizontalAdvance(QStringLiteral("Luminance NR")) + 4);
     m_slider = new QSlider(Qt::Horizontal, this);
     m_slider->setRange(0, kSliderSteps);
     m_slider->setPageStep(kSliderSteps / 20);
@@ -80,13 +149,14 @@ ParamSlider::ParamSlider(const ParamDef& def, QWidget* parent)
     m_spin->setDecimals(def.decimals);
     m_spin->setSingleStep(def.step);
     m_spin->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    m_spin->setFrame(false);
     m_spin->setAlignment(Qt::AlignRight);
     m_spin->setKeyboardTracking(false);
-    m_spin->setFixedWidth(m_spin->fontMetrics().horizontalAdvance(QStringLiteral("-00000.00")) + 8);
+    m_spin->setFixedWidth(m_spin->fontMetrics().horizontalAdvance(QStringLiteral("-0000.00")) + 6);
     m_spin->installEventFilter(this);
-    l->addWidget(m_label, 0, 0);
-    l->addWidget(m_spin, 0, 1, Qt::AlignRight);
-    l->addWidget(m_slider, 1, 0, 1, 2);
+    l->addWidget(m_label);
+    l->addWidget(m_slider, 1);
+    l->addWidget(m_spin);
     setValue(def.def);
 
     connect(m_slider, &QSlider::valueChanged, this, [this](int v) {
@@ -203,7 +273,8 @@ void HistogramWidget::paintEvent(QPaintEvent*)
             for (int i = 1; i < 255; ++i)
                 mx = std::max(mx, double(c[i]));
         p.setCompositionMode(QPainter::CompositionMode_Plus);
-        const QColor cols[3] = {QColor(200, 40, 40), QColor(40, 170, 40), QColor(50, 80, 220)};
+        // Channel overlaps add up to grey rather than glaring white.
+        const QColor cols[3] = {QColor(115, 10, 10), QColor(10, 115, 10), QColor(10, 10, 115)};
         for (int c = 0; c < 3; ++c) {
             QPainterPath path;
             path.moveTo(r.left(), r.bottom());
@@ -236,11 +307,16 @@ void HistogramWidget::paintEvent(QPaintEvent*)
             p.fillRect(QRectF(r.right() - 11, r.top() + 3, 8, 8), QColor(255, 90, 90));
     }
     if (!m_info.isEmpty()) {
-        p.setPen(QColor(210, 210, 210));
         QFont f = font();
         f.setPointSizeF(f.pointSizeF() * 0.9);
         p.setFont(f);
-        p.drawText(r.adjusted(4, 2, -4, -2), Qt::AlignBottom | Qt::AlignHCenter, m_info);
+        // Dark outline keeps the text readable over the histogram.
+        QRectF tr = r.adjusted(4, 2, -4, -2);
+        p.setPen(QColor(0, 0, 0, 200));
+        for (QPointF d : {QPointF(-1, 0), QPointF(1, 0), QPointF(0, -1), QPointF(0, 1)})
+            p.drawText(tr.translated(d), Qt::AlignBottom | Qt::AlignHCenter, m_info);
+        p.setPen(QColor(225, 225, 225));
+        p.drawText(tr, Qt::AlignBottom | Qt::AlignHCenter, m_info);
     }
 }
 

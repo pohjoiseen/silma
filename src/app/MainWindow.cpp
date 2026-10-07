@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 
+#include "ColorScheme.h"
 #include "CropTool.h"
 #include "Heal.h"
 #include "HealTool.h"
@@ -306,6 +307,8 @@ void MainWindow::createActions()
         if (on)
             m_metaDock->raise();
     });
+    view->addSeparator();
+    view->addMenu(createColorSchemeMenu(view));
 
     auto* help = menuBar()->addMenu(tr("&Help"));
     help->addAction(tr("&Keyboard Shortcuts"), this, [this] {

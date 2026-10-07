@@ -1,5 +1,6 @@
 #include "Batch.h"
 #include "DevelopPanel.h"
+#include "Filmstrip.h"
 #include "Importer.h"
 #include "MainWindow.h"
 #include "Widgets.h"
@@ -44,6 +45,26 @@ private slots:
         Batch b;
         b.create(m_batchFile);
         QCOMPARE(importFiles(b, paths, {}).added.size(), 3);
+    }
+
+    void filmstripPicksUpLateThumbnails()
+    {
+        // Photo rows can appear before their thumbnails (an import in progress): the
+        // model must not remember the missing thumbnail.
+        Batch b;
+        b.open(m_batchFile);
+        qint64 id = b.photos().first().id;
+        QByteArray jpeg = b.thumbnail(id);
+        QVERIFY(!jpeg.isEmpty());
+        b.db().exec(QStringLiteral("DELETE FROM thumbnails WHERE photo_id = %1").arg(id).toUtf8().constData());
+        PhotoListModel m;
+        m.setBatch(&b);
+        m.reload(std::nullopt);
+        QModelIndex i = m.index(m.rowOf(id));
+        QVERIFY(i.data(Qt::DecorationRole).value<QPixmap>().isNull());
+        b.setThumbnail(id, jpeg, 0);
+        m.refresh();
+        QVERIFY(!i.data(Qt::DecorationRole).value<QPixmap>().isNull());
     }
 
     void editUndoRejectRestore()

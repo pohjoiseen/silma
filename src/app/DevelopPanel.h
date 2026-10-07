@@ -8,7 +8,7 @@
 
 class QComboBox;
 class QLabel;
-class QPushButton;
+class QToolButton;
 class QCheckBox;
 class QSlider;
 class QVBoxLayout;
@@ -63,9 +63,9 @@ private:
     QComboBox* m_curveChannel;
     CurveWidget* m_curve;
     QLabel* m_lensInfo;
-    QPushButton* m_cropTool;
+    QToolButton* m_cropTool;
     QCheckBox* m_cropLock;
-    QPushButton* m_healTool;
+    QToolButton* m_healTool;
     QSlider* m_healSize;
     QLabel* m_healInfo;
     bool m_updating = false;

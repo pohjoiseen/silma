@@ -36,6 +36,7 @@ private:
     QList<PhotoInfo> m_photos;
     QSet<qint64> m_edited;
     mutable QCache<qint64, QPixmap> m_thumbs{400};
+    mutable QSet<qint64> m_missingThumbs;
 };
 
 class FilmstripDelegate : public QStyledItemDelegate {
