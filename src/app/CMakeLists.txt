@@ -1,0 +1,5 @@
+file(GLOB APP_SOURCES CONFIGURE_DEPENDS *.cpp *.h ../cli/*.cpp ../cli/*.h)
+add_executable(silma ${APP_SOURCES})
+target_include_directories(silma PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../cli)
+target_link_libraries(silma PRIVATE silmacore Qt6::Widgets)
+install(TARGETS silma)
