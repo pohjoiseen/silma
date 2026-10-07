@@ -1,4 +1,5 @@
 #include "Batch.h"
+#include "AutoHidePanel.h"
 #include "DevelopPanel.h"
 #include "Filmstrip.h"
 #include "Importer.h"
@@ -9,6 +10,7 @@
 
 #include <QApplication>
 #include <QDir>
+#include <QDockWidget>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -65,6 +67,48 @@ private slots:
         b.setThumbnail(id, jpeg, 0);
         m.refresh();
         QVERIFY(!i.data(Qt::DecorationRole).value<QPixmap>().isNull());
+    }
+
+    void autoHidePanels()
+    {
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QVERIFY(w.openBatch(m_batchFile));
+        auto* panel = w.developPanel();
+        QVERIFY(qobject_cast<QDockWidget*>(panel->parentWidget()));
+
+        w.setAutoHide(Qt::RightEdge, true);
+        w.setAutoHide(Qt::LeftEdge, true);
+        AutoHidePanel* right = w.autoHidePanel(Qt::RightEdge);
+        QCOMPARE(panel->parentWidget(), right);
+        QVERIFY(!right->isVisible());
+        // The image gets the whole width.
+        QTRY_VERIFY(w.mainPane()->width() > 1300);
+
+        // Hovering the right edge reveals the panel over the image...
+        QPoint edge(w.width() - 2, w.height() / 2);
+        QCursor::setPos(w.mapToGlobal(edge));
+        QTest::mouseMove(&w, edge);
+        QTRY_VERIFY(right->isRevealed());
+        QTRY_COMPARE(right->geometry().right(), w.width() - 1);
+        QVERIFY(panel->isVisible());
+        QVERIFY(w.mainPane()->width() > 1300);
+        // ...and moving away hides it again.
+        QPoint away(w.width() / 2, w.height() / 2);
+        QCursor::setPos(w.mapToGlobal(away));
+        QTest::mouseMove(&w, away);
+        QTRY_VERIFY(!right->isRevealed());
+        QTRY_VERIFY(!right->isVisible());
+
+        // Pinning again puts the content back into the dock.
+        w.setAutoHide(Qt::RightEdge, false);
+        w.setAutoHide(Qt::LeftEdge, false);
+        QVERIFY(qobject_cast<QDockWidget*>(panel->parentWidget()));
+        QTRY_VERIFY(panel->isVisible());
+        QTRY_VERIFY(w.mainPane()->width() < 1100);
+        QVERIFY(!QSettings().value("ui/autoHide/" + QString::number(int(Qt::RightEdge))).toBool());
     }
 
     void editUndoRejectRestore()

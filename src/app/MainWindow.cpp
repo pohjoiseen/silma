@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 
+#include "AutoHidePanel.h"
 #include "ColorScheme.h"
 #include "CropTool.h"
 #include "Heal.h"
@@ -40,6 +41,7 @@
 #include <QSplitter>
 #include <QStandardPaths>
 #include <QStatusBar>
+#include <QTabWidget>
 #include <QThreadPool>
 #include <QToolBar>
 #include <QtConcurrent>
@@ -147,6 +149,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
     m_pollTimer.start();
 
     restoreWindowState();
+    for (auto it = m_autoHideActions.begin(); it != m_autoHideActions.end(); ++it)
+        it.value()->setChecked(QSettings().value(QStringLiteral("ui/autoHide/%1").arg(it.key()), false).toBool());
 }
 
 MainWindow::~MainWindow() = default;
@@ -228,6 +232,17 @@ void MainWindow::createDocks()
         if (cur.isValid() && !m_restoring)
             selectPhoto(cur.data(PhotoListModel::IdRole).toLongLong());
     });
+
+    // Overlays used when a panel is set to auto hide & show.
+    m_autoLeft = new AutoHidePanel(Qt::LeftEdge, this);
+    m_autoRight = new AutoHidePanel(Qt::RightEdge, this);
+    m_autoBottom = new AutoHidePanel(Qt::BottomEdge, this);
+    connect(m_autoLeft, &AutoHidePanel::revealed, this, [this] {
+        if (m_photo && m_metaView->isVisible())
+            m_metaView->showFile(m_photo->path);
+    });
+    for (QDockWidget* d : {m_leftDock, m_rightDock, m_bottomDock, m_metaDock})
+        d->installEventFilter(this);
 }
 
 void MainWindow::createActions()
@@ -308,6 +323,18 @@ void MainWindow::createActions()
             m_metaDock->raise();
     });
     view->addSeparator();
+    auto addAutoHide = [&](Qt::Edge edge, const QString& text, const QKeySequence& key) {
+        QAction* a = view->addAction(text);
+        a->setCheckable(true);
+        a->setShortcut(key);
+        a->setToolTip(tr("Hide the panel and show it while the mouse is at the window edge"));
+        connect(a, &QAction::toggled, this, [this, edge](bool on) { setAutoHide(edge, on); });
+        m_autoHideActions.insert(int(edge), a);
+    };
+    addAutoHide(Qt::LeftEdge, tr("Auto-Hide Le&ft Panel"), QKeySequence(Qt::SHIFT | Qt::Key_F7));
+    addAutoHide(Qt::RightEdge, tr("Auto-Hide Ri&ght Panel"), QKeySequence(Qt::SHIFT | Qt::Key_F8));
+    addAutoHide(Qt::BottomEdge, tr("Auto-Hide F&ilmstrip"), QKeySequence(Qt::SHIFT | Qt::Key_F6));
+    view->addSeparator();
     view->addMenu(createColorSchemeMenu(view));
 
     auto* help = menuBar()->addMenu(tr("&Help"));
@@ -324,6 +351,7 @@ void MainWindow::createActions()
                                     "<tr><td><b>Ctrl+Z / Ctrl+Shift+Z</b></td><td>Undo / redo</td></tr>"
                                     "<tr><td><b>Ctrl+Shift+C / V</b></td><td>Copy / paste settings (to all selected)</td></tr>"
                                     "<tr><td><b>Tab, F6, F7, F8</b></td><td>Hide panels</td></tr>"
+                                    "<tr><td><b>Shift+F6, F7, F8</b></td><td>Auto hide &amp; show panels</td></tr>"
                                     "</table>"));
     });
     help->addAction(tr("&About Silmä"), this, [this] {
@@ -549,7 +577,7 @@ void MainWindow::showCurrentPhoto()
         return;
     }
     const PhotoInfo& p = *m_photo;
-    if (m_metaDock->isVisible())
+    if (m_metaView->isVisible())
         m_metaView->showFile(p.path);
     m_panel->setEnabled(true);
     m_panel->setSettings(m_settings);
@@ -1364,9 +1392,143 @@ void MainWindow::updatePanes()
 
 void MainWindow::toggleSidePanels()
 {
-    bool visible = m_leftDock->isVisible() || m_rightDock->isVisible();
-    m_leftDock->setVisible(!visible);
-    m_rightDock->setVisible(!visible);
+    // Auto-hidden panels are left alone.
+    QList<QDockWidget*> docks;
+    if (!isAutoHide(Qt::LeftEdge))
+        docks << m_leftDock;
+    if (!isAutoHide(Qt::RightEdge))
+        docks << m_rightDock;
+    bool visible = std::any_of(docks.begin(), docks.end(), [](QDockWidget* d) { return d->isVisible(); });
+    for (QDockWidget* d : docks)
+        d->setVisible(!visible);
+}
+
+// ---- auto hide & show panels ----------------------------------------------------
+
+namespace {
+QString edgeKey(Qt::Edge e) { return QString::number(int(e)); }
+} // namespace
+
+QDockWidget* MainWindow::dockFor(Qt::Edge edge) const
+{
+    return edge == Qt::LeftEdge ? m_leftDock : edge == Qt::RightEdge ? m_rightDock : m_bottomDock;
+}
+
+AutoHidePanel* MainWindow::autoHidePanel(Qt::Edge edge) const
+{
+    return edge == Qt::LeftEdge ? m_autoLeft : edge == Qt::RightEdge ? m_autoRight : m_autoBottom;
+}
+
+bool MainWindow::isAutoHide(Qt::Edge edge) const { return autoHidePanel(edge)->isActive(); }
+
+void MainWindow::setAutoHide(Qt::Edge edge, bool on)
+{
+    AutoHidePanel* panel = autoHidePanel(edge);
+    if (on == panel->isActive())
+        return;
+    QDockWidget* dock = dockFor(edge);
+    const bool vertical = edge == Qt::BottomEdge;
+    QSettings settings;
+    const QString extentKey = QStringLiteral("ui/autoHide/%1Extent").arg(edgeKey(edge));
+    settings.setValue(QStringLiteral("ui/autoHide/%1").arg(edgeKey(edge)), on);
+    if (on) {
+        int extent = settings.value(extentKey, edge == Qt::LeftEdge ? 230 : edge == Qt::RightEdge ? 330 : 130).toInt();
+        if (dock->isVisible() && isVisible())
+            extent = vertical ? dock->height() : dock->width();
+        else if (edge == Qt::LeftEdge && m_metaDock->isVisible() && isVisible())
+            extent = m_metaDock->width();
+        settings.setValue(extentKey, extent);
+        QWidget* content;
+        if (edge == Qt::LeftEdge) {
+            // The metadata view shares the left side: show both as tabs.
+            m_leftTabs = new QTabWidget();
+            m_leftTabs->setDocumentMode(true);
+            const bool metaShown = m_metaDock->isVisible() && !m_metaDock->visibleRegion().isEmpty();
+            m_leftTabs->addTab(m_leftDock->widget(), tr("Imports && History"));
+            m_leftTabs->addTab(m_metaDock->widget(), tr("Metadata"));
+            m_leftTabs->setCurrentIndex(metaShown ? 1 : 0);
+            connect(m_leftTabs, &QTabWidget::currentChanged, this, [this] {
+                if (m_photo && m_metaView->isVisible())
+                    m_metaView->showFile(m_photo->path);
+            });
+            m_metaDock->hide();
+            m_metaDock->toggleViewAction()->setEnabled(false);
+            content = m_leftTabs;
+        } else {
+            content = dock->widget();
+        }
+        dock->hide();
+        dock->toggleViewAction()->setEnabled(false);
+        panel->setExtent(extent);
+        panel->setContent(content);
+        panel->setActive(true);
+    } else {
+        panel->setActive(false);
+        QWidget* content = panel->takeContent();
+        if (edge == Qt::LeftEdge) {
+            QWidget* left = m_leftTabs->widget(0);
+            QWidget* meta = m_leftTabs->widget(1);
+            const bool metaShown = m_leftTabs->currentIndex() == 1;
+            m_leftDock->setWidget(left);
+            m_metaDock->setWidget(meta);
+            delete m_leftTabs;
+            m_leftTabs = nullptr;
+            m_metaDock->toggleViewAction()->setEnabled(true);
+            if (metaShown) {
+                m_metaDock->show();
+                m_metaDock->raise();
+            }
+        } else {
+            dock->setWidget(content);
+        }
+        dock->toggleViewAction()->setEnabled(true);
+        dock->show();
+        resizeDocks({dock}, {panel->extent()}, vertical ? Qt::Vertical : Qt::Horizontal);
+    }
+    layoutAutoHidePanels();
+    // Last: the action calls back into this function.
+    if (QAction* a = m_autoHideActions.value(int(edge)); a && a->isChecked() != on)
+        a->setChecked(on);
+}
+
+void MainWindow::layoutAutoHidePanels()
+{
+    if (!m_autoLeft)
+        return;
+    int top = menuBar()->isVisible() ? menuBar()->geometry().bottom() + 1 : 0;
+    int bottom = statusBar()->isVisible() ? statusBar()->geometry().top() : height();
+    QRect area(0, top, width(), bottom - top);
+    m_autoLeft->setArea(area);
+    m_autoRight->setArea(area);
+    // The filmstrip overlay spans between pinned side panels.
+    int l = area.left(), r = area.right();
+    for (QDockWidget* d : {m_leftDock, m_metaDock})
+        if (d->isVisible() && !d->isFloating() && dockWidgetArea(d) == Qt::LeftDockWidgetArea)
+            l = std::max(l, d->geometry().right() + 1);
+    if (m_rightDock->isVisible() && !m_rightDock->isFloating() && dockWidgetArea(m_rightDock) == Qt::RightDockWidgetArea)
+        r = std::min(r, m_rightDock->geometry().left() - 1);
+    m_autoBottom->setArea(QRect(QPoint(l, area.top()), QPoint(r, area.bottom())));
+}
+
+void MainWindow::resizeEvent(QResizeEvent* e)
+{
+    QMainWindow::resizeEvent(e);
+    layoutAutoHidePanels();
+}
+
+bool MainWindow::eventFilter(QObject* o, QEvent* e)
+{
+    switch (e->type()) {
+    case QEvent::Resize:
+    case QEvent::Move:
+    case QEvent::Show:
+    case QEvent::Hide:
+        if (qobject_cast<QDockWidget*>(o))
+            QTimer::singleShot(0, this, &MainWindow::layoutAutoHidePanels);
+        break;
+    default: break;
+    }
+    return QMainWindow::eventFilter(o, e);
 }
 
 // ---- external changes / session ---------------------------------------------------

@@ -18,9 +18,11 @@ class QDockWidget;
 class QLabel;
 class QListWidget;
 class QSplitter;
+class QTabWidget;
 
 namespace silma {
 
+class AutoHidePanel;
 class CropTool;
 class HealTool;
 class MetadataView;
@@ -55,14 +57,24 @@ public:
     void testHealAt(QPointF p, double r) { healAt(p, r); }
     int pendingHealJobs() const { return m_healJobs; }
 
+    // Auto hide & show for the left panel, right panel and filmstrip (Qt::LeftEdge,
+    // Qt::RightEdge, Qt::BottomEdge).
+    void setAutoHide(Qt::Edge edge, bool on);
+    bool isAutoHide(Qt::Edge edge) const;
+    AutoHidePanel* autoHidePanel(Qt::Edge edge) const;
+
 protected:
     void closeEvent(QCloseEvent* e) override;
+    void resizeEvent(QResizeEvent* e) override;
+    bool eventFilter(QObject* o, QEvent* e) override;
 
 private:
     // setup
     void createActions();
     void createDocks();
     void restoreWindowState();
+    QDockWidget* dockFor(Qt::Edge edge) const;
+    void layoutAutoHidePanels();
 
     // batch / navigation
     void newBatch();
@@ -133,6 +145,11 @@ private:
     QDockWidget* m_rightDock;
     QDockWidget* m_bottomDock;
     QDockWidget* m_metaDock;
+    AutoHidePanel* m_autoLeft = nullptr;
+    AutoHidePanel* m_autoRight = nullptr;
+    AutoHidePanel* m_autoBottom = nullptr;
+    QTabWidget* m_leftTabs = nullptr; // left panel content while auto-hidden
+    QHash<int, QAction*> m_autoHideActions;
     MetadataView* m_metaView;
     QHash<qint64, int> m_knownHistory; // photo id -> history position, to spot external edits
     QLabel* m_status;
