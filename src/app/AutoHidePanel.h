@@ -6,13 +6,38 @@
 #include <QPropertyAnimation>
 #include <QTimer>
 
+class QDockWidget;
+class QLabel;
+class QToolButton;
+
 namespace silma {
+
+// Pin button: `pinned` shows the "pinned" state (clicking switches to auto hide),
+// otherwise the "auto hide" state (clicking pins the panel).
+QToolButton* makePinButton(bool pinned, QWidget* parent);
+
+// Dock title bar with a pin button (plus the usual float and close buttons).
+class DockTitleBar : public QWidget {
+    Q_OBJECT
+public:
+    explicit DockTitleBar(QDockWidget* dock);
+
+signals:
+    void autoHideRequested();
+
+private:
+    QLabel* m_title;
+};
 
 class AutoHidePanel : public QFrame {
     Q_OBJECT
 public:
     // `edge` is Qt::LeftEdge, Qt::RightEdge or Qt::BottomEdge; the panel is a child of `window`.
     AutoHidePanel(Qt::Edge edge, QWidget* window);
+
+    // Title shown in a header with a pin button; empty hides the header (the content
+    // then provides its own pin button).
+    void setTitle(const QString& title);
 
     void setContent(QWidget* w);
     QWidget* takeContent();
@@ -34,6 +59,7 @@ public:
 
 signals:
     void revealed();
+    void pinRequested();
 
 private:
     QRect shownGeometry() const;
@@ -42,6 +68,8 @@ private:
 
     Qt::Edge m_edge;
     QWidget* m_content = nullptr;
+    QWidget* m_header;
+    QLabel* m_headerTitle;
     QWidget* m_trigger; // thin strip at the window edge
     QRect m_area;
     int m_extent = 300;

@@ -44,6 +44,7 @@
 #include <QTabWidget>
 #include <QThreadPool>
 #include <QToolBar>
+#include <QToolButton>
 #include <QtConcurrent>
 
 namespace silma {
@@ -237,6 +238,15 @@ void MainWindow::createDocks()
     m_autoLeft = new AutoHidePanel(Qt::LeftEdge, this);
     m_autoRight = new AutoHidePanel(Qt::RightEdge, this);
     m_autoBottom = new AutoHidePanel(Qt::BottomEdge, this);
+    m_autoRight->setTitle(tr("Develop"));
+    m_autoBottom->setTitle(tr("Filmstrip"));
+    for (auto edge : {Qt::LeftEdge, Qt::RightEdge, Qt::BottomEdge})
+        connect(autoHidePanel(edge), &AutoHidePanel::pinRequested, this, [this, edge] { setAutoHide(edge, false); });
+    for (auto [dock, edge] : {std::pair{m_leftDock, Qt::LeftEdge}, {m_metaDock, Qt::LeftEdge}, {m_rightDock, Qt::RightEdge}, {m_bottomDock, Qt::BottomEdge}}) {
+        auto* bar = new DockTitleBar(dock);
+        dock->setTitleBarWidget(bar);
+        connect(bar, &DockTitleBar::autoHideRequested, this, [this, edge] { setAutoHide(edge, true); });
+    }
     connect(m_autoLeft, &AutoHidePanel::revealed, this, [this] {
         if (m_photo && m_metaView->isVisible())
             m_metaView->showFile(m_photo->path);
@@ -1447,6 +1457,10 @@ void MainWindow::setAutoHide(Qt::Edge edge, bool on)
             m_leftTabs->addTab(m_leftDock->widget(), tr("Imports && History"));
             m_leftTabs->addTab(m_metaDock->widget(), tr("Metadata"));
             m_leftTabs->setCurrentIndex(metaShown ? 1 : 0);
+            QToolButton* pin = makePinButton(false, m_leftTabs);
+            // Queued: pinning deletes the tab widget and with it this button.
+            connect(pin, &QToolButton::clicked, this, [this] { setAutoHide(Qt::LeftEdge, false); }, Qt::QueuedConnection);
+            m_leftTabs->setCornerWidget(pin);
             connect(m_leftTabs, &QTabWidget::currentChanged, this, [this] {
                 if (m_photo && m_metaView->isVisible())
                     m_metaView->showFile(m_photo->path);

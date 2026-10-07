@@ -11,6 +11,8 @@
 #include <QApplication>
 #include <QDir>
 #include <QDockWidget>
+#include <QTabWidget>
+#include <QToolButton>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -79,7 +81,15 @@ private slots:
         auto* panel = w.developPanel();
         QVERIFY(qobject_cast<QDockWidget*>(panel->parentWidget()));
 
-        w.setAutoHide(Qt::RightEdge, true);
+        // Pin buttons in the dock title bars switch to auto hide.
+        auto pinOf = [](QDockWidget* d) {
+            auto* bar = qobject_cast<DockTitleBar*>(d->titleBarWidget());
+            return bar ? bar->findChild<QToolButton*>() : nullptr;
+        };
+        auto* rightDock = qobject_cast<QDockWidget*>(panel->parentWidget());
+        QVERIFY(pinOf(rightDock));
+        pinOf(rightDock)->click();
+        QVERIFY(w.isAutoHide(Qt::RightEdge));
         w.setAutoHide(Qt::LeftEdge, true);
         AutoHidePanel* right = w.autoHidePanel(Qt::RightEdge);
         QCOMPARE(panel->parentWidget(), right);
@@ -102,9 +112,15 @@ private slots:
         QTRY_VERIFY(!right->isRevealed());
         QTRY_VERIFY(!right->isVisible());
 
-        // Pinning again puts the content back into the dock.
-        w.setAutoHide(Qt::RightEdge, false);
-        w.setAutoHide(Qt::LeftEdge, false);
+        // Pinning again (with the overlays' pin buttons) puts the content back into the dock.
+        QToolButton* rightPin = right->findChild<QToolButton*>();
+        QVERIFY(rightPin);
+        rightPin->click();
+        QToolButton* leftPin = qobject_cast<QToolButton*>(w.findChild<QTabWidget*>()->cornerWidget());
+        QVERIFY(leftPin);
+        leftPin->click();
+        QTRY_VERIFY(!w.isAutoHide(Qt::LeftEdge));
+        QVERIFY(!w.isAutoHide(Qt::RightEdge));
         QVERIFY(qobject_cast<QDockWidget*>(panel->parentWidget()));
         QTRY_VERIFY(panel->isVisible());
         QTRY_VERIFY(w.mainPane()->width() < 1100);

@@ -2,7 +2,12 @@
 
 #include <QApplication>
 #include <QCursor>
+#include <QDockWidget>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QPainter>
+#include <QStyle>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 namespace silma {
@@ -14,6 +19,77 @@ constexpr int kPollMs = 120;
 constexpr int kConcealTicks = 3;    // ~0.35 s outside before hiding
 constexpr int kSlack = 12;          // px around the panel that still counts as inside
 } // namespace
+
+namespace {
+
+// Drawn pin for icon themes without window-pin / window-unpin.
+QIcon fallbackPinIcon(bool pinned, const QPalette& pal)
+{
+    QPixmap pm(32, 32);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.translate(16, 16);
+    p.rotate(pinned ? 0 : 45);
+    p.setPen(QPen(pal.color(QPalette::WindowText), 2.5, Qt::SolidLine, Qt::RoundCap));
+    p.setBrush(pal.color(QPalette::WindowText));
+    p.drawRoundedRect(QRectF(-6, -12, 12, 4), 1, 1); // head
+    p.drawLine(QPointF(-3, -8), QPointF(-3, 2));
+    p.drawLine(QPointF(3, -8), QPointF(3, 2));
+    p.drawLine(QPointF(-9, 2), QPointF(9, 2)); // collar
+    p.drawLine(QPointF(0, 2), QPointF(0, 13)); // needle
+    return QIcon(pm);
+}
+
+QToolButton* titleButton(QWidget* parent)
+{
+    auto* b = new QToolButton(parent);
+    b->setAutoRaise(true);
+    b->setFocusPolicy(Qt::NoFocus);
+    int s = parent->style()->pixelMetric(QStyle::PM_SmallIconSize);
+    b->setIconSize(QSize(s, s));
+    return b;
+}
+
+} // namespace
+
+QToolButton* makePinButton(bool pinned, QWidget* parent)
+{
+    auto* b = titleButton(parent);
+    const char* name = pinned ? "window-pin" : "window-unpin";
+    b->setIcon(QIcon::hasThemeIcon(QLatin1String(name)) ? QIcon::fromTheme(QLatin1String(name)) : fallbackPinIcon(pinned, parent->palette()));
+    b->setToolTip(pinned ? QObject::tr("Auto hide: show this panel only while the mouse is at the window edge")
+                         : QObject::tr("Pin this panel (keep it visible)"));
+    return b;
+}
+
+DockTitleBar::DockTitleBar(QDockWidget* dock) : QWidget(dock)
+{
+    auto* l = new QHBoxLayout(this);
+    l->setContentsMargins(6, 1, 2, 1);
+    l->setSpacing(0);
+    m_title = new QLabel(this);
+    l->addWidget(m_title, 1);
+    auto updateTitle = [this, dock] { m_title->setText(dock->windowTitle().replace(QLatin1String("&&"), QLatin1String("&"))); };
+    updateTitle();
+    connect(dock, &QDockWidget::windowTitleChanged, this, updateTitle);
+
+    QToolButton* pin = makePinButton(true, this);
+    connect(pin, &QToolButton::clicked, this, &DockTitleBar::autoHideRequested);
+    l->addWidget(pin);
+    QToolButton* fl = titleButton(this);
+    fl->setIcon(style()->standardIcon(QStyle::SP_TitleBarNormalButton, nullptr, this));
+    fl->setToolTip(tr("Detach / attach"));
+    connect(fl, &QToolButton::clicked, dock, [dock] { dock->setFloating(!dock->isFloating()); });
+    l->addWidget(fl);
+    QToolButton* close = titleButton(this);
+    close->setIcon(style()->standardIcon(QStyle::SP_TitleBarCloseButton, nullptr, this));
+    close->setToolTip(tr("Close"));
+    connect(close, &QToolButton::clicked, dock, &QDockWidget::close);
+    l->addWidget(close);
+    // Pinning makes no sense for a detached panel.
+    connect(dock, &QDockWidget::topLevelChanged, pin, [pin](bool floating) { pin->setVisible(!floating); });
+}
 
 // Thin strip along the window edge with a small arrow; hovering it reveals the panel.
 class EdgeTrigger : public QWidget {
@@ -61,6 +137,17 @@ AutoHidePanel::AutoHidePanel(Qt::Edge edge, QWidget* window) : QFrame(window), m
     setBackgroundRole(QPalette::Window);
     auto* l = new QVBoxLayout(this);
     l->setContentsMargins(1, 1, 1, 1);
+    l->setSpacing(0);
+    m_header = new QWidget(this);
+    auto* hl = new QHBoxLayout(m_header);
+    hl->setContentsMargins(6, 1, 2, 1);
+    m_headerTitle = new QLabel(m_header);
+    hl->addWidget(m_headerTitle, 1);
+    QToolButton* pin = makePinButton(false, m_header);
+    connect(pin, &QToolButton::clicked, this, &AutoHidePanel::pinRequested);
+    hl->addWidget(pin);
+    l->addWidget(m_header);
+    m_header->hide();
     m_trigger = new EdgeTrigger(this, edge, window);
     m_trigger->hide();
     hide();
@@ -82,6 +169,12 @@ AutoHidePanel::AutoHidePanel(Qt::Edge edge, QWidget* window) : QFrame(window), m
         if (!m_revealed)
             hide();
     });
+}
+
+void AutoHidePanel::setTitle(const QString& title)
+{
+    m_headerTitle->setText(title);
+    m_header->setVisible(!title.isEmpty());
 }
 
 void AutoHidePanel::setContent(QWidget* w)
