@@ -173,8 +173,6 @@ void DevelopPanel::addSliders(CollapsibleSection* sec, const char* group)
     for (const auto& def : paramDefs()) {
         if (QLatin1String(def.group) != QLatin1String(group))
             continue;
-        if (QByteArray(def.key).startsWith("nr_"))
-            continue; // noise reduction arrives with the detail tools
         auto* sl = new ParamSlider(def, sec);
         sec->contentLayout()->addWidget(sl);
         m_sliders.insert(QString::fromUtf8(def.key), sl);

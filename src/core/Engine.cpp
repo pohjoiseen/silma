@@ -1,5 +1,6 @@
 #include "Engine.h"
 
+#include "Denoise.h"
 #include "Filters.h"
 #include "Metadata.h"
 
@@ -563,6 +564,7 @@ ImageF DevelopEngine::renderEncoded(const DevelopSettings& s, const RenderReques
     if (wbOut)
         *wbOut = wb;
     colorStage(img, s, wb);
+    denoise(img, s, 1.0 / pxPer);
     LocalTone lt;
     if (s.highlights != 0 || s.shadows != 0 || s.clarity != 0)
         lt = computeLocalTone(contextImage(s, wb, req.ignoreCrop), s);
