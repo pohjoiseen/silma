@@ -1,6 +1,7 @@
 #include "Export.h"
 
 #include "Engine.h"
+#include "Heal.h"
 
 #include <QDir>
 #include <QFile>
@@ -143,9 +144,11 @@ void writeJpeg(const QString& path, const ImageF& encoded, int quality, const QS
         copyMetadata(metadataSource, path, encoded.width, encoded.height, lens);
 }
 
-QString exportPhoto(const PhotoInfo& p, const DevelopSettings& s, const QString& importName, int seq, const ExportOptions& o)
+QString exportPhoto(const PhotoInfo& p, const DevelopSettings& s, const QString& importName, int seq, const ExportOptions& o,
+                    const QMap<qint64, HealPatch>& patches)
 {
     DevelopEngine engine(p.path);
+    addHealPatches(engine, patches);
     QSize full = engine.outputSize(s);
     int w = full.width(), h = full.height();
     if (o.sizeMode != ExportSizeMode::Original && o.size > 0) {

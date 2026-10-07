@@ -2,8 +2,10 @@
 
 #include "Batch.h"
 #include "Develop.h"
+#include "Heal.h"
 #include "Image.h"
 
+#include <QMap>
 #include <QString>
 #include <functional>
 
@@ -28,6 +30,7 @@ QString expandExportPattern(const QString& pattern, const PhotoInfo& p, const QS
 void writeJpeg(const QString& path, const ImageF& encoded, int quality, const QString& metadataSource, const QString& lens = {});
 
 // Renders and writes one photo; returns the written path.
-QString exportPhoto(const PhotoInfo& p, const DevelopSettings& s, const QString& importName, int seq, const ExportOptions& o);
+QString exportPhoto(const PhotoInfo& p, const DevelopSettings& s, const QString& importName, int seq, const ExportOptions& o,
+                    const QMap<qint64, HealPatch>& patches = {});
 
 } // namespace silma

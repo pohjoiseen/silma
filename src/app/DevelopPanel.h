@@ -10,6 +10,7 @@ class QComboBox;
 class QLabel;
 class QPushButton;
 class QCheckBox;
+class QSlider;
 class QVBoxLayout;
 
 namespace silma {
@@ -31,6 +32,8 @@ public:
     void setHistogram(const Histogram& h);
     void setPhotoInfo(const QString& text);
     void setCropToolActive(bool on);
+    void setHealToolActive(bool on);
+    double healSize() const;
     // Adds a widget into a named section (used by tools added later).
     CollapsibleSection* section(const QString& id) const { return m_sections.value(id); }
 
@@ -41,6 +44,9 @@ signals:
     void autoCropRequested();
     void cropToolToggled(bool on);
     void aiDenoiseRequested();
+    void healToolToggled(bool on);
+    void healSizeChanged(double radius);
+    void healClearRequested();
     void sliderActive(const QString& key, bool active); // for transform guide lines
 
 private:
@@ -59,6 +65,9 @@ private:
     QLabel* m_lensInfo;
     QPushButton* m_cropTool;
     QCheckBox* m_cropLock;
+    QPushButton* m_healTool;
+    QSlider* m_healSize;
+    QLabel* m_healInfo;
     bool m_updating = false;
 };
 

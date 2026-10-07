@@ -110,6 +110,31 @@ bool Geometry::mapCrop(double u, double v, float* srcXY, float* gain) const
     return mapCanvas(m_crop.x() + u * m_crop.width(), m_crop.y() + v * m_crop.height(), srcXY, gain);
 }
 
+QPointF Geometry::sensorToCrop(QPointF target) const
+{
+    auto f = [&](QPointF p) {
+        float s[6], g[3];
+        mapCrop(p.x(), p.y(), s, g);
+        return QPointF(s[2], s[3]);
+    };
+    // Initial guess by orientation only, then Newton iterations with numeric Jacobian.
+    QPointF p(0.5, 0.5);
+    for (int it = 0; it < 12; ++it) {
+        QPointF v = f(p) - target;
+        if (std::hypot(v.x(), v.y()) < 1e-7)
+            break;
+        const double h = 1e-4;
+        QPointF dx = (f(p + QPointF(h, 0)) - f(p)) / h, dy = (f(p + QPointF(0, h)) - f(p)) / h;
+        double det = dx.x() * dy.y() - dy.x() * dx.y();
+        if (std::abs(det) < 1e-12)
+            break;
+        // Solve J * d = v
+        double ddx = (v.x() * dy.y() - dy.x() * v.y()) / det, ddy = (dx.x() * v.y() - v.x() * dx.y()) / det;
+        p -= QPointF(ddx, ddy);
+    }
+    return p;
+}
+
 bool Geometry::canvasValid(QPointF c) const
 {
     float s[6], g[3];

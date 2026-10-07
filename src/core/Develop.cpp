@@ -122,6 +122,12 @@ QJsonObject DevelopSettings::toJson() const
         o["crop"] = QJsonArray{crop.x(), crop.y(), crop.width(), crop.height()};
     if (cropLockAspect != def.cropLockAspect)
         o["crop_lock_aspect"] = cropLockAspect;
+    if (!heals.isEmpty()) {
+        QJsonArray a;
+        for (const auto& h : heals)
+            a.append(QJsonArray{h.x, h.y, h.radius, h.patchId});
+        o["heal"] = a;
+    }
     return o;
 }
 
@@ -144,6 +150,11 @@ DevelopSettings DevelopSettings::fromJson(const QJsonObject& o)
     if (s.crop.width() < 0.01 || s.crop.height() < 0.01)
         s.crop = QRectF(0, 0, 1, 1);
     s.cropLockAspect = o.value("crop_lock_aspect").toBool(true);
+    for (const auto& v : o.value("heal").toArray()) {
+        auto a = v.toArray();
+        if (a.size() == 4)
+            s.heals.append({a[0].toDouble(), a[1].toDouble(), a[2].toDouble(), qint64(a[3].toDouble())});
+    }
     return s;
 }
 

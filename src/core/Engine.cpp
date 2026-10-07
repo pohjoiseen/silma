@@ -2,6 +2,7 @@
 
 #include "Denoise.h"
 #include "Filters.h"
+#include "Heal.h"
 #include "Metadata.h"
 
 #include <QFileInfo>
@@ -138,19 +139,60 @@ DevelopEngine::DevelopEngine(const QString& path, const EngineLoadOptions& opts)
     m_pyramid.resize(8);
 }
 
-const ImageF& DevelopEngine::level(int lvl) const
+std::shared_ptr<const ImageF> DevelopEngine::level(int lvl) const
 {
     std::lock_guard lock(m_mutex);
     int idx = std::max(0, lvl - m_levelOffset);
-    if (idx == 0)
-        return m_raw->image;
+    if (!m_pyramid[0])
+        m_pyramid[0] = std::shared_ptr<ImageF>(m_raw, &m_raw->image); // aliases the decoded image
     if (!m_pyramid[idx]) {
         // Build missing levels from the previous one (box 2x).
         for (int i = 1; i <= idx; ++i)
             if (!m_pyramid[i])
-                m_pyramid[i] = std::make_shared<ImageF>(downscale(i == 1 ? m_raw->image : *m_pyramid[i - 1], 2));
+                m_pyramid[i] = std::make_shared<ImageF>(downscale(*m_pyramid[i - 1], 2));
     }
-    return *m_pyramid[idx];
+    return m_pyramid[idx];
+}
+
+void DevelopEngine::addHealPatch(qint64 id, const HealPatch& patch)
+{
+    std::lock_guard lock(m_mutex);
+    m_patches[id] = std::make_shared<HealPatch>(patch);
+}
+
+bool DevelopEngine::hasHealPatch(qint64 id) const
+{
+    std::lock_guard lock(m_mutex);
+    return m_patches.count(id) > 0;
+}
+
+void DevelopEngine::applyHeals(const DevelopSettings& s) const
+{
+    QString key;
+    for (const auto& h : s.heals)
+        key += QStringLiteral("%1,%2,%3,%4;").arg(h.x).arg(h.y).arg(h.radius).arg(h.patchId);
+    std::lock_guard lock(m_mutex);
+    if (key == m_healKey)
+        return;
+    m_healKey = key;
+    std::shared_ptr<ImageF> base;
+    if (key.isEmpty()) {
+        base = std::shared_ptr<ImageF>(m_raw, &m_raw->image);
+    } else {
+        base = std::make_shared<ImageF>(m_raw->image);
+        double scale = m_raw->halfSize ? double(m_raw->image.width) / m_raw->fullWidth : 1.0;
+        for (const auto& h : s.heals) {
+            auto it = m_patches.find(h.patchId);
+            if (it != m_patches.end())
+                pasteHealPatch(*base, scale, m_raw->fullWidth, m_raw->fullHeight, h, *it->second);
+        }
+    }
+    // Readers holding the old levels keep them alive through their shared pointers.
+    for (auto& l : m_pyramid)
+        l.reset();
+    m_pyramid[0] = base;
+    m_ctxCache = {};
+    m_mainCache = {};
 }
 
 int DevelopEngine::levelFor(double srcPxPerOutPx) const
@@ -186,7 +228,8 @@ WbValues DevelopEngine::autoWb() const
     // Grey-world on near-neutral, well-exposed pixels in log-chroma space, iteratively
     // narrowing the neutral window around the current estimate.
     int lvl = levelFor(std::max(m_raw->fullWidth, m_raw->fullHeight) / 512.0);
-    const ImageF& img = level(lvl);
+    auto imgPtr = level(lvl);
+    const ImageF& img = *imgPtr;
     const Vec3 applied = m_raw->color.appliedMul;
     std::vector<std::array<float, 3>> samples;
     samples.reserve(img.pixelCount());
@@ -259,7 +302,7 @@ ImageF DevelopEngine::warpCached(const Geometry& g, const DevelopSettings& s, in
         if (m_mainCache.key == key && m_mainCache.img)
             return *m_mainCache.img;
     }
-    auto img = std::make_shared<ImageF>(warp(level(lvl), g, w, h, o));
+    auto img = std::make_shared<ImageF>(warp(*level(lvl), g, w, h, o));
     // Only cache preview-sized images; export renders are one-off.
     if (size_t(w) * h <= 12'000'000) {
         std::lock_guard lock(m_mutex);
@@ -313,7 +356,7 @@ ImageF DevelopEngine::contextImage(const DevelopSettings& s, const WbValues& wb,
     }
     if (!cam) {
         int lvl = levelFor(1.0 / k);
-        cam = std::make_shared<ImageF>(warp(level(lvl), g, w, h, {}));
+        cam = std::make_shared<ImageF>(warp(*level(lvl), g, w, h, {}));
         std::lock_guard lock(m_mutex);
         m_ctxCache = {key, cam};
     }
@@ -542,6 +585,7 @@ void sharpenStage(ImageF& img, const DevelopSettings& s, double outScale)
 
 ImageF DevelopEngine::renderEncoded(const DevelopSettings& s, const RenderRequest& req, WbValues* wbOut) const
 {
+    applyHeals(s);
     Geometry g = geometry(s, req.ignoreCrop);
     QSizeF cs = g.cropSize();
     int w = req.width, h = req.height;
@@ -557,7 +601,7 @@ ImageF DevelopEngine::renderEncoded(const DevelopSettings& s, const RenderReques
     wo.bicubic = req.highQuality;
     ImageF img;
     if (req.ignoreCrop)
-        img = warp(level(lvl), g, w, h, wo);
+        img = warp(*level(lvl), g, w, h, wo);
     else
         img = warpCached(g, s, lvl, w, h, wo);
 
@@ -582,7 +626,8 @@ ImageF DevelopEngine::warpedCamera(const DevelopSettings& s, int w, int h, bool 
     double pxPer = g.cropSize().width() / w;
     WarpOptions wo;
     wo.bicubic = hq;
-    return warp(level(levelFor(pxPer)), g, w, h, wo);
+    applyHeals(s);
+    return warp(*level(levelFor(pxPer)), g, w, h, wo);
 }
 
 RenderResult DevelopEngine::render(const DevelopSettings& s, const RenderRequest& req) const
@@ -617,6 +662,7 @@ QImage toQImage(const ImageF& enc, Histogram* hist)
 DevelopSettings DevelopEngine::autoTone(const DevelopSettings& in) const
 {
     DevelopSettings s = in;
+    applyHeals(s);
     s.exposure = s.contrast = s.highlights = s.shadows = s.whites = s.blacks = 0;
     WbValues wb = effectiveWb(s);
     ImageF ctx = contextImage(s, wb, false);

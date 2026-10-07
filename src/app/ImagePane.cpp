@@ -395,8 +395,10 @@ void ImagePane::mouseMoveEvent(QMouseEvent* e)
         update();
         return;
     }
-    if (m_tool && !m_pressed)
+    if (m_tool && !m_pressed) {
         setCursor(m_tool->cursorAt(*this, widgetToImage(e->position())));
+        update();
+    }
     if (!m_pressed)
         return;
     if (!m_dragging && QLineF(e->position(), m_pressPos).length() > 4)

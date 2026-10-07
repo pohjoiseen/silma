@@ -5,6 +5,7 @@
 #include "EngineCache.h"
 #include "ImagePane.h"
 
+#include <QHash>
 #include <QMainWindow>
 #include <QPointer>
 #include <QTimer>
@@ -21,6 +22,8 @@ class QSplitter;
 namespace silma {
 
 class CropTool;
+class HealTool;
+class MetadataView;
 class DevelopPanel;
 class Filmstrip;
 class PhotoListModel;
@@ -49,6 +52,8 @@ public:
     void testAutoUpright(int mode) { autoUpright(mode); }
     void testCropTool(bool on) { setCropTool(on); }
     CropTool* cropTool() const { return m_cropToolObj; }
+    void testHealAt(QPointF p, double r) { healAt(p, r); }
+    int pendingHealJobs() const { return m_healJobs; }
 
 protected:
     void closeEvent(QCloseEvent* e) override;
@@ -104,6 +109,10 @@ private:
     void onEngineReady(const QString& path);
     void toggleSidePanels();
     void setCropTool(bool on);
+    void setHealTool(bool on);
+    void healAt(QPointF cropPoint, double radius);
+    void ensureHealPatches(DevelopEngine* e, const DevelopSettings& s);
+    void updateHealOverlay();
     QList<qint64> selectedPhotoIds() const;
 
     // external changes (CLI)
@@ -123,8 +132,14 @@ private:
     QDockWidget* m_leftDock;
     QDockWidget* m_rightDock;
     QDockWidget* m_bottomDock;
+    QDockWidget* m_metaDock;
+    MetadataView* m_metaView;
+    QHash<qint64, int> m_knownHistory; // photo id -> history position, to spot external edits
     QLabel* m_status;
     CropTool* m_cropToolObj;
+    HealTool* m_healToolObj;
+    bool m_healTool = false;
+    int m_healJobs = 0;
 
     std::optional<PhotoInfo> m_photo;
     std::optional<PhotoInfo> m_comparePhoto;

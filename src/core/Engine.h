@@ -22,9 +22,12 @@
 #include <QString>
 #include <array>
 #include <memory>
+#include <map>
 #include <mutex>
 
 namespace silma {
+
+struct HealPatch;
 
 struct WbValues {
     double temperature = 5500, tint = 0;
@@ -77,11 +80,16 @@ public:
     // white-balanced with the decode multipliers, no colour or tone processing.
     ImageF warpedCamera(const DevelopSettings& s, int width, int height, bool highQuality, bool ignoreCrop = true) const;
 
+    // Heal patches must be added before rendering settings that reference them.
+    void addHealPatch(qint64 id, const HealPatch& patch);
+    bool hasHealPatch(qint64 id) const;
+
     // Automatic tone: returns settings with exposure/contrast/highlights/shadows/whites/blacks set.
     DevelopSettings autoTone(const DevelopSettings& s) const;
 
 private:
-    const ImageF& level(int lvl) const;
+    std::shared_ptr<const ImageF> level(int lvl) const;
+    void applyHeals(const DevelopSettings& s) const;
     int levelFor(double srcPxPerOutPx) const;
     ImageF warpCached(const Geometry& g, const DevelopSettings& s, int lvl, int w, int h, const WarpOptions& o) const;
     void colorStage(ImageF& img, const DevelopSettings& s, const WbValues& wb) const;
@@ -96,6 +104,8 @@ private:
 
     mutable std::mutex m_mutex;
     mutable std::vector<std::shared_ptr<ImageF>> m_pyramid;
+    mutable std::map<qint64, std::shared_ptr<HealPatch>> m_patches;
+    mutable QString m_healKey;
     mutable std::optional<WbValues> m_autoWb;
     struct WarpCache {
         QString key;

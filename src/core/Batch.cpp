@@ -50,6 +50,17 @@ const char* const kMigrations[] = {
     );
     CREATE TABLE state (key TEXT PRIMARY KEY, value TEXT);
     )SQL",
+    // 1 -> 2: generated heal patches
+    R"SQL(
+    CREATE TABLE patches (
+        id INTEGER PRIMARY KEY,
+        photo_id INTEGER NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+        x INTEGER NOT NULL, y INTEGER NOT NULL, w INTEGER NOT NULL, h INTEGER NOT NULL,
+        data BLOB NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX patches_photo ON patches(photo_id);
+    )SQL",
 };
 
 constexpr int kMigrationCount = int(std::size(kMigrations));
@@ -388,6 +399,26 @@ QString Batch::setHistoryPos(qint64 photoId, int pos)
     auto up = m_db.prepare("UPDATE photos SET history_pos = ? WHERE id = ?");
     up.bind(1, pos).bind(2, photoId).exec();
     return s;
+}
+
+qint64 Batch::addPatch(qint64 photoId, const QRect& r, const QByteArray& data)
+{
+    auto st = m_db.prepare("INSERT INTO patches(photo_id, x, y, w, h, data, created_at) VALUES (?,?,?,?,?,?,?)");
+    st.bind(1, photoId).bind(2, r.x()).bind(3, r.y()).bind(4, r.width()).bind(5, r.height()).bind(6, data).bind(7, nowIso()).exec();
+    return m_db.lastInsertId();
+}
+
+bool Batch::patch(qint64 patchId, QRect* rect, QByteArray* data)
+{
+    auto st = m_db.prepare("SELECT x, y, w, h, data FROM patches WHERE id = ?");
+    st.bind(1, patchId);
+    if (!st.step())
+        return false;
+    if (rect)
+        *rect = QRect(st.i32(0), st.i32(1), st.i32(2), st.i32(3));
+    if (data)
+        *data = st.blob(4);
+    return true;
 }
 
 qint64 Batch::dataVersion()

@@ -49,6 +49,9 @@ public:
     // True when the canvas point maps to valid image data.
     bool canvasValid(QPointF c) const;
 
+    // Inverse of mapCrop's green channel: normalized sensor -> normalized crop (Newton).
+    QPointF sensorToCrop(QPointF sensor) const;
+
     double lensZoom() const { return m_lensZoom; }
     // Focal length in full-resolution pixels used for the perspective homography.
     double focalPx() const { return m_focalPx; }

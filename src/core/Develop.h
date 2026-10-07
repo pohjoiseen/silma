@@ -23,6 +23,14 @@ struct CurvePoints {
     bool operator==(const CurvePoints&) const = default;
 };
 
+// A healed spot: centre and radius in sensor coordinates (normalized; radius relative to
+// the sensor's long edge) with the generated fill stored in the batch.
+struct HealSpot {
+    double x = 0, y = 0, radius = 0.02;
+    qint64 patchId = 0;
+    bool operator==(const HealSpot&) const = default;
+};
+
 struct DevelopSettings {
     int processVersion = kProcessVersion;
 
@@ -60,6 +68,9 @@ struct DevelopSettings {
     // Crop, in normalized coordinates of the transformed canvas
     QRectF crop{0, 0, 1, 1};
     bool cropLockAspect = true;
+
+    // Heal
+    QList<HealSpot> heals;
 
     // Detail
     double sharpenAmount = 40; // 0..150

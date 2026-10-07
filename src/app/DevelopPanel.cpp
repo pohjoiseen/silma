@@ -8,6 +8,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSlider>
 #include <QSettings>
 #include <QVBoxLayout>
 
@@ -150,6 +151,39 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
         });
     }
 
+    // Heal
+    auto* heal = addSection(layout, "heal", tr("Heal"), false);
+    {
+        auto* row = new QHBoxLayout();
+        m_healTool = new QPushButton(tr("Heal Tool"), heal);
+        m_healTool->setCheckable(true);
+        m_healTool->setToolTip(tr("Click on the image to remove a spot with generative fill (Q). Alt+click removes a spot."));
+        row->addWidget(m_healTool);
+        auto* clear = new QPushButton(tr("Clear All"), heal);
+        row->addWidget(clear);
+        heal->contentLayout()->addLayout(row);
+        auto* sizeRow = new QHBoxLayout();
+        sizeRow->addWidget(new QLabel(tr("Size"), heal));
+        m_healSize = new QSlider(Qt::Horizontal, heal);
+        m_healSize->setRange(5, 200); // per-mille of the long edge
+        m_healSize->setValue(QSettings().value("heal/size", 30).toInt());
+        sizeRow->addWidget(m_healSize, 1);
+        heal->contentLayout()->addLayout(sizeRow);
+        m_healInfo = new QLabel(tr("Uses the LaMa inpainting model (downloaded on first use)."), heal);
+        m_healInfo->setWordWrap(true);
+        m_healInfo->setStyleSheet(QStringLiteral("color: palette(mid);"));
+        heal->contentLayout()->addWidget(m_healInfo);
+        connect(m_healTool, &QPushButton::toggled, this, [this](bool on) {
+            if (!m_updating)
+                emit healToolToggled(on);
+        });
+        connect(m_healSize, &QSlider::valueChanged, this, [this](int v) {
+            QSettings().setValue("heal/size", v);
+            emit healSizeChanged(v / 1000.0);
+        });
+        connect(clear, &QPushButton::clicked, this, &DevelopPanel::healClearRequested);
+    }
+
     auto* detail = addSection(layout, "detail", tr("Detail"), false);
     addSliders(detail, "detail");
     auto* ai = new QPushButton(tr("AI Denoise..."), detail);
@@ -251,6 +285,15 @@ void DevelopPanel::setLensInfo(const QString& text)
 
 void DevelopPanel::setHistogram(const Histogram& h) { m_histogram->setHistogram(h); }
 void DevelopPanel::setPhotoInfo(const QString& text) { m_histogram->setInfo(text); }
+
+void DevelopPanel::setHealToolActive(bool on)
+{
+    m_updating = true;
+    m_healTool->setChecked(on);
+    m_updating = false;
+}
+
+double DevelopPanel::healSize() const { return m_healSize->value() / 1000.0; }
 
 void DevelopPanel::setCropToolActive(bool on)
 {

@@ -8,6 +8,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QList>
+#include <QRect>
 #include <QString>
 #include <optional>
 
@@ -50,7 +51,7 @@ struct HistoryEntry {
 
 class Batch {
 public:
-    static constexpr int kSchemaVersion = 1;
+    static constexpr int kSchemaVersion = 2;
     static constexpr const char* kExtension = "silma";
 
     Batch() = default;
@@ -94,6 +95,10 @@ public:
     // Moves the current position; returns the settings at the new position.
     QString setHistoryPos(qint64 photoId, int pos);
     int historyPos(qint64 photoId);
+
+    // Generated heal patches: a sensor-space rectangle of linear camera RGB (half floats).
+    qint64 addPatch(qint64 photoId, const QRect& rect, const QByteArray& data);
+    bool patch(qint64 patchId, QRect* rect, QByteArray* data);
 
     // Arbitrary key/value state (UI session etc.)
     QString state(const QString& key, const QString& def = {});

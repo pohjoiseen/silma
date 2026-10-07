@@ -28,7 +28,7 @@ The binary is `build/src/app/silma`.
 
 `silma` opens the last batch; `silma TRIP.silma` opens a specific one.
 Keyboard: Left/Right navigate, X/U reject/unreject, Z or click toggles fit/1:1, wheel zooms,
-`\` before/after, C compare, Ctrl+U auto tone, Ctrl+Z / Ctrl+Shift+Z undo/redo,
+`\` before/after, C compare, R crop tool, Q heal tool, Ctrl+I metadata, Ctrl+U auto tone, Ctrl+Z / Ctrl+Shift+Z undo/redo,
 Ctrl+Shift+C/V copy/paste settings, Tab / F6 / F7 / F8 hide panels.
 
 ## CLI (also meant for AI agents)
@@ -56,6 +56,7 @@ a unique file name, or `all`.
     silma hdr 20 21 22                      # bracketed exposures -> HDR DNG
     silma pano 30 31 32 33                  # cylindrical panorama DNG
     silma ai-models                         # models, download state, GPU providers
+    silma heal 12 0.31,0.62,0.03            # generative heal at a spot of the rendered output
 
 The GUI picks up changes made through the CLI within a second.
 
@@ -66,4 +67,5 @@ window and exits (works with `QT_QPA_PLATFORM=offscreen`).
 
 AI denoise, HDR and panorama results are written as linear (floating point) DNGs next to the
 source photo, added to the batch and developed like any raw. AI models are downloaded on first
-use to `~/.local/share/silma/models` (NAFNet-SIDD by default, SCUNet optional).
+use to `~/.local/share/silma/models` (NAFNet-SIDD by default, SCUNet optional; LaMa for heal).
+Generated heal fills are stored in the batch, so heal spots are ordinary undoable edits.

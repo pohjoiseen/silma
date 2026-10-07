@@ -29,6 +29,7 @@ struct AiModelInfo {
 };
 
 QList<AiModelInfo> aiDenoiseModels();
+AiModelInfo aiInpaintModel();
 const AiModelInfo* findAiModel(const QString& id);
 QString defaultAiDenoiseModel();
 
@@ -48,6 +49,9 @@ using AiProgress = std::function<void(int done, int total)>;
 // overlapping tiles. `cancel` may be set from another thread.
 ImageF runAiDenoise(const QString& modelPath, const ImageF& encoded, int tileSize, const AiProgress& progress = {},
                     const std::atomic<bool>* cancel = nullptr, QString* providerUsed = nullptr);
+
+// LaMa inpainting of a 512x512 image (0..1, display-like encoding); mask 1 = fill.
+ImageF runAiInpaint(const ImageF& img, const PlaneF& mask, QString* providerUsed = nullptr);
 
 // Denoises linear camera RGB (0..1, white-balanced). Wraps runAiDenoise with an invertible
 // log encoding adapted to the image brightness. strength 0..1 blends with the input.

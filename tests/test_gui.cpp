@@ -4,6 +4,7 @@
 #include "MainWindow.h"
 #include "Widgets.h"
 #include "CropTool.h"
+#include "AiDenoise.h"
 
 #include <QApplication>
 #include <QDir>
@@ -128,6 +129,28 @@ private slots:
         w.testAutoUpright(2);
         // Either a correction step was added or there were not enough lines.
         QVERIFY(b.history(id).size() >= before);
+    }
+
+    void heal()
+    {
+        if (!aiModelInstalled("lama"))
+            QSKIP("LaMa model not installed (set SILMA_MODEL_DIR)");
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(w.openBatch(m_batchFile));
+        // Wait for the full-resolution engine.
+        QTRY_VERIFY_WITH_TIMEOUT(w.mainPane()->engine() && !w.mainPane()->engine()->isHalfSize(), 20000);
+        qint64 id = w.currentPhoto()->id;
+        int before = int(w.currentSettings().heals.size());
+        w.testHealAt(QPointF(0.5, 0.5), 0.03);
+        QTRY_COMPARE_WITH_TIMEOUT(w.pendingHealJobs(), 0, 60000);
+        QCOMPARE(int(w.currentSettings().heals.size()), before + 1);
+        Batch b;
+        b.open(m_batchFile);
+        auto s = DevelopSettings::fromJsonString(b.settings(id));
+        QVERIFY(b.patch(s.heals.last().patchId, nullptr, nullptr));
+        QTRY_VERIFY_WITH_TIMEOUT(w.mainPane()->hasRender(), 15000);
     }
 };
 

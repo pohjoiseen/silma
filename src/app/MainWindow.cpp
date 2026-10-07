@@ -1,6 +1,9 @@
 #include "MainWindow.h"
 
 #include "CropTool.h"
+#include "Heal.h"
+#include "HealTool.h"
+#include "MetadataView.h"
 #include "DevelopPanel.h"
 #include "Upright.h"
 #include "AiDenoise.h"
@@ -93,6 +96,29 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
             commit(m_settings, tr("Rotate %1°").arg(deg));
     });
 
+    m_healToolObj = new HealTool(this);
+    m_healToolObj->setBrushSize(m_panel->healSize());
+    connect(m_healToolObj, &HealTool::healRequested, this, &MainWindow::healAt);
+    connect(m_healToolObj, &HealTool::removeRequested, this, [this](int i) {
+        DevelopSettings s = m_settings;
+        if (i >= 0 && i < s.heals.size()) {
+            s.heals.removeAt(i);
+            commit(s, tr("Remove Heal Spot"));
+        }
+    });
+    connect(m_panel, &DevelopPanel::healToolToggled, this, &MainWindow::setHealTool);
+    connect(m_panel, &DevelopPanel::healSizeChanged, this, [this](double r) {
+        m_healToolObj->setBrushSize(r);
+        m_pane->update();
+    });
+    connect(m_panel, &DevelopPanel::healClearRequested, this, [this] {
+        DevelopSettings s = m_settings;
+        if (!s.heals.isEmpty()) {
+            s.heals.clear();
+            commit(s, tr("Clear Heal"));
+        }
+    });
+
     m_status = new QLabel(this);
     statusBar()->addPermanentWidget(m_status);
 
@@ -176,6 +202,20 @@ void MainWindow::createDocks()
         }
     });
 
+    // Metadata (tabbed with the left panel, hidden by default).
+    m_metaDock = new QDockWidget(tr("Metadata"), this);
+    m_metaDock->setObjectName("metadata");
+    m_metaView = new MetadataView(m_metaDock);
+    m_metaDock->setWidget(m_metaView);
+    addDockWidget(Qt::LeftDockWidgetArea, m_metaDock);
+    tabifyDockWidget(m_leftDock, m_metaDock);
+    m_metaDock->hide();
+    m_leftDock->raise();
+    connect(m_metaDock, &QDockWidget::visibilityChanged, this, [this](bool v) {
+        if (v && m_photo)
+            m_metaView->showFile(m_photo->path);
+    });
+
     // Bottom: filmstrip.
     m_bottomDock = new QDockWidget(tr("Filmstrip"), this);
     m_bottomDock->setObjectName("bottom");
@@ -225,6 +265,7 @@ void MainWindow::createActions()
         commit(s, tr("Auto White Balance"));
     });
     photo->addAction(tr("&Crop Tool"), QKeySequence(Qt::Key_R), this, [this] { setCropTool(!m_cropTool); });
+    photo->addAction(tr("&Heal Tool"), QKeySequence(Qt::Key_Q), this, [this] { setHealTool(!m_healTool); });
     photo->addSeparator();
     photo->addAction(tr("AI &Denoise..."), this, &MainWindow::aiDenoise);
     photo->addAction(tr("Merge to &HDR..."), QKeySequence(Qt::CTRL | Qt::Key_H), this, [this] { mergePhotos(true); });
@@ -257,6 +298,14 @@ void MainWindow::createActions()
     addToggle(m_leftDock, tr("&Left Panel"), QKeySequence(Qt::Key_F7));
     addToggle(m_rightDock, tr("&Right Panel"), QKeySequence(Qt::Key_F8));
     addToggle(m_bottomDock, tr("&Filmstrip"), QKeySequence(Qt::Key_F6));
+    QAction* meta = m_metaDock->toggleViewAction();
+    meta->setText(tr("&Metadata"));
+    meta->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_I));
+    view->addAction(meta);
+    connect(meta, &QAction::triggered, this, [this](bool on) {
+        if (on)
+            m_metaDock->raise();
+    });
 
     auto* help = menuBar()->addMenu(tr("&Help"));
     help->addAction(tr("&Keyboard Shortcuts"), this, [this] {
@@ -412,6 +461,7 @@ void MainWindow::reloadImports()
 
 void MainWindow::selectImport(std::optional<qint64> importId, bool all)
 {
+    m_knownHistory.clear();
     if (!m_batch.isOpen())
         return;
     if (!all && !importId) {
@@ -426,6 +476,8 @@ void MainWindow::selectImport(std::optional<qint64> importId, bool all)
         if (m_importList->item(i)->data(Qt::UserRole) == key)
             m_importList->setCurrentRow(i);
     m_model->reload(all ? std::nullopt : importId);
+    for (const auto& p : m_model->photos())
+        m_knownHistory[p.id] = p.historyPos;
     m_batch.setState("ui.import", all ? QString::fromLatin1(kAllImports) : QString::number(*importId));
     // Keep the current photo if it is in this list, else select the first.
     qint64 want = m_photo ? m_photo->id : 0;
@@ -465,6 +517,8 @@ void MainWindow::selectPhoto(qint64 id)
     m_batch.setState("ui.photo", QString::number(id));
     if (m_cropTool)
         setCropTool(false);
+    if (m_healTool)
+        setHealTool(false);
     m_settings = m_committed = DevelopSettings::fromJsonString(m_batch.settings(id));
     if (m_viewMode == ViewMode::Compare) {
         // Keep comparing against the reference; if the reference itself was selected, leave compare.
@@ -492,6 +546,8 @@ void MainWindow::showCurrentPhoto()
         return;
     }
     const PhotoInfo& p = *m_photo;
+    if (m_metaDock->isVisible())
+        m_metaView->showFile(p.path);
     m_panel->setEnabled(true);
     m_panel->setSettings(m_settings);
     m_panel->setPhotoInfo(QStringLiteral("ISO %1   %2 mm   f/%3   %4").arg(p.iso).arg(p.focalLength).arg(p.fNumber).arg(exposureText(p.exposureTime)));
@@ -502,6 +558,7 @@ void MainWindow::showCurrentPhoto()
     thumb.loadFromData(m_batch.thumbnail(p.id), "JPEG");
     if (!(engine && m_pane->engine() && engine->path() == m_pane->engine()->path()))
         m_pane->setPlaceholder(thumb);
+    ensureHealPatches(engine.get(), m_settings);
     m_pane->setSettings(m_settings);
     m_pane->setEngine(engine);
     m_pane->setMessage(engine ? QString() : tr("Loading…"));
@@ -524,7 +581,10 @@ void MainWindow::onEngineReady(const QString& path)
 {
     if (m_photo && m_photo->path == path) {
         auto e = m_engines.get(path);
+        ensureHealPatches(e.get(), m_settings);
         m_pane->setEngine(e);
+        if (m_healTool)
+            updateHealOverlay();
         m_pane->setMessage(QString());
         if (e)
             m_panel->setLensInfo(e->lensDescription());
@@ -566,6 +626,9 @@ void MainWindow::commit(const DevelopSettings& s, const QString& label)
 
 void MainWindow::applySettingsToUi()
 {
+    ensureHealPatches(m_pane->engine().get(), m_settings);
+    if (m_healTool)
+        updateHealOverlay();
     if (m_cropTool) {
         m_cropToolObj->setRect(m_settings.crop);
         m_cropToolObj->setLockAspect(m_settings.cropLockAspect);
@@ -677,6 +740,8 @@ void MainWindow::setCropTool(bool on)
 {
     if (on && !m_pane->engine())
         on = false;
+    if (on && m_healTool)
+        setHealTool(false);
     m_cropTool = on;
     m_panel->setCropToolActive(on);
     if (on) {
@@ -737,11 +802,13 @@ void MainWindow::renderThumbnail(qint64 id)
     DevelopSettings s = DevelopSettings::fromJsonString(m_batch.settings(id));
     QString path = p->path;
     auto engine = m_engines.get(path, false);
+    auto patches = loadHealPatches(m_batch, s);
     QPointer<MainWindow> self(this);
-    QThreadPool::globalInstance()->start([self, id, s, path, engine] {
+    QThreadPool::globalInstance()->start([self, id, s, path, engine, patches] {
         QByteArray jpeg;
         try {
             auto e = engine ? engine : std::make_shared<DevelopEngine>(path, EngineLoadOptions{.halfSize = true});
+            addHealPatches(*e, patches);
             QSize full = e->outputSize(s);
             double k = 512.0 / std::max(full.width(), full.height());
             RenderResult r = e->render(s, {.width = std::max(1, int(full.width() * k)), .height = std::max(1, int(full.height() * k))});
@@ -902,10 +969,13 @@ void MainWindow::exportPhotos()
         DevelopSettings s;
         QString import;
         int seq;
+        QMap<qint64, HealPatch> patches;
     };
     QList<Job> jobs;
-    for (int i = 0; i < photos.size(); ++i)
-        jobs.append({photos[i], DevelopSettings::fromJsonString(m_batch.settings(photos[i].id)), importNames.value(photos[i].importId), i + 1});
+    for (int i = 0; i < photos.size(); ++i) {
+        DevelopSettings js = DevelopSettings::fromJsonString(m_batch.settings(photos[i].id));
+        jobs.append({photos[i], js, importNames.value(photos[i].importId), i + 1, loadHealPatches(m_batch, js)});
+    }
 
     auto* progress = new QProgressDialog(tr("Exporting..."), tr("Cancel"), 0, int(jobs.size()), this);
     progress->setWindowModality(Qt::WindowModal);
@@ -921,7 +991,7 @@ void MainWindow::exportPhotos()
             return QString();
         QString err;
         try {
-            exportPhoto(j.p, j.s, j.import, j.seq, o);
+            exportPhoto(j.p, j.s, j.import, j.seq, o, j.patches);
         } catch (const std::exception& e) {
             err = j.p.fileName + ": " + QString::fromUtf8(e.what());
         }
@@ -1129,6 +1199,101 @@ void MainWindow::mergePhotos(bool hdr)
     }
 }
 
+void MainWindow::setHealTool(bool on)
+{
+    if (on && !m_pane->engine())
+        on = false;
+    if (on && m_cropTool)
+        setCropTool(false);
+    m_healTool = on;
+    m_panel->setHealToolActive(on);
+    m_pane->setTool(on ? m_healToolObj : nullptr);
+    if (on)
+        updateHealOverlay();
+}
+
+void MainWindow::updateHealOverlay()
+{
+    auto e = m_pane->engine();
+    std::optional<Geometry> g;
+    if (e)
+        g = e->geometry(m_settings);
+    m_healToolObj->setSpots(m_settings.heals, g, e ? std::max(e->raw().fullWidth, e->raw().fullHeight) : 1);
+    m_pane->update();
+}
+
+void MainWindow::ensureHealPatches(DevelopEngine* e, const DevelopSettings& s)
+{
+    if (!e || s.heals.isEmpty())
+        return;
+    DevelopSettings missing;
+    for (const auto& h : s.heals)
+        if (!e->hasHealPatch(h.patchId))
+            missing.heals.append(h);
+    if (!missing.heals.isEmpty())
+        addHealPatches(*e, loadHealPatches(m_batch, missing));
+}
+
+void MainWindow::healAt(QPointF cropPoint, double radius)
+{
+    auto e = m_pane->engine();
+    if (!m_photo || !e)
+        return;
+    if (e->isHalfSize()) {
+        statusBar()->showMessage(tr("Still loading the full-resolution image; try again in a moment"), 3000);
+        return;
+    }
+    Geometry g = e->geometry(m_settings);
+    float src[6], gain[3];
+    if (!g.mapCrop(cropPoint.x(), cropPoint.y(), src, gain))
+        return;
+    QSizeF crop = g.cropSize();
+    HealSpot spot;
+    spot.x = src[2];
+    spot.y = src[3];
+    spot.radius = radius * std::max(crop.width(), crop.height()) / std::max(e->raw().fullWidth, e->raw().fullHeight) / g.lensZoom();
+    m_healToolObj->setBusy(cropPoint, radius);
+    m_pane->update();
+    ++m_healJobs;
+    statusBar()->showMessage(tr("Generating fill..."));
+    qint64 photoId = m_photo->id;
+    QPointer<MainWindow> self(this);
+    auto future = QtConcurrent::run([e, spot]() -> std::pair<HealPatch, QString> {
+        try {
+            return {generateHealPatch(e->raw(), spot), QString()};
+        } catch (const std::exception& ex) {
+            return {HealPatch{}, QString::fromUtf8(ex.what())};
+        }
+    });
+    auto* w = new QFutureWatcher<std::pair<HealPatch, QString>>(this);
+    connect(w, &QFutureWatcherBase::finished, this, [this, w, e, spot, photoId] {
+        auto [patch, err] = w->result();
+        w->deleteLater();
+        --m_healJobs;
+        m_healToolObj->clearBusy();
+        statusBar()->clearMessage();
+        if (!err.isEmpty()) {
+            QMessageBox::warning(this, tr("Heal"), err);
+            return;
+        }
+        HealSpot sp = spot;
+        sp.patchId = storeHealPatch(m_batch, photoId, patch);
+        e->addHealPatch(sp.patchId, patch);
+        if (!m_photo || m_photo->id != photoId) {
+            // The user moved on: record the heal on that photo's history anyway.
+            DevelopSettings s = DevelopSettings::fromJsonString(m_batch.settings(photoId));
+            s.heals.append(sp);
+            m_batch.pushHistory(photoId, tr("Heal"), s.toJsonString());
+            renderThumbnail(photoId);
+            return;
+        }
+        DevelopSettings s = m_settings;
+        s.heals.append(sp);
+        commit(s, tr("Heal"));
+    });
+    w->setFuture(future);
+}
+
 // ---- view -----------------------------------------------------------------------
 
 void MainWindow::setViewMode(ViewMode m)
@@ -1184,7 +1349,9 @@ void MainWindow::updatePanes()
         m_pane->setLabel(tr("After"));
     } else if (m_comparePhoto) {
         auto e = m_engines.get(m_comparePhoto->path);
-        m_pane2->setSettings(DevelopSettings::fromJsonString(m_batch.settings(m_comparePhoto->id)));
+        DevelopSettings cs = DevelopSettings::fromJsonString(m_batch.settings(m_comparePhoto->id));
+        ensureHealPatches(e.get(), cs);
+        m_pane2->setSettings(cs);
         m_pane2->setEngine(e);
         m_pane2->setLabel(m_comparePhoto->fileName);
         m_pane->setLabel(m_photo->fileName);
@@ -1212,6 +1379,12 @@ void MainWindow::pollDatabase()
     // Another process (e.g. the CLI driven by an agent) changed the batch.
     reloadImports();
     m_model->refresh();
+    for (const auto& p : m_model->photos()) {
+        auto it = m_knownHistory.find(p.id);
+        if (it != m_knownHistory.end() && it.value() != p.historyPos && (!m_photo || p.id != m_photo->id))
+            renderThumbnail(p.id);
+        m_knownHistory[p.id] = p.historyPos;
+    }
     QString go = m_batch.state("gui.goto");
     if (!go.isEmpty()) {
         m_batch.setState("gui.goto", QString());

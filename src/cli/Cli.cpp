@@ -11,6 +11,7 @@
 #include "AiDenoise.h"
 #include "Derived.h"
 #include "Merge.h"
+#include "Heal.h"
 #include "Color.h"
 
 #include <QDir>
@@ -639,6 +640,7 @@ std::map<QString, Command> commands()
         QElapsedTimer t;
         t.start();
         DevelopEngine e(ps[0].path);
+        addHealPatches(e, loadHealPatches(*b, s));
         qint64 decodeMs = t.restart();
         bool full = a.value("size") == QLatin1String("full");
         int size = full ? 0 : a.value("size", "1600").toInt();
@@ -704,10 +706,13 @@ std::map<QString, Command> commands()
             PhotoInfo p;
             DevelopSettings s;
             int seq;
+            QMap<qint64, HealPatch> patches;
         };
         QList<Job> jobs;
-        for (int i = 0; i < ps.size(); ++i)
-            jobs.append({ps[i], DevelopSettings::fromJsonString(b->settings(ps[i].id)), i + 1});
+        for (int i = 0; i < ps.size(); ++i) {
+            DevelopSettings js = DevelopSettings::fromJsonString(b->settings(ps[i].id));
+            jobs.append({ps[i], js, i + 1, loadHealPatches(*b, js)});
+        }
         // Each render is internally parallel; run a couple at once to overlap decoding.
         QThreadPool pool;
         pool.setMaxThreadCount(std::max(1, a.value("jobs", "2").toInt()));
@@ -715,7 +720,7 @@ std::map<QString, Command> commands()
         QList<QPair<QString, QString>> results = QtConcurrent::blockingMapped(&pool, jobs, [&](const Job& j) {
             QPair<QString, QString> r;
             try {
-                r.first = exportPhoto(j.p, j.s, importNames.value(j.p.importId), j.seq, o);
+                r.first = exportPhoto(j.p, j.s, importNames.value(j.p.importId), j.seq, o, j.patches);
             } catch (const std::exception& e) {
                 r.second = j.p.fileName + ": " + QString::fromUtf8(e.what());
             }
@@ -905,6 +910,57 @@ std::map<QString, Command> commands()
     };
     m["hdr"] = {"hdr PHOTO PHOTO... [--no-align] [--no-deghost]", "Merge bracketed exposures into an HDR DNG", {"import"}, {"no-align", "no-deghost"}, true, mergeCmd(true)};
     m["pano"] = {"pano PHOTO PHOTO... [--no-crop]", "Stitch a cylindrical panorama DNG", {"import"}, {"no-crop"}, true, mergeCmd(false)};
+
+    m["heal"] = {"heal PHOTO X,Y[,R]... | --clear | --undo-last", "Generative heal of spots; X,Y,R relative to the rendered output (R of the long edge, default 0.02)",
+                 {"import"}, {"clear", "undo-last"}, true, [](const Args& a, Batch* b, bool json) {
+        QStringList refs, spots;
+        for (const auto& x : a.positional())
+            (x.contains(',') ? spots : refs) << x;
+        auto ps = resolvePhotos(*b, refs, a.value("import"));
+        if (ps.size() != 1)
+            fail("heal takes exactly one photo");
+        const PhotoInfo& p = ps[0];
+        DevelopSettings s = DevelopSettings::fromJsonString(b->settings(p.id));
+        if (a.has("clear") || a.has("undo-last")) {
+            if (a.has("clear"))
+                s.heals.clear();
+            else if (!s.heals.isEmpty())
+                s.heals.removeLast();
+            b->pushHistory(p.id, a.has("clear") ? "Clear Heal" : "Remove Heal Spot", s.toJsonString());
+            out() << s.heals.size() << " heal spot(s) left\n";
+            return;
+        }
+        if (spots.isEmpty())
+            fail("Give at least one X,Y[,R] spot");
+        DevelopEngine e(p.path);
+        Geometry g = e.geometry(s);
+        QSizeF crop = g.cropSize();
+        double sensorLong = std::max(e.raw().fullWidth, e.raw().fullHeight);
+        QJsonArray arr;
+        QString provider;
+        for (const QString& sp : spots) {
+            auto v = sp.split(',');
+            double x = v[0].toDouble(), y = v[1].toDouble(), r = v.size() > 2 ? v[2].toDouble() : 0.02;
+            float src[6], gain[3];
+            if (!g.mapCrop(x, y, src, gain))
+                fail("Spot " + sp + " is outside the image");
+            HealSpot h;
+            h.x = src[2];
+            h.y = src[3];
+            h.radius = r * std::max(crop.width(), crop.height()) / sensorLong / g.lensZoom();
+            QElapsedTimer t;
+            t.start();
+            HealPatch patch = generateHealPatch(e.raw(), h, &provider);
+            h.patchId = storeHealPatch(*b, p.id, patch);
+            s.heals.append(h);
+            arr.append(QJsonObject{{"x", h.x}, {"y", h.y}, {"radius", h.radius}, {"patch", h.patchId}, {"ms", t.elapsed()}, {"provider", provider}});
+            if (!json)
+                out() << "Healed spot at " << sp << " in " << t.elapsed() << " ms (" << provider << ")\n";
+        }
+        b->pushHistory(p.id, spots.size() == 1 ? "Heal" : QStringLiteral("Heal (%1 spots)").arg(spots.size()), s.toJsonString());
+        if (json)
+            printJson(arr);
+    }};
 
     m["show"] = {"show PHOTO", "Make a running GUI display this photo", {}, {}, true, [](const Args& a, Batch* b, bool json) {
         auto ps = resolvePhotos(*b, a.positional());

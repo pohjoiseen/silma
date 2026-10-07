@@ -41,6 +41,34 @@ private slots:
         QVERIFY_THROWS_EXCEPTION(DbError, Batch().open(f));
     }
 
+    void migratesFromV1()
+    {
+        QTemporaryDir tmp;
+        QString f = tmp.filePath("old.silma");
+        {
+            Batch b;
+            b.create(f);
+            b.addImport("a");
+            // Simulate a batch written by schema version 1.
+            b.db().exec("DROP TABLE patches");
+            b.db().setUserVersion(1);
+        }
+        Batch b;
+        b.open(f);
+        QCOMPARE(b.db().userVersion(), Batch::kSchemaVersion);
+        QCOMPARE(b.imports().size(), 1);
+        auto im = b.imports().first();
+        PhotoInfo p;
+        p.importId = im.id;
+        p.fileName = "x.nef";
+        p.path = im.path + "/x.nef";
+        qint64 id = b.addPhoto(p);
+        qint64 patch = b.addPatch(id, QRect(1, 2, 3, 4), QByteArray("data"));
+        QRect r;
+        QVERIFY(b.patch(patch, &r, nullptr));
+        QCOMPARE(r, QRect(1, 2, 3, 4));
+    }
+
     void historyUndoRedo()
     {
         QTemporaryDir tmp;

@@ -31,9 +31,15 @@ QList<AiModelInfo> aiDenoiseModels()
     return models;
 }
 
+AiModelInfo aiInpaintModel()
+{
+    return {"lama", "LaMa (big-lama)", "Apache-2.0", "lama_fp32.onnx",
+            {{"lama_fp32.onnx", "https://huggingface.co/Carve/LaMa-ONNX/resolve/main/lama_fp32.onnx", 208044816}}, {}, 512, 512};
+}
+
 const AiModelInfo* findAiModel(const QString& id)
 {
-    static const QList<AiModelInfo> models = aiDenoiseModels();
+    static const QList<AiModelInfo> models = aiDenoiseModels() + QList<AiModelInfo>{aiInpaintModel()};
     for (const auto& m : models)
         if (m.id == id)
             return &m;
@@ -122,8 +128,10 @@ Ort::Env& ortEnv()
     return env;
 }
 
+} // namespace
+
 // Configures the best available provider; returns its name.
-QString configureProviders(Ort::SessionOptions& so)
+QString configureAiProviders(Ort::SessionOptions& so)
 {
     auto avail = Ort::GetAvailableProviders();
     auto has = [&](const char* n) { return std::find(avail.begin(), avail.end(), std::string(n)) != avail.end(); };
@@ -150,8 +158,6 @@ QString configureProviders(Ort::SessionOptions& so)
     return "CPU";
 }
 
-} // namespace
-
 QStringList aiExecutionProviders()
 {
     QStringList out;
@@ -166,7 +172,7 @@ ImageF runAiDenoise(const QString& modelPath, const ImageF& in, int tile, const 
     Ort::SessionOptions so;
     so.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
     so.SetIntraOpNumThreads(int(std::max(1u, std::thread::hardware_concurrency())));
-    QString provider = configureProviders(so);
+    QString provider = configureAiProviders(so);
     if (providerUsed)
         *providerUsed = provider;
     QByteArray mp = QFile::encodeName(modelPath);
@@ -242,6 +248,53 @@ ImageF runAiDenoise(const QString& modelPath, const ImageF& in, int tile, const 
         for (int c = 0; c < 3; ++c)
             acc.data[size_t(i) * 3 + c] /= std::max(wsum.data[i], 1e-6f);
     return acc;
+}
+
+ImageF runAiInpaint(const ImageF& img, const PlaneF& mask, QString* providerUsed)
+{
+    const AiModelInfo m = aiInpaintModel();
+    if (!aiModelInstalled(m.id))
+        downloadAiModel(m.id);
+    const int S = m.tileSize;
+    if (img.width != S || img.height != S || mask.width != S || mask.height != S)
+        throw std::runtime_error("Inpainting input must be 512x512");
+    Ort::SessionOptions so;
+    so.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+    so.SetIntraOpNumThreads(int(std::max(1u, std::thread::hardware_concurrency())));
+    QString provider = configureAiProviders(so);
+    if (providerUsed)
+        *providerUsed = provider;
+    // Sessions are expensive to create; keep one per process.
+    static std::mutex mutex;
+    static std::unique_ptr<Ort::Session> session;
+    std::lock_guard lock(mutex);
+    if (!session) {
+        QByteArray mp = QFile::encodeName(aiModelDir(m.id) + "/" + m.onnxFile);
+        session = std::make_unique<Ort::Session>(ortEnv(), mp.constData(), so);
+    }
+    std::vector<float> in(size_t(3) * S * S), mk(size_t(S) * S);
+    for (int c = 0; c < 3; ++c)
+        for (int i = 0; i < S * S; ++i)
+            in[size_t(c) * S * S + i] = img.data[size_t(i) * 3 + c];
+    for (int i = 0; i < S * S; ++i)
+        mk[i] = mask.data[i] > 0.5f ? 1.0f : 0.0f;
+    std::array<int64_t, 4> s1{1, 3, S, S}, s2{1, 1, S, S};
+    Ort::MemoryInfo mem = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+    std::array<Ort::Value, 2> inputs{Ort::Value::CreateTensor<float>(mem, in.data(), in.size(), s1.data(), 4),
+                                     Ort::Value::CreateTensor<float>(mem, mk.data(), mk.size(), s2.data(), 4)};
+    const char* inNames[] = {"image", "mask"};
+    const char* outNames[] = {"output"};
+    auto outs = session->Run(Ort::RunOptions{nullptr}, inNames, inputs.data(), 2, outNames, 1);
+    const float* o = outs[0].GetTensorData<float>();
+    float mx = 0;
+    for (int i = 0; i < 3 * S * S; ++i)
+        mx = std::max(mx, o[i]);
+    const float scale = mx > 2.0f ? 1.0f / 255.0f : 1.0f; // some exports output 0..255
+    ImageF out(S, S);
+    for (int c = 0; c < 3; ++c)
+        for (int i = 0; i < S * S; ++i)
+            out.data[size_t(i) * 3 + c] = std::clamp(o[size_t(c) * S * S + i] * scale, 0.0f, 1.0f);
+    return out;
 }
 
 ImageF aiDenoiseLinear(const QString& modelId, const ImageF& linear, double strength, const AiProgress& progress, const std::atomic<bool>* cancel,
