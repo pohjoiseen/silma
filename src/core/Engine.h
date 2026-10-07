@@ -73,6 +73,10 @@ public:
     // Final image as display-encoded sRGB floats (0..1), for export.
     ImageF renderEncoded(const DevelopSettings& s, const RenderRequest& req, WbValues* wbOut = nullptr) const;
 
+    // Geometry-only render (lens corrections, orientation, transform, crop): camera RGB
+    // white-balanced with the decode multipliers, no colour or tone processing.
+    ImageF warpedCamera(const DevelopSettings& s, int width, int height, bool highQuality, bool ignoreCrop = true) const;
+
     // Automatic tone: returns settings with exposure/contrast/highlights/shadows/whites/blacks set.
     DevelopSettings autoTone(const DevelopSettings& s) const;
 

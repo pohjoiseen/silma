@@ -8,6 +8,8 @@
 #include <QMainWindow>
 #include <QPointer>
 #include <QTimer>
+#include <atomic>
+#include <functional>
 #include <optional>
 
 class QAction;
@@ -91,6 +93,10 @@ private:
     void importPhotos();
     void exportPhotos();
     void deleteRejected();
+    void aiDenoise();
+    void mergePhotos(bool hdr);
+    // Runs a job creating derived photos in the background with a progress dialog.
+    void runDerivedJob(const QString& title, std::function<QList<qint64>(Batch&, const std::function<void(const QString&, int, int)>&, const std::atomic<bool>*)> job);
 
     // view
     void setViewMode(ViewMode m);

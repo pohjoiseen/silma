@@ -40,6 +40,7 @@ signals:
     void autoUprightRequested(int mode); // 0 vertical, 1 horizontal, 2 both
     void autoCropRequested();
     void cropToolToggled(bool on);
+    void aiDenoiseRequested();
     void sliderActive(const QString& key, bool active); // for transform guide lines
 
 private:

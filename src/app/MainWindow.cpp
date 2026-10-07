@@ -3,6 +3,9 @@
 #include "CropTool.h"
 #include "DevelopPanel.h"
 #include "Upright.h"
+#include "AiDenoise.h"
+#include "Derived.h"
+#include "Merge.h"
 #include "Dialogs.h"
 #include "Filmstrip.h"
 #include "Importer.h"
@@ -14,7 +17,12 @@
 #include <QBuffer>
 #include <QCloseEvent>
 #include <QDockWidget>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QDialogButtonBox>
 #include <QFileDialog>
+#include <QFormLayout>
+#include <QSpinBox>
 #include <QHBoxLayout>
 #include <QJsonDocument>
 #include <QLabel>
@@ -159,6 +167,7 @@ void MainWindow::createDocks()
     connect(m_panel, &DevelopPanel::autoUprightRequested, this, &MainWindow::autoUpright);
     connect(m_panel, &DevelopPanel::autoCropRequested, this, &MainWindow::autoCrop);
     connect(m_panel, &DevelopPanel::cropToolToggled, this, &MainWindow::setCropTool);
+    connect(m_panel, &DevelopPanel::aiDenoiseRequested, this, &MainWindow::aiDenoise);
     connect(m_panel, &DevelopPanel::sliderActive, this, [this](const QString& key, bool active) {
         QString k = active ? key : QString();
         if (k != m_activeSlider) {
@@ -216,6 +225,10 @@ void MainWindow::createActions()
         commit(s, tr("Auto White Balance"));
     });
     photo->addAction(tr("&Crop Tool"), QKeySequence(Qt::Key_R), this, [this] { setCropTool(!m_cropTool); });
+    photo->addSeparator();
+    photo->addAction(tr("AI &Denoise..."), this, &MainWindow::aiDenoise);
+    photo->addAction(tr("Merge to &HDR..."), QKeySequence(Qt::CTRL | Qt::Key_H), this, [this] { mergePhotos(true); });
+    photo->addAction(tr("Merge to Pa&norama..."), QKeySequence(Qt::CTRL | Qt::Key_M), this, [this] { mergePhotos(false); });
     photo->addSeparator();
     photo->addAction(tr("&Next Photo"), QKeySequence(Qt::Key_Right), this, [this] { navigate(1); });
     photo->addAction(tr("&Previous Photo"), QKeySequence(Qt::Key_Left), this, [this] { navigate(-1); });
@@ -973,6 +986,147 @@ void MainWindow::deleteRejected()
     selectImport(m_model->importId(), !m_model->importId());
     if (!failed.isEmpty())
         QMessageBox::warning(this, tr("Delete Rejected Photos"), tr("Could not delete:\n%1").arg(failed.join('\n')));
+}
+
+void MainWindow::runDerivedJob(const QString& title,
+                               std::function<QList<qint64>(Batch&, const std::function<void(const QString&, int, int)>&, const std::atomic<bool>*)> job)
+{
+    auto* progress = new QProgressDialog(title, tr("Cancel"), 0, 0, this);
+    progress->setWindowTitle(title);
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(0);
+    progress->setMinimumWidth(420);
+    auto cancel = std::make_shared<std::atomic<bool>>(false);
+    connect(progress, &QProgressDialog::canceled, this, [cancel] { *cancel = true; });
+    QPointer<QProgressDialog> pd(progress);
+    QString batchFile = m_batch.file();
+    auto future = QtConcurrent::run([batchFile, job, cancel, pd]() -> QPair<QList<qint64>, QString> {
+        try {
+            Batch b;
+            b.open(batchFile);
+            auto ids = job(b, [pd](const QString& step, int done, int total) {
+                QMetaObject::invokeMethod(qApp, [pd, step, done, total] {
+                    if (!pd)
+                        return;
+                    pd->setLabelText(total > 0 ? QStringLiteral("%1 (%2 / %3)").arg(step).arg(done).arg(total) : step);
+                    pd->setMaximum(std::max(0, total));
+                    pd->setValue(total > 0 ? done : 0);
+                });
+            }, cancel.get());
+            return {ids, QString()};
+        } catch (const std::exception& e) {
+            return {{}, QString::fromUtf8(e.what())};
+        }
+    });
+    auto* watcher = new QFutureWatcher<QPair<QList<qint64>, QString>>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, progress, cancel, title] {
+        auto [ids, error] = watcher->result();
+        watcher->deleteLater();
+        progress->deleteLater();
+        m_dataVersion = m_batch.dataVersion();
+        reloadImports();
+        m_model->refresh();
+        if (!error.isEmpty() && !*cancel)
+            QMessageBox::warning(this, title, error);
+        if (!ids.isEmpty())
+            selectPhoto(ids.last());
+    });
+    watcher->setFuture(future);
+}
+
+void MainWindow::aiDenoise()
+{
+    QList<qint64> ids = selectedPhotoIds();
+    if (ids.isEmpty())
+        return;
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("AI Denoise"));
+    auto* l = new QFormLayout(&dlg);
+    auto* model = new QComboBox(&dlg);
+    for (const auto& m : aiDenoiseModels())
+        model->addItem(QStringLiteral("%1 — %2%3").arg(m.name, m.license, aiModelInstalled(m.id) ? QString() : tr(" (will be downloaded)")), m.id);
+    model->setCurrentIndex(model->findData(QSettings().value("ai/model", defaultAiDenoiseModel()).toString()));
+    l->addRow(tr("Model:"), model);
+    auto* strength = new QSpinBox(&dlg);
+    strength->setRange(0, 100);
+    strength->setSuffix(QStringLiteral(" %"));
+    strength->setValue(QSettings().value("ai/strength", 100).toInt());
+    l->addRow(tr("Strength:"), strength);
+    QStringList prov = aiExecutionProviders();
+    bool gpu = prov.contains("MIGraphX") || prov.contains("ROCM") || prov.contains("CUDA");
+    auto* info = new QLabel(gpu ? tr("Runs on the GPU (%1).").arg(prov.join(", "))
+                                : tr("Runs on the CPU: this takes several minutes per photo. Install onnxruntime-rocm (AMD) or onnxruntime-cuda for GPU acceleration."),
+                            &dlg);
+    info->setWordWrap(true);
+    l->addRow(info);
+    l->addRow(new QLabel(tr("%n photo(s) will be denoised into new DNG files.", nullptr, int(ids.size())), &dlg));
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    l->addRow(bb);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    QString modelId = model->currentData().toString();
+    double s = strength->value() / 100.0;
+    QSettings().setValue("ai/model", modelId);
+    QSettings().setValue("ai/strength", strength->value());
+    runDerivedJob(tr("AI Denoise"), [ids, modelId, s](Batch& b, const auto& progress, const std::atomic<bool>* cancel) {
+        QList<qint64> out;
+        for (int i = 0; i < ids.size(); ++i) {
+            auto p = b.photo(ids[i]);
+            QString name = p ? p->fileName : QString();
+            out << createAiDenoised(b, ids[i], modelId, s, [&](const QString& step, int d, int t) {
+                progress(QStringLiteral("%1 [%2/%3]: %4").arg(name).arg(i + 1).arg(ids.size()).arg(step), d, t);
+            }, cancel);
+        }
+        return out;
+    });
+}
+
+void MainWindow::mergePhotos(bool hdr)
+{
+    QList<qint64> ids;
+    for (const QModelIndex& i : m_filmstrip->selectionModel()->selectedIndexes())
+        ids << i.data(PhotoListModel::IdRole).toLongLong();
+    QString title = hdr ? tr("Merge to HDR") : tr("Merge to Panorama");
+    if (ids.size() < 2) {
+        QMessageBox::information(this, title, tr("Select at least two photos in the filmstrip (Ctrl+click or Shift+click)."));
+        return;
+    }
+    QDialog dlg(this);
+    dlg.setWindowTitle(title);
+    auto* l = new QVBoxLayout(&dlg);
+    l->addWidget(new QLabel(hdr ? tr("Merge %n bracketed exposure(s) into an HDR DNG.", nullptr, int(ids.size()))
+                                : tr("Stitch %n photo(s) into a cylindrical panorama DNG.", nullptr, int(ids.size())), &dlg));
+    auto* c1 = new QCheckBox(hdr ? tr("Align photos") : tr("Auto crop"), &dlg);
+    auto* c2 = new QCheckBox(tr("Remove ghosts (moving objects)"), &dlg);
+    auto* c3 = new QCheckBox(tr("Auto tone"), &dlg);
+    for (auto* c : {c1, c2, c3})
+        c->setChecked(true);
+    l->addWidget(c1);
+    if (hdr)
+        l->addWidget(c2);
+    else
+        c2->hide();
+    l->addWidget(c3);
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    bb->button(QDialogButtonBox::Ok)->setText(tr("Merge"));
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    l->addWidget(bb);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    if (hdr) {
+        HdrOptions o{c1->isChecked(), c2->isChecked(), c3->isChecked()};
+        runDerivedJob(title, [ids, o](Batch& b, const auto& progress, const std::atomic<bool>* cancel) {
+            return QList<qint64>{createHdrMerge(b, ids, o, progress, cancel)};
+        });
+    } else {
+        PanoOptions o{c1->isChecked(), c3->isChecked()};
+        runDerivedJob(title, [ids, o](Batch& b, const auto& progress, const std::atomic<bool>* cancel) {
+            return QList<qint64>{createPanorama(b, ids, o, progress, cancel)};
+        });
+    }
 }
 
 // ---- view -----------------------------------------------------------------------

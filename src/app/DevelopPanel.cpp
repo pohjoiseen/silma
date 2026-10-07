@@ -152,6 +152,10 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
 
     auto* detail = addSection(layout, "detail", tr("Detail"), false);
     addSliders(detail, "detail");
+    auto* ai = new QPushButton(tr("AI Denoise..."), detail);
+    ai->setToolTip(tr("Denoise with a neural network into a new DNG photo"));
+    detail->contentLayout()->addWidget(ai);
+    connect(ai, &QPushButton::clicked, this, &DevelopPanel::aiDenoiseRequested);
 
     layout->addStretch(1);
     setMinimumWidth(280);

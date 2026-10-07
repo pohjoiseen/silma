@@ -105,7 +105,8 @@ double defaultBaselineExposure(const RawImage& raw)
 {
     // Raw files are exposed with highlight headroom; camera JPEGs push the midtones up.
     // DNGs carry their own BaselineExposure which is added separately.
-    return raw.isDng ? 0.75 : 0.8;
+    (void)raw;
+    return 0.8;
 }
 
 DevelopEngine::DevelopEngine(const QString& path, const EngineLoadOptions& opts) : m_path(path)
@@ -573,6 +574,15 @@ ImageF DevelopEngine::renderEncoded(const DevelopSettings& s, const RenderReques
     outputStage(img, s);
     sharpenStage(img, s, 1.0 / pxPer);
     return img;
+}
+
+ImageF DevelopEngine::warpedCamera(const DevelopSettings& s, int w, int h, bool hq, bool ignoreCrop) const
+{
+    Geometry g = geometry(s, ignoreCrop);
+    double pxPer = g.cropSize().width() / w;
+    WarpOptions wo;
+    wo.bicubic = hq;
+    return warp(level(levelFor(pxPer)), g, w, h, wo);
 }
 
 RenderResult DevelopEngine::render(const DevelopSettings& s, const RenderRequest& req) const

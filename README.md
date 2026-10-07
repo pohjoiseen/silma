@@ -5,7 +5,11 @@ Develop module. See `SPEC.md` for the goals.
 
 ## Building
 
-Dependencies (Arch): `cmake ninja qt6-base libraw exiv2 lensfun libjpeg-turbo libtiff sqlite lcms2`.
+Dependencies (Arch): `cmake ninja qt6-base libraw exiv2 lensfun libjpeg-turbo libtiff sqlite lcms2 opencv onnxruntime-cpu`.
+
+For GPU-accelerated AI denoise install `onnxruntime-opt-rocm` (AMD) or `onnxruntime-cuda`
+instead of `onnxruntime-cpu`; Silmä picks the GPU provider automatically
+(`SILMA_AI_PROVIDER=cpu|rocm|migraphx|cuda` overrides).
 
     cmake -S . -B build -G Ninja
     ninja -C build
@@ -47,8 +51,19 @@ a unique file name, or `all`.
     silma reject 15; silma delete-rejected --yes
     silma export --import 2026-07-05 --to ~/Pictures/out --long-edge 2048
     silma show 12                           # make a running GUI jump to photo 12
+    silma upright 12 --mode vertical        # auto perspective (+ constrained crop)
+    silma ai-denoise 12                     # AI noise reduction -> new DNG photo
+    silma hdr 20 21 22                      # bracketed exposures -> HDR DNG
+    silma pano 30 31 32 33                  # cylindrical panorama DNG
+    silma ai-models                         # models, download state, GPU providers
 
 The GUI picks up changes made through the CLI within a second.
 
 For automation, `SILMA_SCREENSHOT=out.png [SILMA_SCREENSHOT_DELAY=ms] silma` grabs the
 window and exits (works with `QT_QPA_PLATFORM=offscreen`).
+
+## Derived photos
+
+AI denoise, HDR and panorama results are written as linear (floating point) DNGs next to the
+source photo, added to the batch and developed like any raw. AI models are downloaded on first
+use to `~/.local/share/silma/models` (NAFNet-SIDD by default, SCUNet optional).

@@ -8,6 +8,10 @@
 #include "Metadata.h"
 #include "RawDecoder.h"
 #include "Upright.h"
+#include "AiDenoise.h"
+#include "Derived.h"
+#include "Merge.h"
+#include "Color.h"
 
 #include <QDir>
 #include <QElapsedTimer>
@@ -785,6 +789,123 @@ std::map<QString, Command> commands()
             printJson(arr);
     }};
 
+    m["ai-bench"] = {"ai-bench MODEL RAWFILE OUT.jpg [--roi x,y,w,h]", "Debug: AI-denoise a raw crop and write a before/after JPEG", {"roi"}, {}, false, [](const Args& a, Batch*, bool) {
+        if (a.positional().size() != 3)
+            fail("ai-bench MODEL RAWFILE OUT.jpg");
+        QString model = a.positional()[0];
+        if (!aiModelInstalled(model)) {
+            err() << "Downloading " << model << "...\n" << Qt::flush;
+            downloadAiModel(model);
+        }
+        RawImage raw = decodeRaw(a.positional()[1]);
+        auto r = a.value("roi", "0.4,0.4,0.1,0.15").split(',');
+        int x0 = int(r[0].toDouble() * raw.image.width), y0 = int(r[1].toDouble() * raw.image.height);
+        int cw = int(r[2].toDouble() * raw.image.width), ch = int(r[3].toDouble() * raw.image.height);
+        ImageF crop(cw, ch);
+        for (int y = 0; y < ch; ++y)
+            std::copy_n(raw.image.px(x0, y0 + y), cw * 3, crop.row(y));
+        QElapsedTimer t;
+        t.start();
+        QString prov;
+        ImageF den = aiDenoiseLinear(model, crop, 1.0, {}, nullptr, &prov);
+        double mpix = double(cw) * ch / 1e6;
+        out() << QStringLiteral("%1: %2x%3 in %4 ms on %5 (%6 s per 24 MP)\n").arg(model).arg(cw).arg(ch).arg(t.elapsed()).arg(prov).arg(t.elapsed() / 1000.0 / mpix * 24, 0, 'f', 1);
+        // Quick look: simple gain + sRGB gamma, original left, denoised right.
+        float gain = 0.25f / std::max(1e-4f, [&] { double s = 0; for (float v : crop.data) s += v; return float(s / crop.data.size()); }());
+        ImageF both(cw * 2, ch);
+        for (int y = 0; y < ch; ++y)
+            for (int x = 0; x < cw; ++x)
+                for (int c = 0; c < 3; ++c) {
+                    both.px(x, y)[c] = srgbEncode(std::min(1.0f, crop.px(x, y)[c] * gain));
+                    both.px(x + cw, y)[c] = srgbEncode(std::min(1.0f, den.px(x, y)[c] * gain));
+                }
+        writeJpeg(a.positional()[2], both, 92, QString());
+    }};
+
+    m["ai-denoise"] = {"ai-denoise PHOTO... [--model ID] [--strength 0..100]", "AI noise reduction into a new DNG photo (slow on CPU)", {"model", "strength", "import"}, {}, true, [](const Args& a, Batch* b, bool json) {
+        auto ps = resolvePhotos(*b, a.positional(), a.value("import"));
+        QString model = a.value("model", defaultAiDenoiseModel());
+        if (!findAiModel(model))
+            fail("Unknown model " + model);
+        double strength = a.value("strength", "100").toDouble() / 100.0;
+        QJsonArray arr;
+        for (const auto& p : ps) {
+            QElapsedTimer t;
+            t.start();
+            QString provider, lastStep;
+            qint64 id = createAiDenoised(*b, p.id, model, strength, [&](const QString& step, int d, int total) {
+                if (json)
+                    return;
+                if (step != lastStep || (total > 0 && (d % 10 == 0 || d == total))) {
+                    err() << "\r" << p.fileName << ": " << step << (total > 0 ? QStringLiteral(" %1/%2").arg(d).arg(total) : QString()) << "      " << Qt::flush;
+                    lastStep = step;
+                }
+            }, nullptr, &provider);
+            if (!json)
+                err() << '\n';
+            auto np = b->photo(id);
+            arr.append(QJsonObject{{"source", p.id}, {"id", id}, {"file", np->path}, {"seconds", t.elapsed() / 1000.0}, {"provider", provider}});
+            if (!json)
+                out() << p.fileName << " -> " << np->fileName << " (id " << id << ", " << t.elapsed() / 1000 << " s on " << provider << ")\n";
+        }
+        if (json)
+            printJson(arr);
+    }};
+
+    m["ai-models"] = {"ai-models [--download ID]", "List AI models and execution providers", {"download"}, {}, false, [](const Args& a, Batch*, bool json) {
+        if (a.has("download"))
+            downloadAiModel(a.value("download"), [](qint64 r, qint64 t) { err() << "\r" << r / 1048576 << "/" << t / 1048576 << " MB" << Qt::flush; });
+        QJsonArray arr;
+        for (const auto& m : aiDenoiseModels()) {
+            arr.append(QJsonObject{{"id", m.id}, {"name", m.name}, {"license", m.license}, {"installed", aiModelInstalled(m.id)}, {"default", m.id == defaultAiDenoiseModel()}});
+            if (!json)
+                out() << m.id.leftJustified(20) << m.name.leftJustified(30) << m.license.leftJustified(12) << (aiModelInstalled(m.id) ? "installed" : "not downloaded") << '\n';
+        }
+        if (json)
+            printJson(QJsonObject{{"models", arr}, {"providers", QJsonArray::fromStringList(aiExecutionProviders())}, {"model_dir", aiModelDir("")}});
+        else
+            out() << "Execution providers: " << aiExecutionProviders().join(", ") << "\nModel directory: " << aiModelDir("") << '\n';
+    }};
+
+    m["linear-copy"] = {"linear-copy PHOTO", "Debug: re-encode a raw as linear DNG (round-trip test)", {}, {}, true, [](const Args& a, Batch* b, bool) {
+        auto ps = resolvePhotos(*b, a.positional());
+        for (const auto& p : ps)
+            out() << "id " << createLinearCopy(*b, p.id) << '\n';
+    }};
+
+    auto mergeCmd = [](bool hdr) {
+        return [hdr](const Args& a, Batch* b, bool json) {
+            auto ps = resolvePhotos(*b, a.positional(), a.value("import"));
+            QList<qint64> ids;
+            for (const auto& p : ps)
+                ids << p.id;
+            QElapsedTimer t;
+            t.start();
+            auto progress = [&](const QString& step, int d, int total) {
+                if (!json)
+                    err() << "\r" << step << (total > 0 ? QStringLiteral(" %1/%2").arg(d).arg(total) : QString()) << "          " << Qt::flush;
+            };
+            qint64 id;
+            if (hdr) {
+                HdrOptions o;
+                o.align = !a.has("no-align");
+                o.deghost = !a.has("no-deghost");
+                id = createHdrMerge(*b, ids, o, progress);
+            } else {
+                PanoOptions o;
+                o.autoCrop = !a.has("no-crop");
+                id = createPanorama(*b, ids, o, progress);
+            }
+            auto np = b->photo(id);
+            if (json)
+                printJson(QJsonObject{{"id", id}, {"file", np->path}, {"width", np->width}, {"height", np->height}, {"seconds", t.elapsed() / 1000.0}});
+            else
+                out() << "\n" << np->fileName << " (id " << id << ", " << np->width << "x" << np->height << ", " << t.elapsed() / 1000 << " s)\n";
+        };
+    };
+    m["hdr"] = {"hdr PHOTO PHOTO... [--no-align] [--no-deghost]", "Merge bracketed exposures into an HDR DNG", {"import"}, {"no-align", "no-deghost"}, true, mergeCmd(true)};
+    m["pano"] = {"pano PHOTO PHOTO... [--no-crop]", "Stitch a cylindrical panorama DNG", {"import"}, {"no-crop"}, true, mergeCmd(false)};
+
     m["show"] = {"show PHOTO", "Make a running GUI display this photo", {}, {}, true, [](const Args& a, Batch* b, bool json) {
         auto ps = resolvePhotos(*b, a.positional());
         if (ps.size() != 1)
@@ -809,6 +930,13 @@ std::map<QString, Command> commands()
                       {"as_shot_mul", arr3(r.color.asShotMul)}, {"daylight_mul", arr3(r.color.daylightMul)}, {"applied_mul", arr3(r.color.appliedMul)},
                       {"baseline_exposure", r.color.baselineExposure}, {"crop", QJsonArray{r.cropX, r.cropY, r.cropW, r.cropH}},
                       {"opcodes", QJsonArray{r.opcodes.list1.size(), r.opcodes.list2.size(), r.opcodes.list3.size()}}};
+        double sum = 0, mx = 0;
+        for (float v : r.image.data) {
+            sum += v;
+            mx = std::max(mx, double(v));
+        }
+        o["mean"] = sum / std::max<size_t>(1, r.image.data.size());
+        o["max"] = mx;
         QJsonArray m;
         for (const auto& row : r.color.xyzToCam)
             m.append(arr3(row));
