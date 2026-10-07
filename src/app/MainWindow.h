@@ -18,6 +18,7 @@ class QSplitter;
 
 namespace silma {
 
+class CropTool;
 class DevelopPanel;
 class Filmstrip;
 class PhotoListModel;
@@ -43,6 +44,9 @@ public:
     void testReject() { setRejected(true); }
     void testSetViewMode(ViewMode m) { setViewMode(m); }
     void testPoll() { pollDatabase(); }
+    void testAutoUpright(int mode) { autoUpright(mode); }
+    void testCropTool(bool on) { setCropTool(on); }
+    CropTool* cropTool() const { return m_cropToolObj; }
 
 protected:
     void closeEvent(QCloseEvent* e) override;
@@ -114,6 +118,7 @@ private:
     QDockWidget* m_rightDock;
     QDockWidget* m_bottomDock;
     QLabel* m_status;
+    CropTool* m_cropToolObj;
 
     std::optional<PhotoInfo> m_photo;
     std::optional<PhotoInfo> m_comparePhoto;

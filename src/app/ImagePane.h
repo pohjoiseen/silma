@@ -22,6 +22,20 @@ struct ViewState {
 // points to widget coordinates via the supplied function.
 using OverlayPainter = std::function<void(QPainter&, const std::function<QPointF(QPointF)>& toWidget, const QRectF& imageRect)>;
 
+class ImagePane;
+
+// Interactive tool on top of a pane (e.g. crop). Coordinates are normalized to what the
+// pane shows (the crop, or the whole canvas when the crop is ignored).
+class PaneTool {
+public:
+    virtual ~PaneTool() = default;
+    virtual void paint(QPainter& p, const ImagePane& pane) = 0;
+    virtual bool press(const ImagePane& pane, QPointF n, QMouseEvent* e) = 0;
+    virtual void move(const ImagePane& pane, QPointF n, QMouseEvent* e) = 0;
+    virtual void release(const ImagePane& pane, QPointF n, QMouseEvent* e) = 0;
+    virtual Qt::CursorShape cursorAt(const ImagePane& pane, QPointF n) const = 0;
+};
+
 // One image view: shows a photo rendered with given settings, with zoom and pan.
 class ImagePane : public QWidget {
     Q_OBJECT
@@ -36,6 +50,8 @@ public:
     void setIgnoreCrop(bool on);
     void setOverlay(OverlayPainter p);
     void setInteractionEnabled(bool on) { m_interaction = on; }
+    void setTool(PaneTool* tool);
+    PaneTool* tool() const { return m_tool; }
 
     ViewState viewState() const { return m_view; }
     void setViewState(const ViewState& v);
@@ -87,6 +103,8 @@ private:
     QString m_label, m_message;
     OverlayPainter m_overlay;
     bool m_interaction = true;
+    PaneTool* m_tool = nullptr;
+    bool m_toolActive = false;
 
     Rendered m_base, m_detail;
     quint64 m_baseGen = 0, m_detailGen = 0;

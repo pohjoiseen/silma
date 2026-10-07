@@ -7,6 +7,7 @@
 #include "Importer.h"
 #include "Metadata.h"
 #include "RawDecoder.h"
+#include "Upright.h"
 
 #include <QDir>
 #include <QElapsedTimer>
@@ -728,6 +729,60 @@ std::map<QString, Command> commands()
             out() << "Exported " << files.size() << " file(s) to " << o.folder << '\n';
         if (!errors.isEmpty())
             throw CliError(QStringLiteral("%1 export(s) failed").arg(errors.size()).toStdString());
+    }};
+
+    m["upright"] = {"upright PHOTO... [--mode vertical|horizontal|both] [--no-crop]", "Automatic perspective correction (+ constrained crop)", {"mode", "import"}, {"no-crop"}, true, [](const Args& a, Batch* b, bool json) {
+        auto ps = resolvePhotos(*b, a.positional(), a.value("import"));
+        QString m = a.value("mode", "both");
+        UprightMode mode = m == QLatin1String("vertical") ? UprightMode::Vertical : m == QLatin1String("horizontal") ? UprightMode::Horizontal : UprightMode::Both;
+        QJsonArray arr;
+        for (const auto& p : ps) {
+            DevelopSettings s = DevelopSettings::fromJsonString(b->settings(p.id));
+            DevelopEngine e(p.path, {.halfSize = true});
+            UprightResult r = autoUpright(e, s, mode);
+            if (!r.ok) {
+                if (!json)
+                    out() << p.fileName << ": not enough straight lines found\n";
+                continue;
+            }
+            s.perspVertical = r.vertical;
+            s.perspHorizontal = r.horizontal;
+            s.rotate = r.rotate;
+            if (!a.has("no-crop")) {
+                QSizeF cs = e.geometry(s, true).canvasSize();
+                s.crop = autoCropRect(e.geometry(s, true), cs.width() / cs.height());
+            }
+            b->pushHistory(p.id, "Upright (" + m + ")", s.toJsonString());
+            arr.append(QJsonObject{{"id", p.id}, {"vertical", r.vertical}, {"horizontal", r.horizontal}, {"rotate", r.rotate}, {"segments", r.segmentsUsed}});
+            if (!json)
+                out() << p.fileName << QStringLiteral(": vertical %1, horizontal %2, rotate %3 (%4 lines)\n").arg(r.vertical).arg(r.horizontal).arg(r.rotate).arg(r.segmentsUsed);
+        }
+        if (json)
+            printJson(arr);
+    }};
+
+    m["autocrop"] = {"autocrop PHOTO... [--aspect W:H|original]", "Largest crop without empty borders", {"aspect", "import"}, {}, true, [](const Args& a, Batch* b, bool json) {
+        auto ps = resolvePhotos(*b, a.positional(), a.value("import"));
+        QJsonArray arr;
+        for (const auto& p : ps) {
+            DevelopSettings s = DevelopSettings::fromJsonString(b->settings(p.id));
+            DevelopEngine e(p.path, {.halfSize = true});
+            Geometry g = e.geometry(s, true);
+            QSizeF cs = g.canvasSize();
+            double aspect = cs.width() / cs.height();
+            QString as = a.value("aspect");
+            if (as.contains(':'))
+                aspect = as.section(':', 0, 0).toDouble() / std::max(1e-6, as.section(':', 1, 1).toDouble());
+            else if (as.isEmpty() && s.crop != QRectF(0, 0, 1, 1))
+                aspect = s.crop.width() * cs.width() / (s.crop.height() * cs.height());
+            s.crop = autoCropRect(g, aspect);
+            b->pushHistory(p.id, "Auto Crop", s.toJsonString());
+            arr.append(QJsonObject{{"id", p.id}, {"crop", QJsonArray{s.crop.x(), s.crop.y(), s.crop.width(), s.crop.height()}}});
+            if (!json)
+                out() << p.fileName << ": crop " << s.crop.x() << ',' << s.crop.y() << ',' << s.crop.width() << ',' << s.crop.height() << '\n';
+        }
+        if (json)
+            printJson(arr);
     }};
 
     m["show"] = {"show PHOTO", "Make a running GUI display this photo", {}, {}, true, [](const Args& a, Batch* b, bool json) {

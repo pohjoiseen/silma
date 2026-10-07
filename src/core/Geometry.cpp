@@ -61,8 +61,8 @@ Geometry::Geometry(const GeometrySource& src, const DevelopSettings& s, bool ign
 
     double diag = std::hypot(m_wo, m_ho);
     double f35 = src.focalLength35 > 0 ? src.focalLength35 : 28.0;
-    double focalPx = f35 / 43.27 * diag;
-    m_h = perspectiveMatrix(-s.perspVertical / 100.0 * kMaxPerspectiveDeg, s.perspHorizontal / 100.0 * kMaxPerspectiveDeg, s.rotate, focalPx);
+    m_focalPx = f35 / 43.27 * diag;
+    m_h = perspectiveMatrix(-s.perspVertical / 100.0 * kMaxPerspectiveDeg, s.perspHorizontal / 100.0 * kMaxPerspectiveDeg, s.rotate, m_focalPx);
     m_hinv = matInverse(m_h);
 }
 

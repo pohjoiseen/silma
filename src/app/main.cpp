@@ -6,6 +6,7 @@
 #include <QFileInfo>
 #include <QIcon>
 #include <QSettings>
+#include <QAction>
 #include <QTimer>
 
 int main(int argc, char** argv)
@@ -38,6 +39,14 @@ int main(int argc, char** argv)
     QString shot = qEnvironmentVariable("SILMA_SCREENSHOT");
     if (!shot.isEmpty()) {
         int delay = qEnvironmentVariableIntValue("SILMA_SCREENSHOT_DELAY");
+        // SILMA_SCREENSHOT_ACTIONS="Crop Tool;Before / After" triggers menu actions first.
+        QStringList actions = qEnvironmentVariable("SILMA_SCREENSHOT_ACTIONS").split(';', Qt::SkipEmptyParts);
+        QTimer::singleShot(std::max(500, (delay > 0 ? delay : 3000) / 2), &w, [&w, actions] {
+            for (const QString& name : actions)
+                for (QAction* a : w.findChildren<QAction*>())
+                    if (a->text().remove('&') == name.trimmed())
+                        a->trigger();
+        });
         QTimer::singleShot(delay > 0 ? delay : 3000, &w, [&w, shot] {
             w.grab().save(shot);
             w.close();

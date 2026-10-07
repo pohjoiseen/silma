@@ -3,6 +3,7 @@
 #include "Importer.h"
 #include "MainWindow.h"
 #include "Widgets.h"
+#include "CropTool.h"
 
 #include <QApplication>
 #include <QDir>
@@ -105,6 +106,28 @@ private slots:
         QVERIFY(w2.openBatch(m_batchFile));
         QCOMPARE(w2.currentPhoto()->id, firstId);
         QCOMPARE(w2.currentSettings().exposure, 1.0);
+    }
+
+    void cropAndUpright()
+    {
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(w.openBatch(m_batchFile));
+        QTRY_VERIFY_WITH_TIMEOUT(w.mainPane()->hasRender(), 15000);
+        qint64 id = w.currentPhoto()->id;
+        w.testCropTool(true);
+        QVERIFY(w.mainPane()->tool());
+        emit w.cropTool()->rectChanged(QRectF(0.1, 0.1, 0.5, 0.5), true);
+        Batch b;
+        b.open(m_batchFile);
+        QCOMPARE(DevelopSettings::fromJsonString(b.settings(id)).crop, QRectF(0.1, 0.1, 0.5, 0.5));
+        w.testCropTool(false);
+        QVERIFY(!w.mainPane()->tool());
+        int before = int(b.history(id).size());
+        w.testAutoUpright(2);
+        // Either a correction step was added or there were not enough lines.
+        QVERIFY(b.history(id).size() >= before);
     }
 };
 

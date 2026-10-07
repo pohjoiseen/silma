@@ -50,6 +50,8 @@ public:
     bool canvasValid(QPointF c) const;
 
     double lensZoom() const { return m_lensZoom; }
+    // Focal length in full-resolution pixels used for the perspective homography.
+    double focalPx() const { return m_focalPx; }
 
 private:
     GeometrySource m_src;
@@ -58,6 +60,7 @@ private:
     Mat3 m_h{}, m_hinv{}; // centred-pixel homography (frame -> canvas), inverse
     double m_scale = 1;
     double m_lensZoom = 1;
+    double m_focalPx = 1000;
     float m_distAmount = 1, m_vigAmount = 1;
 };
 

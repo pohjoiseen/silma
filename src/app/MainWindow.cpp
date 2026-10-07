@@ -1,6 +1,8 @@
 #include "MainWindow.h"
 
+#include "CropTool.h"
 #include "DevelopPanel.h"
+#include "Upright.h"
 #include "Dialogs.h"
 #include "Filmstrip.h"
 #include "Importer.h"
@@ -19,6 +21,7 @@
 #include <QListWidget>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPainter>
 #include <QProgressDialog>
 #include <QPushButton>
 #include <QSettings>
@@ -68,6 +71,19 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
     m_model->setBatch(&m_batch);
     createDocks();
     createActions();
+
+    m_cropToolObj = new CropTool(this);
+    connect(m_cropToolObj, &CropTool::rectChanged, this, [this](const QRectF& r, bool final) {
+        m_settings.crop = r;
+        if (final)
+            commit(m_settings, tr("Crop"));
+    });
+    connect(m_cropToolObj, &CropTool::rotationChanged, this, [this](double deg, bool final) {
+        m_settings.rotate = deg;
+        m_pane->setSettings(m_settings);
+        if (final)
+            commit(m_settings, tr("Rotate %1°").arg(deg));
+    });
 
     m_status = new QLabel(this);
     statusBar()->addPermanentWidget(m_status);
@@ -434,6 +450,8 @@ void MainWindow::selectPhoto(qint64 id)
     if (row >= 0)
         m_filmstrip->scrollTo(m_model->index(row), QAbstractItemView::PositionAtCenter);
     m_batch.setState("ui.photo", QString::number(id));
+    if (m_cropTool)
+        setCropTool(false);
     m_settings = m_committed = DevelopSettings::fromJsonString(m_batch.settings(id));
     if (m_viewMode == ViewMode::Compare) {
         // Keep comparing against the reference; if the reference itself was selected, leave compare.
@@ -535,6 +553,12 @@ void MainWindow::commit(const DevelopSettings& s, const QString& label)
 
 void MainWindow::applySettingsToUi()
 {
+    if (m_cropTool) {
+        m_cropToolObj->setRect(m_settings.crop);
+        m_cropToolObj->setLockAspect(m_settings.cropLockAspect);
+        m_cropToolObj->setRotation(m_settings.rotate);
+        m_pane->update();
+    }
     m_panel->setSettings(m_settings);
     m_pane->setSettings(m_settings);
     updatePanes();
@@ -597,21 +621,60 @@ void MainWindow::autoTone()
     commit(e->autoTone(m_settings), tr("Auto Tone"));
 }
 
-void MainWindow::autoUpright(int)
+void MainWindow::autoUpright(int mode)
 {
-    statusBar()->showMessage(tr("Auto upright is not implemented yet"), 3000);
+    auto e = m_pane->engine();
+    if (!e)
+        return;
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    UprightResult r = silma::autoUpright(*e, m_settings, UprightMode(mode));
+    QApplication::restoreOverrideCursor();
+    if (!r.ok) {
+        statusBar()->showMessage(tr("Upright: not enough straight lines found"), 4000);
+        return;
+    }
+    DevelopSettings s = m_settings;
+    s.perspVertical = r.vertical;
+    s.perspHorizontal = r.horizontal;
+    s.rotate = r.rotate;
+    // Constrain the crop to the valid area, keeping the original aspect ratio.
+    Geometry g = e->geometry(s, true);
+    QSizeF cs = g.canvasSize();
+    s.crop = autoCropRect(g, cs.width() / cs.height());
+    const char* names[] = {"Vertical", "Horizontal", "Both"};
+    commit(s, tr("Upright (%1)").arg(tr(names[std::clamp(mode, 0, 2)])));
 }
 
 void MainWindow::autoCrop()
 {
-    statusBar()->showMessage(tr("Auto crop is not implemented yet"), 3000);
+    auto e = m_pane->engine();
+    if (!e)
+        return;
+    DevelopSettings s = m_settings;
+    Geometry g = e->geometry(s, true);
+    QSizeF cs = g.canvasSize();
+    double aspect = cs.width() / cs.height();
+    if (s.cropLockAspect && s.crop != QRectF(0, 0, 1, 1))
+        aspect = s.crop.width() * cs.width() / (s.crop.height() * cs.height());
+    s.crop = autoCropRect(g, aspect);
+    commit(s, tr("Auto Crop"));
 }
 
 void MainWindow::setCropTool(bool on)
 {
+    if (on && !m_pane->engine())
+        on = false;
     m_cropTool = on;
     m_panel->setCropToolActive(on);
-    statusBar()->showMessage(tr("The interactive crop tool is not implemented yet"), 3000);
+    if (on) {
+        m_cropToolObj->setRect(m_settings.crop);
+        m_cropToolObj->setLockAspect(m_settings.cropLockAspect);
+        m_cropToolObj->setRotation(m_settings.rotate);
+        m_cropToolObj->setCanvasSize(m_pane->engine()->geometry(m_settings, true).canvasSize());
+        m_pane->setViewState(ViewState{});
+    }
+    m_pane->setIgnoreCrop(on);
+    m_pane->setTool(on ? m_cropToolObj : nullptr);
 }
 
 void MainWindow::resetSettings()
@@ -940,6 +1003,20 @@ void MainWindow::setViewMode(ViewMode m)
 
 void MainWindow::updatePanes()
 {
+    static const QStringList transformKeys = {"vertical", "horizontal", "rotate", "scale"};
+    if (transformKeys.contains(m_activeSlider)) {
+        m_pane->setOverlay([](QPainter& p, const std::function<QPointF(QPointF)>&, const QRectF& r) {
+            p.setPen(QPen(QColor(255, 255, 255, 90), 1));
+            const int n = 10;
+            double step = std::max(r.width(), r.height()) / n;
+            for (double x = r.left() + step / 2; x < r.right(); x += step)
+                p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()));
+            for (double y = r.top() + step / 2; y < r.bottom(); y += step)
+                p.drawLine(QPointF(r.left(), y), QPointF(r.right(), y));
+        });
+    } else {
+        m_pane->setOverlay({});
+    }
     if (!m_photo || m_viewMode == ViewMode::Single) {
         m_pane2->hide();
         m_pane->setLabel(QString());
@@ -1027,6 +1104,14 @@ void MainWindow::restoreSession()
     reloadImports();
     QString im = m_batch.state("ui.import");
     qint64 photoId = m_batch.state("ui.photo").toLongLong();
+    // A pending "silma show" request wins over the saved session.
+    if (qint64 go = m_batch.state("gui.goto").toLongLong(); go > 0) {
+        m_batch.setState("gui.goto", QString());
+        if (auto p = m_batch.photo(go)) {
+            photoId = go;
+            im = QString::number(p->importId);
+        }
+    }
     if (im == QLatin1String(kAllImports))
         selectImport(std::nullopt, true);
     else if (!im.isEmpty() && m_batch.importById(im.toLongLong()))

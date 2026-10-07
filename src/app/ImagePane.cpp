@@ -91,6 +91,14 @@ void ImagePane::setIgnoreCrop(bool on)
     scheduleDetail();
 }
 
+void ImagePane::setTool(PaneTool* tool)
+{
+    m_tool = tool;
+    m_toolActive = false;
+    unsetCursor();
+    update();
+}
+
 void ImagePane::setOverlay(OverlayPainter p)
 {
     m_overlay = std::move(p);
@@ -325,6 +333,11 @@ void ImagePane::paintEvent(QPaintEvent*)
     }
     if (m_overlay && !r.isEmpty())
         m_overlay(p, [this](QPointF n) { return imageToWidget(n); }, r);
+    if (m_tool && !r.isEmpty()) {
+        p.save();
+        m_tool->paint(p, *this);
+        p.restore();
+    }
 
     auto badge = [&](const QString& text, Qt::Alignment align) {
         QFont f = font();
@@ -360,6 +373,10 @@ void ImagePane::resizeEvent(QResizeEvent*)
 
 void ImagePane::mousePressEvent(QMouseEvent* e)
 {
+    if (m_tool && e->button() == Qt::LeftButton && m_tool->press(*this, widgetToImage(e->position()), e)) {
+        m_toolActive = true;
+        return;
+    }
     if (!m_interaction) {
         emit imagePressed(widgetToImage(e->position()), e);
         return;
@@ -373,6 +390,13 @@ void ImagePane::mousePressEvent(QMouseEvent* e)
 
 void ImagePane::mouseMoveEvent(QMouseEvent* e)
 {
+    if (m_toolActive) {
+        m_tool->move(*this, widgetToImage(e->position()), e);
+        update();
+        return;
+    }
+    if (m_tool && !m_pressed)
+        setCursor(m_tool->cursorAt(*this, widgetToImage(e->position())));
     if (!m_pressed)
         return;
     if (!m_dragging && QLineF(e->position(), m_pressPos).length() > 4)
@@ -392,6 +416,12 @@ void ImagePane::mouseMoveEvent(QMouseEvent* e)
 
 void ImagePane::mouseReleaseEvent(QMouseEvent* e)
 {
+    if (m_toolActive) {
+        m_toolActive = false;
+        m_tool->release(*this, widgetToImage(e->position()), e);
+        update();
+        return;
+    }
     if (!m_pressed)
         return;
     m_pressed = false;
