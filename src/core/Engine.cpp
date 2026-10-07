@@ -367,6 +367,194 @@ ImageF DevelopEngine::contextImage(const DevelopSettings& s, const WbValues& wb,
 
 namespace {
 
+// ---- Dehaze ----------------------------------------------------------------------
+// Haze model (Koschmieder): I = J*t + A*(1 - t), with airlight colour A and transmission
+// t. The dark channel prior (He et al.) estimates haze from the minimum channel over a
+// neighbourhood: haze-free content almost always has some dark channel locally. Like
+// common dehaze implementations the model works on gamma-encoded values (here relative
+// to the airlight, so A = 1), which makes it act on mid-tones too. The transmission
+// map comes from the low-res context and is refined edge-aware with a guided filter on
+// luminance, so it can be evaluated at any output resolution.
+
+constexpr float kHazeGamma = 2.2f;
+
+struct Dehaze {
+    float amount = 0;   // -1..1
+    float A[3] = {1, 1, 1};
+    float lift = 1;     // mid-tone lift (power on encoded values) compensating some darkening
+    PlaneF tA, tB;      // guided filter coefficients: t = tA * log2(Y) + tB
+    bool valid() const { return amount != 0 && !tA.empty(); }
+};
+
+void applyDehaze(ImageF& img, const Dehaze& d, const QRectF& roi);
+
+Dehaze computeDehaze(const ImageF& ctx, double amount)
+{
+    Dehaze d;
+    // Stronger response at low slider values.
+    d.amount = float(std::copysign(std::pow(std::abs(amount), 0.7), amount));
+    const int w = ctx.width, h = ctx.height, n = w * h;
+    const int longEdge = std::max(w, h);
+    const int patch = std::max(1, int(longEdge * 0.012));
+    const Vec3& lw = color::kRec2020Luma;
+    auto lum = [&](int i) {
+        const float* p = ctx.data.data() + size_t(i) * 3;
+        return float(lw[0] * p[0] + lw[1] * p[1] + lw[2] * p[2]);
+    };
+    // Raw dark channel to locate the haziest region.
+    PlaneF minc(w, h);
+    for (int i = 0; i < n; ++i) {
+        const float* p = ctx.data.data() + size_t(i) * 3;
+        minc.data[i] = std::max(0.0f, std::min({p[0], p[1], p[2]}));
+    }
+    PlaneF dark = minFilter(minc, patch);
+    // Airlight: mean colour of the brightest pixels among the top 0.2% dark channel.
+    std::vector<int> idx(n);
+    for (int i = 0; i < n; ++i)
+        idx[i] = i;
+    const int top = std::max(1, n / 500);
+    std::nth_element(idx.begin(), idx.begin() + top, idx.end(), [&](int a, int b) { return dark.data[a] > dark.data[b]; });
+    std::sort(idx.begin(), idx.begin() + top, [&](int a, int b) { return lum(a) > lum(b); });
+    const int pick = std::max(1, top / 4);
+    double A[3] = {0, 0, 0};
+    for (int k = 0; k < pick; ++k)
+        for (int c = 0; c < 3; ++c)
+            A[c] += ctx.data[size_t(idx[k]) * 3 + c];
+    double Ay = 0;
+    for (int c = 0; c < 3; ++c) {
+        A[c] /= pick;
+        Ay += lw[c] * A[c];
+    }
+    if (Ay <= 1e-6)
+        return {};
+    // Removing haze: no brighter than about white (blown skies would leave all other
+    // content looking haze-free). Adding haze: a light grey veil, not a white-out.
+    Ay = std::min(Ay, amount > 0 ? 1.0 : 0.55);
+    double Ay0 = 0;
+    for (int c = 0; c < 3; ++c)
+        Ay0 += lw[c] * A[c];
+    for (int c = 0; c < 3; ++c) {
+        double v = A[c] * Ay / Ay0;
+        // Keep the airlight close to neutral: a strongly tinted estimate would shift colours.
+        d.A[c] = float(std::max(Ay * 0.5 + v * 0.5, Ay * 0.2));
+    }
+    // Encoded dark channel relative to the airlight -> haze density.
+    for (int i = 0; i < n; ++i) {
+        const float* p = ctx.data.data() + size_t(i) * 3;
+        float m = std::min({p[0] / d.A[0], p[1] / d.A[1], p[2] / d.A[2]});
+        minc.data[i] = std::pow(std::clamp(m, 0.0f, 1.0f), 1.0f / kHazeGamma);
+    }
+    PlaneF haze = minFilter(minc, patch);
+    // Transmission. Removing haze keeps a minimum transmission (noise, skies); adding
+    // haze uses a fairly even veil, a bit denser where there already is haze.
+    PlaneF t(w, h);
+    const float a = d.amount;
+    for (int i = 0; i < n; ++i) {
+        float hz = haze.data[i];
+        t.data[i] = a > 0 ? 1.0f - 0.85f * a * hz : 1.0f + a * (0.35f + 0.3f * hz);
+    }
+    PlaneF L(w, h);
+    for (int i = 0; i < n; ++i)
+        L.data[i] = std::log2(std::max(lum(i), 1e-6f));
+    guidedFilterCoefficients(L, t, std::max(2, int(longEdge * 0.03)), 0.05f, d.tA, d.tB);
+    if (a > 0) {
+        // Removing haze darkens; give back part of it with a power curve on the encoded
+        // values (keeps black and the airlight level, so bright skies don't blow out).
+        ImageF after = ctx;
+        applyDehaze(after, d, QRectF(0, 0, 1, 1));
+        const float ay = float(lw[0] * d.A[0] + lw[1] * d.A[1] + lw[2] * d.A[2]);
+        double before = 0, now = 0;
+        int count = 0;
+        for (int i = 0; i < n; ++i) {
+            float Y0 = lum(i);
+            if (Y0 <= 0)
+                continue; // outside the image (transform borders)
+            const float* q = after.data.data() + size_t(i) * 3;
+            float Y1 = float(lw[0] * q[0] + lw[1] * q[1] + lw[2] * q[2]);
+            before += std::log(std::clamp(Y0 / ay, 1e-4f, 1.0f));
+            now += std::log(std::clamp(Y1 / ay, 1e-4f, 1.0f));
+            ++count;
+        }
+        if (count > 0 && now < 0 && before < 0) {
+            double k = before / now; // power that would restore the mean
+            d.lift = float(std::clamp(1.0 + 0.35 * (k - 1.0), 0.6, 1.0));
+        }
+    }
+    return d;
+}
+
+void applyDehaze(ImageF& img, const Dehaze& d, const QRectF& roi)
+{
+    if (!d.valid())
+        return;
+    const Vec3& lw = color::kRec2020Luma;
+    const float a = d.amount;
+#pragma omp parallel for schedule(static)
+    for (int y = 0; y < img.height; ++y) {
+        float* p = img.row(y);
+        float v = float(roi.y() + (y + 0.5) / img.height * roi.height());
+        for (int x = 0; x < img.width; ++x, p += 3) {
+            float u = float(roi.x() + (x + 0.5) / img.width * roi.width());
+            float Y = std::max(float(lw[0] * p[0] + lw[1] * p[1] + lw[2] * p[2]), 1e-6f);
+            float t = sampleNormalized(d.tA, u, v) * std::log2(Y) + sampleNormalized(d.tB, u, v);
+            t = std::clamp(t, a > 0 ? 0.3f : 0.0f, 1.0f);
+            for (int c = 0; c < 3; ++c) {
+                float e = std::pow(std::max(p[c], 0.0f) / d.A[c], 1.0f / kHazeGamma);
+                float j;
+                if (a > 0) {
+                    j = (e - 1.0f) / t + 1.0f;
+                    // Soft floor instead of clipping: keeps some shadow detail.
+                    float fl = e * 0.25f;
+                    j = j > fl * 2 ? j : fl + (j > 0 ? j * j / (4 * fl + 1e-12f) : 0.0f);
+                } else {
+                    j = e * t + (1.0f - t);
+                }
+                if (d.lift != 1 && j > 0 && j < 1)
+                    j = std::pow(j, d.lift);
+                p[c] = d.A[c] * std::pow(j, kHazeGamma);
+            }
+        }
+    }
+}
+
+// ---- Texture ---------------------------------------------------------------------
+// Medium-frequency detail (roughly 1-16 px at 24 MP): enhanced or smoothed on log
+// luminance. Finer than clarity; leaves pixel-level noise alone. Scales are relative
+// to the photo size so previews match exports.
+
+void textureStage(ImageF& img, const DevelopSettings& s, double outScale, double fullLongEdge)
+{
+    if (s.texture == 0)
+        return;
+    const double unit = fullLongEdge / 6000.0 * outScale; // output px per "24 MP pixel"
+    const float fine = float(1.0 * unit), coarse = float(16.0 * unit);
+    if (coarse < 0.6f)
+        return; // tiny thumbnail: nothing to see
+    PlaneF L(img.width, img.height);
+    const Vec3& lw = color::kRec2020Luma;
+    for (size_t i = 0; i < L.data.size(); ++i) {
+        const float* p = img.data.data() + i * 3;
+        L.data[i] = std::log2(std::max(float(lw[0] * p[0] + lw[1] * p[1] + lw[2] * p[2]), 1e-6f));
+    }
+    PlaneF bf = gaussianBlur(L, fine), bc = gaussianBlur(L, coarse);
+    const float amount = float(s.texture / 100.0) * (s.texture > 0 ? 1.7f : 1.0f);
+#pragma omp parallel for schedule(static)
+    for (int y = 0; y < img.height; ++y) {
+        float* p = img.row(y);
+        for (int x = 0; x < img.width; ++x, p += 3) {
+            size_t i = size_t(y) * img.width + x;
+            float band = bf.data[i] - bc.data[i];
+            band = band / (1.0f + std::abs(band) / 0.6f); // limit halos at strong edges
+            // Less in deep shadows, where it would mostly lift noise.
+            float wgt = smoothstep(-11.0f, -7.0f, L.data[i]);
+            float k = std::exp2(amount * band * wgt);
+            p[0] *= k;
+            p[1] *= k;
+            p[2] *= k;
+        }
+    }
+}
+
 struct LocalTone {
     PlaneF baseA, baseB, clarA, clarB;
 };
@@ -610,9 +798,19 @@ ImageF DevelopEngine::renderEncoded(const DevelopSettings& s, const RenderReques
         *wbOut = wb;
     colorStage(img, s, wb);
     denoise(img, s, 1.0 / pxPer);
+    const bool localTone = s.highlights != 0 || s.shadows != 0 || s.clarity != 0;
+    ImageF ctx;
+    if (localTone || s.dehaze != 0)
+        ctx = contextImage(s, wb, req.ignoreCrop);
+    if (s.dehaze != 0) {
+        Dehaze dh = computeDehaze(ctx, s.dehaze / 100.0);
+        applyDehaze(img, dh, req.roi);
+        applyDehaze(ctx, dh, QRectF(0, 0, 1, 1));
+    }
+    textureStage(img, s, 1.0 / pxPer, std::max(cs.width(), cs.height()));
     LocalTone lt;
-    if (s.highlights != 0 || s.shadows != 0 || s.clarity != 0)
-        lt = computeLocalTone(contextImage(s, wb, req.ignoreCrop), s);
+    if (localTone)
+        lt = computeLocalTone(ctx, s);
     toneStage(img, lt, req.roi, s);
     presenceStage(img, s);
     outputStage(img, s);
@@ -666,6 +864,8 @@ DevelopSettings DevelopEngine::autoTone(const DevelopSettings& in) const
     s.exposure = s.contrast = s.highlights = s.shadows = s.whites = s.blacks = 0;
     WbValues wb = effectiveWb(s);
     ImageF ctx = contextImage(s, wb, false);
+    if (s.dehaze != 0)
+        applyDehaze(ctx, computeDehaze(ctx, s.dehaze / 100.0), QRectF(0, 0, 1, 1));
     PlaneF L = luminanceLog(ctx);
     std::vector<float> v;
     v.reserve(L.data.size());

@@ -17,6 +17,11 @@ PlaneF gaussianBlur(const PlaneF& in, float sigma);
 // Self-guided filter (He et al.). Returns the smoothed coefficient planes (mean a, mean b),
 // so the filter output at any resolution is a*I + b with a, b bilinearly upsampled.
 void guidedFilterCoefficients(const PlaneF& guide, int r, float eps, PlaneF& meanA, PlaneF& meanB);
+// Guided filter of `input` with a separate guide: output = meanA*guide + meanB.
+void guidedFilterCoefficients(const PlaneF& guide, const PlaneF& input, int r, float eps, PlaneF& meanA, PlaneF& meanB);
+
+// Minimum over a (2r+1)^2 window (separable; edges shrink the window).
+PlaneF minFilter(const PlaneF& in, int r);
 
 // Bilinear sample of a plane at normalized coordinates (0..1 spanning the plane).
 inline float sampleNormalized(const PlaneF& p, float u, float v)

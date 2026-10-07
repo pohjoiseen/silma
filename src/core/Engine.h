@@ -5,6 +5,7 @@
 //   source pyramid level (camera RGB, as-shot WB)
 //   -> geometry warp (lens, orientation, perspective, crop)      [Geometry]
 //   -> white balance re-scale + highlight clip -> camera->Rec.2020 matrix -> exposure
+//   -> dehaze (dark channel prior, transmission from the context) -> texture
 //   -> local tone (highlights/shadows, clarity) from a low-res context of the whole crop
 //   -> global tone curve (contrast, whites, blacks) per channel with hue preservation
 //   -> vibrance / saturation (OkLab) -> point tone curve (display-encoded)

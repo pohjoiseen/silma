@@ -132,6 +132,48 @@ void guidedFilterCoefficients(const PlaneF& I, int r, float eps, PlaneF& meanA, 
     meanB = boxMean(b, r);
 }
 
+void guidedFilterCoefficients(const PlaneF& I, const PlaneF& P, int r, float eps, PlaneF& meanA, PlaneF& meanB)
+{
+    PlaneF II(I.width, I.height), IP(I.width, I.height);
+    for (size_t i = 0; i < I.data.size(); ++i) {
+        II.data[i] = I.data[i] * I.data[i];
+        IP.data[i] = I.data[i] * P.data[i];
+    }
+    PlaneF mI = boxMean(I, r), mP = boxMean(P, r), mII = boxMean(II, r), mIP = boxMean(IP, r);
+    PlaneF a(I.width, I.height), b(I.width, I.height);
+    for (size_t i = 0; i < I.data.size(); ++i) {
+        float var = std::max(0.0f, mII.data[i] - mI.data[i] * mI.data[i]);
+        float cov = mIP.data[i] - mI.data[i] * mP.data[i];
+        a.data[i] = cov / (var + eps);
+        b.data[i] = mP.data[i] - a.data[i] * mI.data[i];
+    }
+    meanA = boxMean(a, r);
+    meanB = boxMean(b, r);
+}
+
+PlaneF minFilter(const PlaneF& in, int r)
+{
+    const int w = in.width, h = in.height;
+    PlaneF tmp(w, h), out(w, h);
+#pragma omp parallel for schedule(static)
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            float m = in.at(x, y);
+            for (int i = std::max(0, x - r); i <= std::min(w - 1, x + r); ++i)
+                m = std::min(m, in.at(i, y));
+            tmp.at(x, y) = m;
+        }
+#pragma omp parallel for schedule(static)
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+            float m = tmp.at(x, y);
+            for (int i = std::max(0, y - r); i <= std::min(h - 1, y + r); ++i)
+                m = std::min(m, tmp.at(x, i));
+            out.at(x, y) = m;
+        }
+    return out;
+}
+
 CurveLut::CurveLut(const QList<QPointF>& ptsIn)
 {
     QList<QPointF> pts = ptsIn;

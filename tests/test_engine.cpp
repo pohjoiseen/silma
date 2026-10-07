@@ -45,6 +45,11 @@ private slots:
         QVERIFY(!applyAssignment(r, "exposure=9").isEmpty());
         QVERIFY(applyAssignment(r, "shadows=40").isEmpty());
         QCOMPARE(r.shadows, 40.0);
+        QVERIFY(applyAssignment(r, "dehaze=35").isEmpty());
+        QVERIFY(applyAssignment(r, "texture=-20").isEmpty());
+        DevelopSettings r2 = DevelopSettings::fromJsonString(r.toJsonString());
+        QCOMPARE(r2.dehaze, 35.0);
+        QCOMPARE(r2.texture, -20.0);
     }
 
     void renderSamples()
@@ -83,6 +88,53 @@ private slots:
             QCOMPARE(r3.image.height(), 100);
             QVERIFY(!e.lensDescription().isEmpty());
         }
+    }
+
+    void textureAndDehaze()
+    {
+        QString f = sample("2026-05-17"); // drone landscape with some haze
+        if (f.isEmpty())
+            QSKIP("samples not available");
+        DevelopEngine e(f, {.halfSize = true});
+        const RenderRequest req{.width = 600, .height = 450};
+        // Luminance statistics of a render: mean, standard deviation, mean chroma and
+        // fine detail energy (differences between neighbours).
+        struct Stats { double mean, sd, chroma, detail; };
+        auto stats = [&](const DevelopSettings& s) {
+            QImage img = e.render(s, req).image;
+            double sum = 0, sum2 = 0, chroma = 0, detail = 0;
+            const int n = img.width() * img.height();
+            for (int y = 0; y < img.height(); ++y)
+                for (int x = 0; x < img.width(); ++x) {
+                    QRgb p = img.pixel(x, y);
+                    double l = 0.2126 * qRed(p) + 0.7152 * qGreen(p) + 0.0722 * qBlue(p);
+                    sum += l;
+                    sum2 += l * l;
+                    chroma += std::max({qRed(p), qGreen(p), qBlue(p)}) - std::min({qRed(p), qGreen(p), qBlue(p)});
+                    if (x > 0)
+                        detail += std::abs(qGray(p) - qGray(img.pixel(x - 1, y)));
+                }
+            double mean = sum / n;
+            return Stats{mean, std::sqrt(sum2 / n - mean * mean), chroma / n, detail / n};
+        };
+        DevelopSettings s;
+        Stats base = stats(s);
+        s.dehaze = 50;
+        Stats dh = stats(s);
+        QVERIFY2(dh.detail > base.detail * 1.05, qPrintable(QStringLiteral("%1 vs %2").arg(dh.detail).arg(base.detail)));
+        QVERIFY(dh.chroma > base.chroma * 1.05);
+        QVERIFY(dh.mean < base.mean); // removing haze darkens
+        s.dehaze = -50;
+        Stats haze = stats(s);
+        QVERIFY(haze.sd < base.sd * 0.9);
+        QVERIFY(haze.mean > base.mean); // a light veil
+        s.dehaze = 0;
+        s.texture = 100;
+        Stats tx = stats(s);
+        QVERIFY2(tx.detail > base.detail * 1.1, qPrintable(QStringLiteral("%1 vs %2").arg(tx.detail).arg(base.detail)));
+        QVERIFY(std::abs(tx.mean - base.mean) < 3); // detail only, not brightness
+        s.texture = -100;
+        QVERIFY(stats(s).detail < base.detail * 0.9);
     }
 
     void exportJpeg()

@@ -48,7 +48,9 @@ struct DevelopSettings {
     double blacks = 0;
 
     // Presence
+    double texture = 0; // -100..100, medium-scale detail
     double clarity = 0; // -100..100
+    double dehaze = 0;  // -100..100
     double vibrance = 0;
     double saturation = 0;
 
