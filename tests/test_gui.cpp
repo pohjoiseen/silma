@@ -10,6 +10,9 @@
 
 #include <QApplication>
 #include <QDir>
+#include <QDoubleSpinBox>
+#include <QSignalSpy>
+#include <QSlider>
 #include <QDockWidget>
 #include <QTabWidget>
 #include <QToolButton>
@@ -125,6 +128,40 @@ private slots:
         QTRY_VERIFY(panel->isVisible());
         QTRY_VERIFY(w.mainPane()->width() < 1100);
         QVERIFY(!QSettings().value("ui/autoHide/" + QString::number(int(Qt::RightEdge))).toBool());
+    }
+
+    void sliderInteraction()
+    {
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QVERIFY(w.openBatch(m_batchFile));
+        ParamSlider* contrast = slider(w, "contrast");
+        QVERIFY(contrast);
+        QSlider* qs = contrast->findChild<QSlider*>();
+        QSignalSpy edits(contrast, &ParamSlider::edited);
+        // A click at 80% of the groove sets about +60 (range -100..100), not a page step.
+        QTest::mouseClick(qs, Qt::LeftButton, {}, QPoint(int(qs->width() * 0.8), qs->height() / 2));
+        QTRY_VERIFY(!edits.isEmpty());
+        QVERIFY2(contrast->value() > 45 && contrast->value() < 75, qPrintable(QString::number(contrast->value())));
+
+        // Focusing the number of a transform parameter makes it active (guide lines).
+        QSignalSpy active(w.developPanel(), &DevelopPanel::sliderActive);
+        ParamSlider* vertical = slider(w, "vertical");
+        auto* spin = vertical->findChild<QDoubleSpinBox*>();
+        spin->setFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(!active.isEmpty());
+        QCOMPARE(active.last().at(0).toString(), QString("vertical"));
+        QCOMPARE(active.last().at(1).toBool(), true);
+        contrast->findChild<QDoubleSpinBox*>()->setFocus(Qt::MouseFocusReason);
+        QTRY_VERIFY(active.size() >= 2);
+        bool verticalOff = false;
+        for (const auto& args : active)
+            if (args.at(0).toString() == "vertical" && !args.at(1).toBool())
+                verticalOff = true;
+        QVERIFY(verticalOff);
+        w.testUndo();
     }
 
     void editUndoRejectRestore()

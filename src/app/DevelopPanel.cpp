@@ -194,6 +194,7 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
         auto* sizeRow = new QHBoxLayout();
         sizeRow->addWidget(new QLabel(tr("Size"), heal));
         m_healSize = new QSlider(Qt::Horizontal, heal);
+        makeSliderAbsolute(m_healSize);
         m_healSize->setRange(5, 200); // per-mille of the long edge
         m_healSize->setValue(QSettings().value("heal/size", 30).toInt());
         sizeRow->addWidget(m_healSize, 1);
@@ -242,8 +243,13 @@ void DevelopPanel::addSliders(CollapsibleSection* sec, const char* group)
             continue;
         auto* sl = new ParamSlider(def, sec);
         sec->contentLayout()->addWidget(sl);
+        // Small gaps between groups of related sliders.
+        static const QStringList gapAfter = {"contrast", "dehaze"};
+        if (gapAfter.contains(QLatin1String(def.key)))
+            sec->contentLayout()->addSpacing(fontMetrics().height() / 2);
         m_sliders.insert(QString::fromUtf8(def.key), sl);
         QString key = QString::fromUtf8(def.key);
+        connect(sl, &ParamSlider::activeChanged, this, [this, key](bool on) { emit sliderActive(key, on); });
         connect(sl, &ParamSlider::edited, this, [this, sl, key](double v, bool final) {
             const ParamDef& d = sl->def();
             m_settings.*d.field = v;
@@ -263,7 +269,6 @@ void DevelopPanel::addSliders(CollapsibleSection* sec, const char* group)
             QString val = QString::number(v, 'f', d.decimals);
             if (d.min < 0 && v > 0)
                 val.prepend('+');
-            emit sliderActive(key, !final);
             emitEdit(QStringLiteral("%1 %2").arg(QString::fromUtf8(d.label), val), final);
         });
     }

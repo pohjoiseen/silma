@@ -61,6 +61,9 @@ private:
     QWidget* m_headerRow;
 };
 
+// Clicking the groove puts the handle at the click position.
+void makeSliderAbsolute(QSlider* s);
+
 // Label + slider + spin box for one numeric develop parameter.
 class ParamSlider : public QWidget {
     Q_OBJECT
@@ -74,6 +77,8 @@ public:
 signals:
     // `final` is false while dragging and true when the change is complete.
     void edited(double value, bool final);
+    // The user is working with this parameter: dragging the slider or editing the number.
+    void activeChanged(bool active);
 
 protected:
     bool eventFilter(QObject* o, QEvent* e) override;
@@ -82,6 +87,7 @@ private:
     int toSlider(double v) const;
     double fromSlider(int s) const;
     void emitChange(double v, bool final);
+    void updateActive();
 
     ParamDef m_def;
     double m_value;
@@ -90,6 +96,8 @@ private:
     QSlider* m_slider;
     QDoubleSpinBox* m_spin;
     bool m_updating = false;
+    bool m_active = false;
+    bool m_spinFocused = false;
 };
 
 class HistogramWidget : public QWidget {

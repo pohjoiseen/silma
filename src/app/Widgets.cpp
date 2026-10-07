@@ -10,6 +10,8 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QProxyStyle>
+#include <QApplication>
 #include <QSlider>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -126,6 +128,29 @@ void CollapsibleSection::addHeaderWidget(QWidget* w) { m_headerRow->layout()->ad
 
 namespace {
 constexpr int kSliderSteps = 1000;
+
+// Clicking a slider's groove moves the handle right there (and keeps dragging),
+// instead of stepping a page towards the click.
+class AbsoluteSliderStyle : public QProxyStyle {
+public:
+    int styleHint(StyleHint hint, const QStyleOption* opt, const QWidget* w, QStyleHintReturn* ret) const override
+    {
+        if (hint == QStyle::SH_Slider_AbsoluteSetButtons)
+            return Qt::LeftButton | Qt::MiddleButton;
+        return QProxyStyle::styleHint(hint, opt, w, ret);
+    }
+};
+} // namespace
+
+void makeSliderAbsolute(QSlider* s)
+{
+    // One shared proxy over the application style (not owned, follows style changes).
+    static AbsoluteSliderStyle* style = [] {
+        auto* st = new AbsoluteSliderStyle;
+        st->setParent(qApp);
+        return st;
+    }();
+    s->setStyle(style);
 }
 
 ParamSlider::ParamSlider(const ParamDef& def, QWidget* parent)
@@ -144,6 +169,7 @@ ParamSlider::ParamSlider(const ParamDef& def, QWidget* parent)
     m_slider->setRange(0, kSliderSteps);
     m_slider->setPageStep(kSliderSteps / 20);
     m_slider->installEventFilter(this);
+    makeSliderAbsolute(m_slider);
     m_spin = new QDoubleSpinBox(this);
     m_spin->setRange(def.min, def.max);
     m_spin->setDecimals(def.decimals);
@@ -164,7 +190,11 @@ ParamSlider::ParamSlider(const ParamDef& def, QWidget* parent)
             return;
         emitChange(fromSlider(v), !m_slider->isSliderDown());
     });
-    connect(m_slider, &QSlider::sliderReleased, this, [this] { emitChange(fromSlider(m_slider->value()), true); });
+    connect(m_slider, &QSlider::sliderReleased, this, [this] {
+        emitChange(fromSlider(m_slider->value()), true);
+        updateActive();
+    });
+    connect(m_slider, &QSlider::sliderPressed, this, &ParamSlider::updateActive);
     connect(m_spin, &QDoubleSpinBox::valueChanged, this, [this](double v) {
         if (!m_updating)
             emitChange(v, true);
@@ -218,8 +248,21 @@ void ParamSlider::emitChange(double v, bool final)
     emit edited(v, final);
 }
 
+void ParamSlider::updateActive()
+{
+    bool a = m_slider->isSliderDown() || m_spinFocused;
+    if (a != m_active) {
+        m_active = a;
+        emit activeChanged(a);
+    }
+}
+
 bool ParamSlider::eventFilter(QObject* o, QEvent* e)
 {
+    if (o == m_spin && (e->type() == QEvent::FocusIn || e->type() == QEvent::FocusOut)) {
+        m_spinFocused = e->type() == QEvent::FocusIn;
+        updateActive();
+    }
     if (o == m_label && e->type() == QEvent::MouseButtonDblClick) {
         setValue(m_def.def);
         emit edited(m_def.def, true);
