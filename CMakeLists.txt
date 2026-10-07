@@ -19,6 +19,7 @@ pkg_check_modules(LENSFUN REQUIRED IMPORTED_TARGET lensfun)
 pkg_check_modules(JPEG REQUIRED IMPORTED_TARGET libjpeg)
 pkg_check_modules(TIFF REQUIRED IMPORTED_TARGET libtiff-4)
 pkg_check_modules(SQLITE REQUIRED IMPORTED_TARGET sqlite3)
+pkg_check_modules(LCMS REQUIRED IMPORTED_TARGET lcms2)
 
 set(CMAKE_AUTOMOC ON)
 

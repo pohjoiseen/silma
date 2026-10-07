@@ -135,6 +135,8 @@ RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts)
     out.isDng = raw->imgdata.idata.dng_version != 0;
 
     check(raw->unpack(), "Cannot unpack raw data");
+    // Full-resolution visible size (LibRaw shrinks sizes when decoding at half size).
+    const int fullW = S.width, fullH = S.height;
 
     out.color.asShotMul = normalizeMul(C.cam_mul);
     out.color.daylightMul = normalizeMul(C.pre_mul);
@@ -202,8 +204,8 @@ RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts)
         dst[i] = src[i] * scale;
 
     out.halfSize = opts.halfSize;
-    out.fullWidth = S.width;
-    out.fullHeight = S.height;
+    out.fullWidth = fullW;
+    out.fullHeight = fullH;
     // EXIF-style orientation from LibRaw flip (0 none, 3 180, 5 90 CCW, 6 90 CW).
     switch (S.flip) {
     case 3: out.orientation = 3; break;
@@ -213,16 +215,16 @@ RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts)
     }
     out.cropX = 0;
     out.cropY = 0;
-    out.cropW = S.width;
-    out.cropH = S.height;
+    out.cropW = fullW;
+    out.cropH = fullH;
     if (out.isDng) {
         const auto& ic = S.raw_inset_crops[0];
         // raw_inset_crops are relative to the raw frame; translate to the visible area.
-        if (ic.cwidth > 0 && ic.cheight > 0 && ic.cwidth <= S.width && ic.cheight <= S.height) {
+        if (ic.cwidth > 0 && ic.cheight > 0 && ic.cwidth <= fullW && ic.cheight <= fullH) {
             out.cropX = std::max(0, int(ic.cleft) - int(S.left_margin));
             out.cropY = std::max(0, int(ic.ctop) - int(S.top_margin));
-            out.cropW = std::min(int(ic.cwidth), S.width - out.cropX);
-            out.cropH = std::min(int(ic.cheight), S.height - out.cropY);
+            out.cropW = std::min(int(ic.cwidth), fullW - out.cropX);
+            out.cropH = std::min(int(ic.cheight), fullH - out.cropY);
         }
         QFile f(path);
         if (f.open(QIODevice::ReadOnly)) {

@@ -1,11 +1,17 @@
 #include "Cli.h"
 
 #include "Batch.h"
+#include "Develop.h"
+#include "Engine.h"
+#include "Export.h"
 #include "Importer.h"
 #include "Metadata.h"
 #include "RawDecoder.h"
 
+#include <QDir>
 #include <QElapsedTimer>
+#include <QtConcurrent>
+#include <atomic>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -411,6 +417,317 @@ std::map<QString, Command> commands()
         }
         if (json)
             printJson(arr);
+    }};
+
+    m["settings"] = {"settings PHOTO", "Show current develop settings (with effective white balance)", {}, {}, true, [](const Args& a, Batch* b, bool json) {
+        auto ps = resolvePhotos(*b, a.positional());
+        if (ps.size() != 1)
+            fail("settings takes exactly one photo");
+        DevelopSettings s = DevelopSettings::fromJsonString(b->settings(ps[0].id));
+        DevelopEngine e(ps[0].path, {.halfSize = true});
+        WbValues wb = e.effectiveWb(s);
+        QJsonObject o{{"stored", s.toJson()}, {"wb_mode", wbModeName(s.wbMode)}, {"temperature", qRound(wb.temperature)}, {"tint", qRound(wb.tint)},
+                      {"lens_profile", e.lensDescription()}};
+        QJsonObject all;
+        for (const auto& p : paramDefs())
+            all[p.key] = s.*p.field;
+        all["temperature"] = qRound(wb.temperature);
+        all["tint"] = qRound(wb.tint);
+        o["values"] = all;
+        QSize sz = e.outputSize(s);
+        o["output_size"] = QJsonArray{sz.width(), sz.height()};
+        if (json) {
+            printJson(o);
+            return;
+        }
+        out() << "White balance: " << wbModeName(s.wbMode) << " (" << qRound(wb.temperature) << " K, tint " << qRound(wb.tint) << ")\n";
+        out() << "Lens profile:  " << (e.lensDescription().isEmpty() ? QStringLiteral("none") : e.lensDescription()) << '\n';
+        out() << "Output size:   " << sz.width() << "x" << sz.height() << '\n';
+        QString group;
+        for (const auto& p : paramDefs()) {
+            if (QString(p.group) == QLatin1String("wb"))
+                continue;
+            if (group != QLatin1String(p.group)) {
+                group = p.group;
+                out() << '[' << group << "]\n";
+            }
+            double v = s.*p.field;
+            out() << "  " << QString(p.key).leftJustified(18) << QString::number(v, 'f', p.decimals) << (std::abs(v - p.def) > 1e-9 ? "  *" : "") << '\n';
+        }
+        auto curve = [&](const char* name, const CurvePoints& c) {
+            if (c.points.isEmpty())
+                return;
+            QStringList pts;
+            for (const auto& pt : c.points)
+                pts << QStringLiteral("%1:%2").arg(pt.x()).arg(pt.y());
+            out() << "  " << QString(name).leftJustified(18) << pts.join(',') << '\n';
+        };
+        curve("curve", s.curveRgb);
+        curve("curve_r", s.curveR);
+        curve("curve_g", s.curveG);
+        curve("curve_b", s.curveB);
+        if (s.crop != QRectF(0, 0, 1, 1))
+            out() << "  crop              " << s.crop.x() << ',' << s.crop.y() << ',' << s.crop.width() << ',' << s.crop.height() << '\n';
+    }};
+
+    m["set"] = {"set PHOTO... KEY=VALUE... [--label TEXT]", "Change develop settings (adds a history step)", {"label", "import"}, {}, true, [](const Args& a, Batch* b, bool json) {
+        QStringList refs, assigns;
+        for (const auto& x : a.positional())
+            (x.contains('=') ? assigns : refs) << x;
+        if (assigns.isEmpty())
+            fail("Nothing to set; use KEY=VALUE (see 'silma keys')");
+        auto ps = resolvePhotos(*b, refs, a.value("import"));
+        QStringList labels;
+        for (const auto& as : assigns) {
+            QString k = as.section('=', 0, 0).replace('-', '_');
+            const ParamDef* p = findParam(k);
+            labels << (p ? QStringLiteral("%1 %2").arg(QString::fromUtf8(p->label), as.section('=', 1)) : as);
+        }
+        QString label = a.value("label", labels.join(", "));
+        QJsonArray results;
+        for (const auto& p : ps) {
+            DevelopSettings s = DevelopSettings::fromJsonString(b->settings(p.id));
+            bool touchesWb = false, setsTemp = false, setsTint = false;
+            for (const auto& as : assigns) {
+                setsTemp |= as.startsWith(QLatin1String("temperature="));
+                setsTint |= as.startsWith(QLatin1String("tint="));
+            }
+            touchesWb = setsTemp || setsTint;
+            if (touchesWb && s.wbMode != WbMode::Custom) {
+                // Switching to a custom WB: start from the currently effective values.
+                DevelopEngine e(p.path, {.halfSize = true});
+                WbValues wb = e.effectiveWb(s);
+                s.temperature = std::round(wb.temperature);
+                s.tint = std::round(wb.tint);
+            }
+            for (const auto& as : assigns)
+                if (QString e = applyAssignment(s, as); !e.isEmpty())
+                    fail(e);
+            int pos = b->pushHistory(p.id, label, s.toJsonString());
+            results.append(QJsonObject{{"id", p.id}, {"history_pos", pos}, {"settings", s.toJson()}});
+        }
+        if (json)
+            printJson(results);
+        else
+            out() << "Updated " << ps.size() << " photo(s): " << label << '\n';
+    }};
+
+    auto moveHistory = [](int delta) {
+        return [delta](const Args& a, Batch* b, bool json) {
+            auto ps = resolvePhotos(*b, a.positional(), a.value("import"));
+            int steps = a.value("steps", "1").toInt();
+            QJsonArray arr;
+            for (const auto& p : ps) {
+                int pos = b->historyPos(p.id);
+                int n = int(b->history(p.id).size());
+                int np = std::clamp(pos + delta * steps, 0, n - 1);
+                if (a.has("to"))
+                    np = std::clamp(a.value("to").toInt(), 0, n - 1);
+                b->setHistoryPos(p.id, np);
+                arr.append(QJsonObject{{"id", p.id}, {"history_pos", np}});
+                if (!json)
+                    out() << p.fileName << ": history position " << pos << " -> " << np << '\n';
+            }
+            if (json)
+                printJson(arr);
+        };
+    };
+    m["undo"] = {"undo PHOTO... [--steps N] [--to SEQ]", "Step back in the edit history", {"steps", "to", "import"}, {}, true, moveHistory(-1)};
+    m["redo"] = {"redo PHOTO... [--steps N]", "Step forward in the edit history", {"steps", "to", "import"}, {}, true, moveHistory(1)};
+
+    m["reset"] = {"reset PHOTO...", "Reset develop settings to defaults (adds a history step)", {"import"}, {}, true, [](const Args& a, Batch* b, bool json) {
+        auto ps = resolvePhotos(*b, a.positional(), a.value("import"));
+        for (const auto& p : ps)
+            b->pushHistory(p.id, "Reset", DevelopSettings().toJsonString());
+        if (json)
+            printJson(QJsonObject{{"changed", int(ps.size())}});
+        else
+            out() << "Reset " << ps.size() << " photo(s)\n";
+    }};
+
+    m["sync"] = {"sync FROM TO... [--only KEYS]", "Copy develop settings from one photo to others", {"only", "import"}, {}, true, [](const Args& a, Batch* b, bool json) {
+        if (a.positional().size() < 2)
+            fail("sync needs a source and at least one target");
+        auto src = resolvePhotos(*b, {a.positional()[0]});
+        auto dst = resolvePhotos(*b, a.positional().mid(1), a.value("import"));
+        DevelopSettings from = DevelopSettings::fromJsonString(b->settings(src[0].id));
+        QStringList only = a.value("only").split(',', Qt::SkipEmptyParts);
+        int n = 0;
+        for (const auto& p : dst) {
+            if (p.id == src[0].id)
+                continue;
+            DevelopSettings s = from;
+            if (!only.isEmpty()) {
+                s = DevelopSettings::fromJsonString(b->settings(p.id));
+                for (const QString& k : only) {
+                    if (const ParamDef* d = findParam(k))
+                        s.*d->field = from.*d->field;
+                    else if (k == QLatin1String("wb")) {
+                        s.wbMode = from.wbMode;
+                        s.temperature = from.temperature;
+                        s.tint = from.tint;
+                    } else if (k == QLatin1String("crop"))
+                        s.crop = from.crop;
+                    else if (k == QLatin1String("curve")) {
+                        s.curveRgb = from.curveRgb;
+                        s.curveR = from.curveR;
+                        s.curveG = from.curveG;
+                        s.curveB = from.curveB;
+                    } else
+                        fail("Unknown key " + k);
+                }
+            }
+            b->pushHistory(p.id, "Sync from " + src[0].fileName, s.toJsonString());
+            ++n;
+        }
+        if (json)
+            printJson(QJsonObject{{"changed", n}});
+        else
+            out() << "Synced settings to " << n << " photo(s)\n";
+    }};
+
+    m["auto"] = {"auto PHOTO... [--tone] [--wb]", "Automatic tone and/or white balance (default: both)", {"import"}, {"tone", "wb"}, true, [](const Args& a, Batch* b, bool json) {
+        auto ps = resolvePhotos(*b, a.positional(), a.value("import"));
+        bool tone = a.has("tone") || !a.has("wb"), wbAuto = a.has("wb") || !a.has("tone");
+        QJsonArray arr;
+        for (const auto& p : ps) {
+            DevelopSettings s = DevelopSettings::fromJsonString(b->settings(p.id));
+            DevelopEngine e(p.path, {.halfSize = true});
+            if (wbAuto)
+                s.wbMode = WbMode::Auto;
+            if (tone)
+                s = e.autoTone(s);
+            QString label = tone && wbAuto ? "Auto tone & WB" : tone ? "Auto tone" : "Auto WB";
+            b->pushHistory(p.id, label, s.toJsonString());
+            arr.append(QJsonObject{{"id", p.id}, {"settings", s.toJson()}});
+            if (!json)
+                out() << p.fileName << ": " << QJsonDocument(s.toJson()).toJson(QJsonDocument::Compact) << '\n';
+        }
+        if (json)
+            printJson(arr);
+    }};
+
+    m["keys"] = {"keys", "List settable develop keys with ranges", {}, {}, false, [](const Args&, Batch*, bool json) {
+        QJsonArray arr;
+        for (const auto& p : paramDefs()) {
+            if (json)
+                arr.append(QJsonObject{{"key", p.key}, {"label", p.label}, {"group", p.group}, {"min", p.min}, {"max", p.max}, {"default", p.def}});
+            else
+                out() << QString(p.key).leftJustified(18) << QString(p.group).leftJustified(11) << QStringLiteral("%1..%2 (default %3)").arg(p.min).arg(p.max).arg(p.def) << '\n';
+        }
+        if (json) {
+            printJson(arr);
+            return;
+        }
+        out() << "wb                as-shot | auto | custom\n"
+                 "crop              x,y,w,h (normalized, of the transformed image) | none\n"
+                 "crop_lock_aspect  true | false\n"
+                 "curve, curve_r, curve_g, curve_b   x:y,x:y,... (0..1, display-encoded) | linear\n";
+    }};
+
+    m["render"] = {"render PHOTO OUT.jpg [--size N|full] [--roi x,y,w,h] [--before] [--quality Q] [--crop-off]",
+                   "Render a preview JPEG (long edge N, default 1600; full = 1:1)", {"size", "quality", "roi"}, {"before", "crop-off"}, true, [](const Args& a, Batch* b, bool json) {
+        if (a.positional().size() != 2)
+            fail("render needs PHOTO and output file");
+        auto ps = resolvePhotos(*b, {a.positional()[0]});
+        DevelopSettings s = a.has("before") ? DevelopSettings() : DevelopSettings::fromJsonString(b->settings(ps[0].id));
+        QElapsedTimer t;
+        t.start();
+        DevelopEngine e(ps[0].path);
+        qint64 decodeMs = t.restart();
+        bool full = a.value("size") == QLatin1String("full");
+        int size = full ? 0 : a.value("size", "1600").toInt();
+        Geometry g = e.geometry(s, a.has("crop-off"));
+        QSizeF cs = g.cropSize();
+        QRectF roi(0, 0, 1, 1);
+        if (a.has("roi")) {
+            auto r = a.value("roi").split(',');
+            if (r.size() != 4)
+                fail("--roi needs x,y,w,h (normalized)");
+            roi = QRectF(r[0].toDouble(), r[1].toDouble(), r[2].toDouble(), r[3].toDouble()).intersected(QRectF(0, 0, 1, 1));
+            if (roi.isEmpty())
+                fail("--roi is empty");
+        }
+        cs = QSizeF(cs.width() * roi.width(), cs.height() * roi.height());
+        double k = full ? 1.0 : std::min(1.0, size / std::max(cs.width(), cs.height()));
+        RenderRequest req{.width = std::max(1, int(std::round(cs.width() * k))), .height = std::max(1, int(std::round(cs.height() * k))), .roi = roi, .highQuality = full, .ignoreCrop = a.has("crop-off")};
+        ImageF img = e.renderEncoded(s, req);
+        qint64 renderMs = t.elapsed();
+        writeJpeg(a.positional()[1], img, a.value("quality", "90").toInt(), ps[0].path);
+        if (json)
+            printJson(QJsonObject{{"file", QFileInfo(a.positional()[1]).absoluteFilePath()}, {"width", img.width}, {"height", img.height}, {"decode_ms", decodeMs}, {"render_ms", renderMs}});
+        else
+            out() << "Wrote " << a.positional()[1] << " (" << img.width << "x" << img.height << ", decode " << decodeMs << " ms, render " << renderMs << " ms)\n";
+    }};
+
+    m["export"] = {"export PHOTO...|--import NAME|--all --to DIR [--pattern P] [--quality Q] [--long-edge N|--short-edge N] [--include-rejected] [--overwrite]",
+                   "Export JPEGs (default pattern {date}-{name})", {"to", "pattern", "quality", "long-edge", "short-edge", "import", "jobs"}, {"all", "include-rejected", "overwrite"}, true,
+                   [](const Args& a, Batch* b, bool json) {
+        if (!a.has("to"))
+            fail("export needs --to DIR");
+        QList<PhotoInfo> ps;
+        if (a.has("all") || (a.positional().isEmpty() && a.has("import"))) {
+            std::optional<qint64> importId;
+            if (a.has("import")) {
+                auto im = b->importByName(a.value("import"));
+                if (!im)
+                    fail("No import named " + a.value("import"));
+                importId = im->id;
+            }
+            ps = b->photos(importId);
+        } else {
+            ps = resolvePhotos(*b, a.positional(), a.value("import"));
+        }
+        if (!a.has("include-rejected"))
+            ps.erase(std::remove_if(ps.begin(), ps.end(), [](const PhotoInfo& p) { return p.rejected; }), ps.end());
+        ExportOptions o;
+        o.folder = QFileInfo(a.value("to")).absoluteFilePath();
+        o.pattern = a.value("pattern", o.pattern);
+        o.quality = a.value("quality", "90").toInt();
+        o.overwrite = a.has("overwrite");
+        if (a.has("long-edge")) {
+            o.sizeMode = ExportSizeMode::LongEdge;
+            o.size = a.value("long-edge").toInt();
+        } else if (a.has("short-edge")) {
+            o.sizeMode = ExportSizeMode::ShortEdge;
+            o.size = a.value("short-edge").toInt();
+        }
+        QHash<qint64, QString> importNames;
+        for (const auto& im : b->imports())
+            importNames[im.id] = im.name;
+        struct Job {
+            PhotoInfo p;
+            DevelopSettings s;
+            int seq;
+        };
+        QList<Job> jobs;
+        for (int i = 0; i < ps.size(); ++i)
+            jobs.append({ps[i], DevelopSettings::fromJsonString(b->settings(ps[i].id)), i + 1});
+        // Each render is internally parallel; run a couple at once to overlap decoding.
+        QThreadPool pool;
+        pool.setMaxThreadCount(std::max(1, a.value("jobs", "2").toInt()));
+        std::atomic<int> done{0};
+        QList<QPair<QString, QString>> results = QtConcurrent::blockingMapped(&pool, jobs, [&](const Job& j) {
+            QPair<QString, QString> r;
+            try {
+                r.first = exportPhoto(j.p, j.s, importNames.value(j.p.importId), j.seq, o);
+            } catch (const std::exception& e) {
+                r.second = j.p.fileName + ": " + QString::fromUtf8(e.what());
+            }
+            int n = ++done;
+            if (!json)
+                err() << QStringLiteral("[%1/%2] %3\n").arg(n).arg(jobs.size()).arg(r.first.isEmpty() ? r.second : QFileInfo(r.first).fileName()) << Qt::flush;
+            return r;
+        });
+        QJsonArray files, errors;
+        for (const auto& r : results)
+            r.second.isEmpty() ? files.append(r.first) : errors.append(r.second);
+        if (json)
+            printJson(QJsonObject{{"files", files}, {"errors", errors}});
+        else
+            out() << "Exported " << files.size() << " file(s) to " << o.folder << '\n';
+        if (!errors.isEmpty())
+            throw CliError(QStringLiteral("%1 export(s) failed").arg(errors.size()).toStdString());
     }};
 
     m["probe"] = {"probe RAWFILE [--half]", "Decode a raw file and report timing/color data (debug)", {}, {"half"}, false, [](const Args& a, Batch*, bool json) {
