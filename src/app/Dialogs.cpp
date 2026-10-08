@@ -129,14 +129,7 @@ PasteSettingsDialog::PasteSettingsDialog(int photoCount, QWidget* parent) : QDia
     }
     l->addWidget(m_tree, 1);
 
-    // Unchecked parts are remembered, so parts added in later versions start checked.
-    // Crop is off by default: it rarely suits other photos.
-    const QStringList excluded = QSettings().value("paste/excluded", QStringList{"crop"}).toStringList();
-    QSet<QString> initial;
-    for (const SettingsPart& p : settingsParts())
-        if (!excluded.contains(QString::fromLatin1(p.key)))
-            initial.insert(QString::fromLatin1(p.key));
-    setParts(initial);
+    setParts(savedParts());
 
     auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     bb->button(QDialogButtonBox::Ok)->setText(tr("Paste"));
@@ -154,6 +147,18 @@ PasteSettingsDialog::PasteSettingsDialog(int photoCount, QWidget* parent) : QDia
     connect(m_tree, &QTreeWidget::itemChanged, this, [this, bb] { bb->button(QDialogButtonBox::Ok)->setEnabled(!parts().isEmpty()); });
     l->addWidget(bb);
     resize(std::max(420, sizeHint().width()), 520);
+}
+
+QSet<QString> PasteSettingsDialog::savedParts()
+{
+    // Unchecked parts are remembered, so parts added in later versions start checked.
+    // Crop is off by default: it rarely suits other photos.
+    const QStringList excluded = QSettings().value("paste/excluded", QStringList{"crop"}).toStringList();
+    QSet<QString> parts;
+    for (const SettingsPart& p : settingsParts())
+        if (!excluded.contains(QString::fromLatin1(p.key)))
+            parts.insert(QString::fromLatin1(p.key));
+    return parts;
 }
 
 QSet<QString> PasteSettingsDialog::parts() const

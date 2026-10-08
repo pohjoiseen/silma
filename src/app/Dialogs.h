@@ -43,6 +43,8 @@ public:
     PasteSettingsDialog(int photoCount, QWidget* parent = nullptr);
     QSet<QString> parts() const; // SettingsPart keys
     void setParts(const QSet<QString>& parts);
+    // The parts chosen last time (initially all but Crop).
+    static QSet<QString> savedParts();
     void accept() override;
 
 private:

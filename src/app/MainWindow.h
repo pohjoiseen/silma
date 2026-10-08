@@ -50,7 +50,7 @@ public:
     void testRedo() { redo(); }
     void testReject() { setRejected(true); }
     void testCopySettings() { copySettings(); }
-    void testPasteSettings() { pasteSettings(); }
+    void testPasteSettings(bool ask = true) { pasteSettings(ask); }
     void testSetViewMode(ViewMode m) { setViewMode(m); }
     void testPoll() { pollDatabase(); }
     void testAutoUpright(int mode) { autoUpright(mode); }
@@ -103,7 +103,8 @@ private:
     void autoCrop();
     void resetSettings();
     void copySettings();
-    void pasteSettings();
+    // `ask`: choose the settings to paste in a dialog, else paste the previous choice.
+    void pasteSettings(bool ask = true);
     void scheduleThumbnail();
     void historyChanged(qint64 id);
     void renderThumbnail(qint64 id);

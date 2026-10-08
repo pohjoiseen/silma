@@ -42,22 +42,31 @@ class TestGui : public QObject {
         return nullptr;
     }
 
+    // A new batch with three sample photos, for tests that must not see other tests' edits.
+    QString freshBatch(const QString& name)
+    {
+        QDir d(QString(SILMA_SAMPLES) + "/2026-08-08");
+        auto files = d.entryList(QDir::Files, QDir::Name).mid(0, 3);
+        if (files.size() < 3)
+            return {};
+        QStringList paths;
+        for (const auto& f : files)
+            paths << d.filePath(f);
+        QDir(m_tmp.path()).mkpath(name);
+        QString file = m_tmp.filePath(name + "/" + name + ".silma");
+        Batch b;
+        b.create(file);
+        return importFiles(b, paths, {}).added.size() == 3 ? file : QString();
+    }
+
 private slots:
     void initTestCase()
     {
         QStandardPaths::setTestModeEnabled(true);
         QSettings().clear();
-        QDir d(QString(SILMA_SAMPLES) + "/2026-08-08");
-        auto files = d.entryList(QDir::Files, QDir::Name).mid(0, 3);
-        if (files.size() < 3)
+        m_batchFile = freshBatch("gui");
+        if (m_batchFile.isEmpty())
             QSKIP("samples not available");
-        QStringList paths;
-        for (const auto& f : files)
-            paths << d.filePath(f);
-        m_batchFile = m_tmp.filePath("gui.silma");
-        Batch b;
-        b.create(m_batchFile);
-        QCOMPARE(importFiles(b, paths, {}).added.size(), 3);
     }
 
     void filmstripPicksUpLateThumbnails()
@@ -232,7 +241,7 @@ private slots:
         w.resize(1400, 900);
         w.show();
         QVERIFY(QTest::qWaitForWindowExposed(&w));
-        QVERIFY(w.openBatch(m_batchFile));
+        QVERIFY(w.openBatch(freshBatch("filmstripEditedMarkerAndNoDragSelect")));
         auto* strip = w.findChild<Filmstrip*>();
         QVERIFY(strip && strip->model()->rowCount() >= 3);
         const QModelIndex last = strip->model()->index(2, 0);
@@ -266,7 +275,7 @@ private slots:
         w.resize(1400, 900);
         w.show();
         QVERIFY(QTest::qWaitForWindowExposed(&w));
-        QVERIFY(w.openBatch(m_batchFile));
+        QVERIFY(w.openBatch(freshBatch("pasteSettingsDialog")));
         auto* strip = w.findChild<Filmstrip*>();
         QVERIFY(strip && strip->model()->rowCount() >= 3);
         const QModelIndex src = strip->model()->index(1, 0), dst = strip->model()->index(2, 0);
@@ -294,6 +303,25 @@ private slots:
         QVERIFY(seen);
         QCOMPARE(w.currentSettings().exposure, 1.25);
         QCOMPARE(w.currentSettings().contrast, 0.0);
+        // Paste (Previous Choice) reuses it without asking.
+        const QModelIndex third = strip->model()->index(0, 0);
+        strip->setCurrentIndex(third);
+        QTRY_COMPARE(w.currentPhoto()->id, third.data(PhotoListModel::IdRole).toLongLong());
+        const double contrastBefore = w.currentSettings().contrast;
+        bool asked = false;
+        QTimer guard;
+        guard.setSingleShot(true);
+        QObject::connect(&guard, &QTimer::timeout, [&] {
+            if (auto* d = qobject_cast<QDialog*>(QApplication::activeModalWidget())) {
+                asked = true;
+                d->reject();
+            }
+        });
+        guard.start(300);
+        w.testPasteSettings(false);
+        QVERIFY(!asked);
+        QCOMPARE(w.currentSettings().exposure, 1.25);
+        QCOMPARE(w.currentSettings().contrast, contrastBefore);
         // The choice is remembered.
         PasteSettingsDialog again(1);
         QCOMPARE(again.parts(), QSet<QString>{"exposure"});

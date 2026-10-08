@@ -302,7 +302,9 @@ void MainWindow::createActions()
     m_actRedo->setShortcuts({QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Z), QKeySequence(Qt::CTRL | Qt::Key_Y)});
     edit->addSeparator();
     QAction* actCopy = edit->addAction(tr("&Copy Settings"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_C), this, &MainWindow::copySettings);
-    QAction* actPaste = edit->addAction(tr("&Paste Settings"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_V), this, &MainWindow::pasteSettings);
+    QAction* actPaste = edit->addAction(tr("&Paste Settings..."), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_V), this, [this] { pasteSettings(true); });
+    QAction* actPasteAgain = edit->addAction(tr("Paste Settings (&Previous Choice)"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::SHIFT | Qt::Key_V), this,
+                                             [this] { pasteSettings(false); });
     QAction* actReset = edit->addAction(tr("R&eset Settings"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_R), this, &MainWindow::resetSettings);
     edit->addSeparator();
     QAction* actSelectAll = edit->addAction(tr("Select &All"), QKeySequence::SelectAll, m_filmstrip, &QListView::selectAll);
@@ -404,7 +406,8 @@ void MainWindow::createActions()
             menu.addSeparator();
             if (n == 1)
                 add(actCopy);
-            add(actPaste, n > 1 ? tr("&Paste Settings to %n Photos", nullptr, n) : QString())->setEnabled(m_clipboard.has_value());
+            add(actPaste, n > 1 ? tr("&Paste Settings to %n Photos...", nullptr, n) : QString())->setEnabled(m_clipboard.has_value());
+            add(actPasteAgain)->setEnabled(m_clipboard.has_value());
             add(actReset, n > 1 ? tr("R&eset Settings of %n Photos", nullptr, n) : QString());
             menu.addSeparator();
             add(actDenoise);
@@ -434,6 +437,7 @@ void MainWindow::createActions()
                                     "<tr><td><b>Ctrl+U</b></td><td>Auto tone</td></tr>"
                                     "<tr><td><b>Ctrl+Z / Ctrl+Shift+Z</b></td><td>Undo / redo</td></tr>"
                                     "<tr><td><b>Ctrl+Shift+C / V</b></td><td>Copy / paste settings (to all selected)</td></tr>"
+                                    "<tr><td><b>Ctrl+Alt+Shift+V</b></td><td>Paste the same settings as last time, without asking</td></tr>"
                                     "<tr><td><b>Ctrl+Tab, F6, F7, F8</b></td><td>Hide panels</td></tr>"
                                     "<tr><td><b>Shift+F6, F7, F8</b></td><td>Auto hide &amp; show panels</td></tr>"
                                     "</table>"));
@@ -897,15 +901,18 @@ void MainWindow::copySettings()
     statusBar()->showMessage(tr("Settings copied"), 2000);
 }
 
-void MainWindow::pasteSettings()
+void MainWindow::pasteSettings(bool ask)
 {
     if (!m_clipboard)
         return;
     QList<qint64> ids = selectedPhotoIds();
-    PasteSettingsDialog dlg(int(std::max<qsizetype>(1, ids.size())), this);
-    if (dlg.exec() != QDialog::Accepted)
-        return;
-    const QSet<QString> parts = dlg.parts();
+    QSet<QString> parts = PasteSettingsDialog::savedParts();
+    if (ask) {
+        PasteSettingsDialog dlg(int(std::max<qsizetype>(1, ids.size())), this);
+        if (dlg.exec() != QDialog::Accepted)
+            return;
+        parts = dlg.parts();
+    }
     for (qint64 id : ids) {
         if (m_photo && id == m_photo->id)
             continue;
