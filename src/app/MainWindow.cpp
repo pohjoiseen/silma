@@ -1470,8 +1470,9 @@ void MainWindow::setViewMode(ViewMode m)
 
 void MainWindow::updatePanes()
 {
-    static const QStringList transformKeys = {"vertical", "horizontal", "rotate", "scale"};
-    if (transformKeys.contains(m_activeSlider)) {
+    // Straight-line guides while adjusting geometry.
+    static const QStringList guideKeys = {"vertical", "horizontal", "rotate", "scale", "lens_distortion"};
+    if (guideKeys.contains(m_activeSlider)) {
         m_pane->setOverlay([](QPainter& p, const std::function<QPointF(QPointF)>&, const QRectF& r) {
             p.setPen(QPen(QColor(255, 255, 255, 90), 1));
             const int n = 10;

@@ -1,5 +1,6 @@
 #include "ImagePane.h"
 
+#include <QCursor>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPointer>
@@ -33,6 +34,49 @@ ImagePane::ImagePane(QWidget* parent) : QWidget(parent)
     connect(&m_detailTimer, &QTimer::timeout, this, &ImagePane::runDetail);
 }
 
+namespace {
+
+// Magnifier cursor with a + (zoom in) or - (back to fit), outlined for any background.
+QCursor loupeCursor(bool zoomIn, qreal dpr)
+{
+    const int size = 24;
+    QPixmap pm(QSize(size, size) * dpr);
+    pm.setDevicePixelRatio(dpr);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    const QPointF c(9.5, 9.5);
+    const double r = 6.5;
+    // Frame and handle: white with a dark outline; the sign dark on a light lens.
+    for (auto [color, width] : {std::pair{QColor(0, 0, 0, 200), 4.0}, {QColor(Qt::white), 1.8}}) {
+        p.setPen(QPen(color, width, Qt::SolidLine, Qt::RoundCap));
+        p.setBrush(Qt::NoBrush);
+        p.drawEllipse(c, r, r);
+        p.drawLine(c + QPointF(r * 0.72, r * 0.72), QPointF(21, 21)); // handle
+    }
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(255, 255, 255, 170));
+    p.drawEllipse(c, r - 0.9, r - 0.9);
+    p.setPen(QPen(QColor(20, 20, 20), 1.6, Qt::SolidLine, Qt::FlatCap));
+    p.drawLine(c - QPointF(3.2, 0), c + QPointF(3.2, 0));
+    if (zoomIn)
+        p.drawLine(c - QPointF(0, 3.2), c + QPointF(0, 3.2));
+    p.end();
+    return QCursor(pm, int(c.x()), int(c.y()));
+}
+
+} // namespace
+
+void ImagePane::updateCursor()
+{
+    if (m_tool)
+        return;
+    if (m_cropPx.isEmpty() || !m_engine)
+        unsetCursor();
+    else
+        setCursor(loupeCursor(m_view.fit, devicePixelRatioF()));
+}
+
 void ImagePane::setEngine(std::shared_ptr<DevelopEngine> engine)
 {
     if (engine == m_engine)
@@ -47,6 +91,7 @@ void ImagePane::setEngine(std::shared_ptr<DevelopEngine> engine)
     clampCenter();
     scheduleBase();
     scheduleDetail();
+    updateCursor();
     update();
 }
 
@@ -96,6 +141,7 @@ void ImagePane::setTool(PaneTool* tool)
     m_tool = tool;
     m_toolActive = false;
     unsetCursor();
+    updateCursor();
     update();
 }
 
@@ -165,6 +211,7 @@ void ImagePane::setViewState(const ViewState& v)
     m_view = v;
     clampCenter();
     scheduleDetail();
+    updateCursor();
     update();
 }
 
@@ -186,6 +233,7 @@ void ImagePane::zoomTo(double zoom, QPointF anchor)
         clampCenter();
     }
     scheduleDetail();
+    updateCursor();
     update();
     emit viewStateChanged(m_view);
 }
@@ -197,6 +245,7 @@ void ImagePane::toggleZoom(QPointF anchor)
         zoomTo(1.0 / devicePixelRatioF(), anchor);
     } else {
         m_view.fit = true;
+        updateCursor();
         update();
         emit viewStateChanged(m_view);
     }
@@ -427,7 +476,7 @@ void ImagePane::mouseReleaseEvent(QMouseEvent* e)
     if (!m_pressed)
         return;
     m_pressed = false;
-    unsetCursor();
+    updateCursor();
     if (!m_dragging && e->button() == Qt::LeftButton)
         toggleZoom(e->position());
     m_dragging = false;

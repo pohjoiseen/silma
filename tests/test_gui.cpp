@@ -344,6 +344,38 @@ private slots:
         QSettings().remove("paste/excluded");
     }
 
+    void loupeCursorAndDistortionGuides()
+    {
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QVERIFY(w.openBatch(m_batchFile));
+        ImagePane* pane = w.mainPane();
+        QTRY_VERIFY_WITH_TIMEOUT(pane->engine() != nullptr, 15000);
+
+        // A loupe: "+" while fitted, "-" when zoomed in (different pixmaps).
+        QCOMPARE(pane->cursor().shape(), Qt::BitmapCursor);
+        const QImage zoomIn = pane->cursor().pixmap().toImage();
+        pane->toggleZoom(pane->rect().center());
+        QCOMPARE(pane->cursor().shape(), Qt::BitmapCursor);
+        QVERIFY(pane->cursor().pixmap().toImage() != zoomIn);
+        pane->toggleZoom(pane->rect().center());
+        QCOMPARE(pane->cursor().pixmap().toImage(), zoomIn);
+        // Tools own the cursor.
+        w.testCropTool(true);
+        QVERIFY(pane->cursor().shape() != Qt::BitmapCursor);
+        w.testCropTool(false);
+        QCOMPARE(pane->cursor().shape(), Qt::BitmapCursor);
+
+        // Adjusting Distortion shows the straight-line guides, like Transform.
+        QVERIFY(!pane->hasOverlay());
+        emit slider(w, "lens_distortion")->activeChanged(true);
+        QVERIFY(pane->hasOverlay());
+        emit slider(w, "lens_distortion")->activeChanged(false);
+        QVERIFY(!pane->hasOverlay());
+    }
+
     void importDialogLateName()
     {
         ImportInfo existing;

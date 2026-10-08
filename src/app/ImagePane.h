@@ -66,6 +66,7 @@ public:
 
     std::shared_ptr<DevelopEngine> engine() const { return m_engine; }
     bool hasRender() const { return !m_base.image.isNull(); }
+    bool hasOverlay() const { return bool(m_overlay); }
 
 signals:
     void viewStateChanged(const ViewState& v);
@@ -93,6 +94,8 @@ private:
     void runBase();
     void runDetail();
     void clampCenter();
+    // Loupe showing what a click does (zoom in / back to fit), unless a tool owns the cursor.
+    void updateCursor();
 
     std::shared_ptr<DevelopEngine> m_engine;
     DevelopSettings m_settings;
