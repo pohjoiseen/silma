@@ -99,6 +99,15 @@ private slots:
         QVERIFY(!right->isVisible());
         // The image gets the whole width.
         QTRY_VERIFY(w.mainPane()->width() > 1300);
+        // The collapsed panels' edge strips get their own space: the pinned filmstrip
+        // sits between them instead of under them.
+        QDockWidget* leftStrip = w.autoHidePanel(Qt::LeftEdge)->triggerDock();
+        QDockWidget* rightStrip = right->triggerDock();
+        auto* filmDock = w.findChild<QDockWidget*>("bottom");
+        QTRY_VERIFY(leftStrip->isVisible() && rightStrip->isVisible());
+        QTRY_VERIFY(filmDock->geometry().left() > leftStrip->geometry().right());
+        QVERIFY(filmDock->geometry().right() < rightStrip->geometry().left());
+        QVERIFY(!w.mainPane()->geometry().translated(w.mainPane()->parentWidget()->mapTo(&w, QPoint())).intersects(leftStrip->geometry()));
 
         // Hovering the right edge reveals the panel over the image...
         QPoint edge(w.width() - 2, w.height() / 2);
@@ -127,6 +136,7 @@ private slots:
         QVERIFY(qobject_cast<QDockWidget*>(panel->parentWidget()));
         QTRY_VERIFY(panel->isVisible());
         QTRY_VERIFY(w.mainPane()->width() < 1100);
+        QVERIFY(!leftStrip->isVisible() && !rightStrip->isVisible());
         QVERIFY(!QSettings().value("ui/autoHide/" + QString::number(int(Qt::RightEdge))).toBool());
     }
 

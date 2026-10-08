@@ -8,6 +8,7 @@
 
 class QDockWidget;
 class QLabel;
+class QMainWindow;
 class QToolButton;
 
 namespace silma {
@@ -33,7 +34,8 @@ class AutoHidePanel : public QFrame {
     Q_OBJECT
 public:
     // `edge` is Qt::LeftEdge, Qt::RightEdge or Qt::BottomEdge; the panel is a child of `window`.
-    AutoHidePanel(Qt::Edge edge, QWidget* window);
+    // The thin strip that reveals it is a dock widget of `window`, so it gets its own space.
+    AutoHidePanel(Qt::Edge edge, QMainWindow* window);
 
     // Title shown in a header with a pin button; empty hides the header (the content
     // then provides its own pin button).
@@ -49,6 +51,9 @@ public:
 
     // Area (in window coordinates) the panel slides into; it sits at the `edge` side.
     void setArea(const QRect& r);
+
+    // Dock holding the edge strip; visible while the panel is active.
+    QDockWidget* triggerDock() const { return m_triggerDock; }
 
     // Enables the edge trigger; disabled panels stay hidden.
     void setActive(bool on);
@@ -71,6 +76,7 @@ private:
     QWidget* m_header;
     QLabel* m_headerTitle;
     QWidget* m_trigger; // thin strip at the window edge
+    QDockWidget* m_triggerDock;
     QRect m_area;
     int m_extent = 300;
     bool m_active = false;

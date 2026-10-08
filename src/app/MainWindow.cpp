@@ -150,6 +150,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
     m_pollTimer.start();
 
     restoreWindowState();
+    // The restored state may show edge strips of panels that are pinned now.
+    for (auto edge : {Qt::LeftEdge, Qt::RightEdge, Qt::BottomEdge})
+        autoHidePanel(edge)->triggerDock()->hide();
     for (auto it = m_autoHideActions.begin(); it != m_autoHideActions.end(); ++it)
         it.value()->setChecked(QSettings().value(QStringLiteral("ui/autoHide/%1").arg(it.key()), false).toBool());
 }
@@ -251,7 +254,7 @@ void MainWindow::createDocks()
         if (m_photo && m_metaView->isVisible())
             m_metaView->showFile(m_photo->path);
     });
-    for (QDockWidget* d : {m_leftDock, m_rightDock, m_bottomDock, m_metaDock})
+    for (QDockWidget* d : {m_leftDock, m_rightDock, m_bottomDock, m_metaDock, m_autoLeft->triggerDock(), m_autoRight->triggerDock(), m_autoBottom->triggerDock()})
         d->installEventFilter(this);
 }
 
@@ -1514,13 +1517,14 @@ void MainWindow::layoutAutoHidePanels()
     QRect area(0, top, width(), bottom - top);
     m_autoLeft->setArea(area);
     m_autoRight->setArea(area);
-    // The filmstrip overlay spans between pinned side panels.
+    // The filmstrip overlay spans between pinned side panels (or their edge strips).
     int l = area.left(), r = area.right();
-    for (QDockWidget* d : {m_leftDock, m_metaDock})
+    for (QDockWidget* d : {m_leftDock, m_metaDock, m_autoLeft->triggerDock()})
         if (d->isVisible() && !d->isFloating() && dockWidgetArea(d) == Qt::LeftDockWidgetArea)
             l = std::max(l, d->geometry().right() + 1);
-    if (m_rightDock->isVisible() && !m_rightDock->isFloating() && dockWidgetArea(m_rightDock) == Qt::RightDockWidgetArea)
-        r = std::min(r, m_rightDock->geometry().left() - 1);
+    for (QDockWidget* d : {m_rightDock, m_autoRight->triggerDock()})
+        if (d->isVisible() && !d->isFloating() && dockWidgetArea(d) == Qt::RightDockWidgetArea)
+            r = std::min(r, d->geometry().left() - 1);
     m_autoBottom->setArea(QRect(QPoint(l, area.top()), QPoint(r, area.bottom())));
 }
 

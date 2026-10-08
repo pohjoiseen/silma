@@ -5,6 +5,7 @@
 #include <QDockWidget>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMainWindow>
 #include <QPainter>
 #include <QStyle>
 #include <QToolButton>
@@ -130,7 +131,7 @@ private:
     Qt::Edge m_edge;
 };
 
-AutoHidePanel::AutoHidePanel(Qt::Edge edge, QWidget* window) : QFrame(window), m_edge(edge)
+AutoHidePanel::AutoHidePanel(Qt::Edge edge, QMainWindow* window) : QFrame(window), m_edge(edge)
 {
     setFrameShape(QFrame::StyledPanel);
     setAutoFillBackground(true);
@@ -148,8 +149,20 @@ AutoHidePanel::AutoHidePanel(Qt::Edge edge, QWidget* window) : QFrame(window), m
     hl->addWidget(pin);
     l->addWidget(m_header);
     m_header->hide();
-    m_trigger = new EdgeTrigger(this, edge, window);
-    m_trigger->hide();
+    // The strip lives in a fixed-size, title-less dock so the window layout makes room for it.
+    m_triggerDock = new QDockWidget(window);
+    m_triggerDock->setObjectName(QStringLiteral("autoHideStrip%1").arg(int(edge)));
+    m_triggerDock->setFeatures(QDockWidget::NoDockWidgetFeatures);
+    m_triggerDock->setTitleBarWidget(new QWidget(m_triggerDock));
+    m_trigger = new EdgeTrigger(this, edge, m_triggerDock);
+    if (edge == Qt::BottomEdge)
+        m_trigger->setFixedHeight(kTriggerWidth);
+    else
+        m_trigger->setFixedWidth(kTriggerWidth);
+    m_triggerDock->setWidget(m_trigger);
+    window->addDockWidget(edge == Qt::LeftEdge ? Qt::LeftDockWidgetArea : edge == Qt::RightEdge ? Qt::RightDockWidgetArea : Qt::BottomDockWidgetArea,
+                          m_triggerDock);
+    m_triggerDock->hide();
     hide();
 
     m_revealDelay.setSingleShot(true);
@@ -225,14 +238,6 @@ QRect AutoHidePanel::hiddenGeometry() const
 void AutoHidePanel::setArea(const QRect& r)
 {
     m_area = r;
-    QRect t;
-    switch (m_edge) {
-    case Qt::LeftEdge: t = QRect(r.left(), r.top(), kTriggerWidth, r.height()); break;
-    case Qt::RightEdge: t = QRect(r.right() + 1 - kTriggerWidth, r.top(), kTriggerWidth, r.height()); break;
-    default: t = QRect(r.left(), r.bottom() + 1 - kTriggerWidth, r.width(), kTriggerWidth); break;
-    }
-    m_trigger->setGeometry(t);
-    m_trigger->raise();
     if (m_anim->state() == QAbstractAnimation::Running)
         m_anim->stop();
     if (m_revealed) {
@@ -246,10 +251,8 @@ void AutoHidePanel::setArea(const QRect& r)
 void AutoHidePanel::setActive(bool on)
 {
     m_active = on;
-    m_trigger->setVisible(on);
-    if (on)
-        m_trigger->raise();
-    else
+    m_triggerDock->setVisible(on);
+    if (!on)
         conceal(false);
 }
 
@@ -298,7 +301,7 @@ void AutoHidePanel::checkConceal()
     }
     QRect r = shownGeometry().adjusted(-kSlack, -kSlack, kSlack, kSlack);
     QPoint p = parentWidget()->mapFromGlobal(QCursor::pos());
-    bool inside = r.contains(p) || m_trigger->geometry().contains(p);
+    bool inside = r.contains(p) || QRect(m_trigger->mapTo(parentWidget(), QPoint()), m_trigger->size()).contains(p);
     m_outsideTicks = inside ? 0 : m_outsideTicks + 1;
     if (m_outsideTicks >= kConcealTicks)
         conceal();
