@@ -29,7 +29,7 @@ QList<AiModelInfo> aiDenoiseModels()
         {"nafnet-sidd-w32", "NAFNet (SIDD, width 32)", "MIT", "nafnet_w32.onnx", {}, {}, 256, 8,
          "<a href=\"https://github.com/megvii-research/NAFNet\">megvii-research/NAFNet</a> NAFNet-SIDD-width32; ONNX export made locally", true},
         {"nafnet-sidd-w32-int8", "NAFNet (SIDD, width 32, fast 8-bit)", "MIT", "nafnet_w32_int8.onnx", {}, {}, 256, 8,
-         "<a href=\"https://github.com/megvii-research/NAFNet\">megvii-research/NAFNet</a> NAFNet-SIDD-width32; 8-bit quantized locally", true},
+         "<a href=\"https://github.com/megvii-research/NAFNet\">megvii-research/NAFNet</a> NAFNet-SIDD-width32; 8-bit quantized locally", true, true},
         {"nafnet-sidd-w64", "NAFNet (SIDD, width 64)", "MIT", "nafnet_denoise-onnx-float/nafnet_denoise.onnx", {},
          "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/nafnet_denoise/releases/v0.64.0/nafnet_denoise-onnx-float.zip", 256, 8,
          "<a href=\"https://github.com/megvii-research/NAFNet\">megvii-research/NAFNet</a>; ONNX: Qualcomm AI Hub nafnet_denoise v0.64.0"},
@@ -190,6 +190,16 @@ int aiThreadCount()
 
 namespace {
 
+// ORT_ENABLE_ALL includes the blocked (NCHWc) layout transform, EXTENDED does not; see
+// AiModelInfo::blockedLayout. SILMA_AI_LAYOUT=0/1 overrides (for measuring).
+GraphOptimizationLevel aiGraphOptimization(bool blockedLayout)
+{
+    const QString env = qEnvironmentVariable("SILMA_AI_LAYOUT");
+    if (!env.isEmpty())
+        blockedLayout = env != QLatin1String("0");
+    return blockedLayout ? GraphOptimizationLevel::ORT_ENABLE_ALL : GraphOptimizationLevel::ORT_ENABLE_EXTENDED;
+}
+
 Ort::Env& ortEnv()
 {
     static Ort::Env env(ORT_LOGGING_LEVEL_ERROR, "silma");
@@ -234,12 +244,15 @@ QStringList aiExecutionProviders()
     return out;
 }
 
-ImageF runAiDenoise(const QString& modelPath, const ImageF& in, int tile, const AiProgress& progress, const std::atomic<bool>* cancel,
+ImageF runAiDenoise(const QString& modelPath, const ImageF& in, int tile, bool blockedLayout, const AiProgress& progress, const std::atomic<bool>* cancel,
                     QString* providerUsed)
 {
     Ort::SessionOptions so;
-    so.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+    so.SetGraphOptimizationLevel(aiGraphOptimization(blockedLayout));
     so.SetIntraOpNumThreads(aiThreadCount());
+    // Debug: per-operator timings (ONNX Runtime's JSON profile, written when the run ends).
+    if (qEnvironmentVariableIsSet("SILMA_AI_PROFILE"))
+        so.EnableProfiling(qEnvironmentVariable("SILMA_AI_PROFILE").toStdString().c_str());
     QString provider = configureAiProviders(so);
     if (providerUsed)
         *providerUsed = provider;
@@ -327,7 +340,7 @@ ImageF runAiInpaint(const ImageF& img, const PlaneF& mask, QString* providerUsed
     if (img.width != S || img.height != S || mask.width != S || mask.height != S)
         throw std::runtime_error("Inpainting input must be 512x512");
     Ort::SessionOptions so;
-    so.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+    so.SetGraphOptimizationLevel(aiGraphOptimization(m.blockedLayout));
     so.SetIntraOpNumThreads(aiThreadCount());
     QString provider = configureAiProviders(so);
     if (providerUsed)
@@ -405,7 +418,7 @@ ImageF aiDenoiseLinear(const QString& modelId, const ImageF& linear, double stre
         throw std::runtime_error("Model not installed");
     float fk = 1, norm = 1;
     const ImageF enc = aiDenoiseEncode(linear, &fk, &norm);
-    ImageF den = runAiDenoise(aiModelDir(modelId) + "/" + m->onnxFile, enc, m->tileSize, progress, cancel, providerUsed);
+    ImageF den = runAiDenoise(aiModelDir(modelId) + "/" + m->onnxFile, enc, m->tileSize, m->blockedLayout, progress, cancel, providerUsed);
     const float s = float(std::clamp(strength, 0.0, 1.0));
     ImageF out(linear.width, linear.height);
 #pragma omp parallel for schedule(static)

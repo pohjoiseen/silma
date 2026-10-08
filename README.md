@@ -89,10 +89,15 @@ Python 3 and the network; PyTorch is installed into a venv in the build dir):
 
     cmake --build build --target ai-models
 
-This also makes an 8-bit version, calibrated on the raw files in `example-raws/` (set
-`SILMA_CALIBRATION_RAWS` to use another folder): about 1.6x faster still (73 s instead of 117 s
-for 24 MP on a Ryzen 5 8600G; width 64 takes 225 s), denoising a little less. Any Python 3.10+
-works; the target prints the versions it used. Width 32 becomes the default once prepared.
+For a 24 MP photo on a Ryzen 5 8600G: width 64 takes 225 s, width 32 73 s. It also makes an 8-bit
+version, calibrated on the raw files in `example-raws/` (set `SILMA_CALIBRATION_RAWS` to use
+another folder): a little faster (67 s), denoising a little less. Any Python 3.10+ works; the
+target prints the versions it used. Width 32 becomes the default once prepared.
+
+For measuring: `SILMA_AI_THREADS` sets the inference threads (default: one per physical core),
+`SILMA_AI_LAYOUT=0/1` switches ONNX Runtime's blocked layout transform (on only for the 8-bit
+model: elsewhere its layout conversions cost more than they save) and `SILMA_AI_PROFILE=PREFIX`
+writes ONNX Runtime's per-operator profile.
 
 ## License
 

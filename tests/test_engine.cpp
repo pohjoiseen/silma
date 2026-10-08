@@ -149,6 +149,9 @@ private slots:
         qputenv("SILMA_MODEL_DIR", dir.path().toUtf8());
         const AiModelInfo* w32 = findAiModel("nafnet-sidd-w32");
         QVERIFY(w32 && w32->prepared && findAiModel("nafnet-sidd-w32-int8")->prepared);
+        // Only the 8-bit model uses the blocked layout (its conversions cost more elsewhere).
+        QVERIFY(findAiModel("nafnet-sidd-w32-int8")->blockedLayout);
+        QVERIFY(!w32->blockedLayout && !findAiModel("nafnet-sidd-w64")->blockedLayout && !aiInpaintModel().blockedLayout);
         QCOMPARE(defaultAiDenoiseModel(), QStringLiteral("nafnet-sidd-w64"));
         try {
             downloadAiModel("nafnet-sidd-w32");

@@ -28,6 +28,10 @@ struct AiModelInfo {
     int multiple = 8;    // dynamic sizes must be multiples of this
     QString about;       // origin of the weights and of the ONNX export (HTML)
     bool prepared = false; // not downloaded: made from the original weights by the ai-models build target
+    // Use ONNX Runtime's blocked (NCHWc) layout transform. It pays off only for the 8-bit model:
+    // for the others its layout conversions cost more than they save, up to 4x on some machines
+    // (strided memory traffic that can be dramatically slow natively).
+    bool blockedLayout = false;
 };
 
 QList<AiModelInfo> aiDenoiseModels();
@@ -53,7 +57,7 @@ using AiProgress = std::function<void(int done, int total)>;
 
 // Denoises an image with values in [0, 1] (model domain: display-like encoding) using
 // overlapping tiles. `cancel` may be set from another thread.
-ImageF runAiDenoise(const QString& modelPath, const ImageF& encoded, int tileSize, const AiProgress& progress = {},
+ImageF runAiDenoise(const QString& modelPath, const ImageF& encoded, int tileSize, bool blockedLayout, const AiProgress& progress = {},
                     const std::atomic<bool>* cancel = nullptr, QString* providerUsed = nullptr);
 
 // LaMa inpainting of a 512x512 image (0..1, display-like encoding); mask 1 = fill.
