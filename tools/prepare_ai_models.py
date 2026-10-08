@@ -86,20 +86,51 @@ def build_network(work):
     return net.eval()
 
 
+def conv_layer_norm(self, x):
+    """NAFNet's LayerNorm2d with the channel means as 1x1 convolutions (weights 1/C).
+
+    The original x.mean(1) becomes an ONNX ReduceMean over the channel axis, which ONNX Runtime
+    runs as a scalar loop reading 32 values 256 KB apart per pixel. That access pattern can be
+    dramatically slow (35x measured natively on a Ryzen 8600G, while fine in a VM on the same
+    machine); convolutions read memory in a cache-friendly order everywhere. Same maths.
+    """
+    import torch.nn.functional as F
+
+    C = x.shape[1]
+    mu = F.conv2d(x, self.avg)  # self.avg: (1, C, 1, 1) filled with 1/C, see export_onnx
+    d = x - mu
+    var = F.conv2d(d * d, self.avg)
+    y = d / (var + self.eps).sqrt()
+    return self.weight.view(1, C, 1, 1) * y + self.bias.view(1, C, 1, 1)
+
+
 def export_onnx(net, path):
     import numpy as np
     import onnxruntime as ort
     import torch
+    from arch_util import LayerNorm2d
 
+    torch.manual_seed(0)
     x = torch.rand(1, 3, TILE, TILE)
-    torch.onnx.export(net, x, str(path), input_names=["image"], output_names=["output"], opset_version=17, dynamo=False)
     with torch.no_grad():
-        ref = net(x).numpy()
+        ref = net(x).numpy()  # original layer norm
+    for m in net.modules():
+        if isinstance(m, LayerNorm2d):
+            m.register_buffer("avg", torch.full((1, m.weight.numel(), 1, 1), 1.0 / m.weight.numel()))
+    LayerNorm2d.forward = conv_layer_norm
+    with torch.no_grad():
+        patched = net(x).numpy()
+    if float(np.abs(ref - patched).max()) > 1e-4:
+        sys.exit("the convolution-based layer norm differs from the original")
+    try:
+        torch.onnx.export(net, x, str(path), input_names=["image"], output_names=["output"], opset_version=17, dynamo=False)
+    except TypeError:  # PyTorch before the dynamo option
+        torch.onnx.export(net, x, str(path), input_names=["image"], output_names=["output"], opset_version=17)
     got = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"]).run(None, {"image": x.numpy()})[0]
     diff = float(np.abs(ref - got).max())
     if diff > 1e-3:
         sys.exit(f"ONNX export differs from PyTorch (max {diff})")
-    log(f"exported {path.name} (matches PyTorch within {diff:.1e})")
+    log(f"exported {path.name} (matches the original PyTorch model within {diff:.1e})")
 
 
 def calibration_tiles(silma, raws, work):
