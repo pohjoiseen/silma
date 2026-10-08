@@ -116,6 +116,22 @@ def calibration_tiles(silma, raws, work):
     return sorted(tiles.glob("*.f32"))
 
 
+def fold(src, dst):
+    """Constant-folds the graph (ONNX Runtime's hardware-independent basic optimizations).
+
+    The PyTorch export computes tensor shapes at run time (Shape/Gather/Reshape chains). Left in,
+    the 8-bit graph wraps them in extra quantize/dequantize steps that ONNX Runtime cannot fuse
+    (1.1x instead of 1.6x faster than full precision); newer quantization tools no longer fold them
+    themselves, so this is done explicitly.
+    """
+    import onnxruntime as ort
+
+    o = ort.SessionOptions()
+    o.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
+    o.optimized_model_filepath = str(dst)
+    ort.InferenceSession(str(src), o, providers=["CPUExecutionProvider"])
+
+
 def quantize(fp32, int8, tiles, work):
     import numpy as np
     import onnxruntime as ort
@@ -133,7 +149,7 @@ def quantize(fp32, int8, tiles, work):
             return None if x is None else {"image": x}
 
     pre = work / "pre.onnx"
-    quant_pre_process(str(fp32), str(pre), skip_symbolic_shape=True)
+    quant_pre_process(str(fp32), str(pre), skip_symbolic_shape=True, skip_optimization=True)
     # 8-bit weights (per channel) and activations: about 2x faster on CPUs with VNNI.
     quantize_static(str(pre), str(int8), Reader(), quant_format=QuantFormat.QDQ, per_channel=True,
                     activation_type=QuantType.QUInt8, weight_type=QuantType.QInt8, calibrate_method=CalibrationMethod.MinMax)
@@ -160,10 +176,16 @@ def main():
     args = ap.parse_args()
     work = Path(args.work)
     work.mkdir(parents=True, exist_ok=True)
+    import onnx
+    import onnxruntime
+    import torch
+    log(f"Python {sys.version.split()[0]}, PyTorch {torch.__version__}, ONNX {onnx.__version__}, ONNX Runtime {onnxruntime.__version__}")
 
     net = build_network(work)
+    exported = work / "nafnet_w32_export.onnx"
+    export_onnx(net, exported)
     fp32 = work / "nafnet_w32.onnx"
-    export_onnx(net, fp32)
+    fold(exported, fp32)
     int8 = work / "nafnet_w32_int8.onnx"
     quantize(fp32, int8, calibration_tiles(args.silma, args.raws, work), work)
 

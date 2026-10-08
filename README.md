@@ -90,9 +90,10 @@ Python 3 and the network; PyTorch is installed into a venv in the build dir):
     cmake --build build --target ai-models
 
 This also makes an 8-bit version, calibrated on the raw files in `example-raws/` (set
-`SILMA_CALIBRATION_RAWS` to use another folder); it denoises a little less, and is only
-noticeably faster with ONNX Runtime builds that have fast 8-bit kernels (Microsoft's release
-builds; Arch's package gains about 10%). Width 32 becomes the default once prepared.
+`SILMA_CALIBRATION_RAWS` to use another folder): about 1.6x faster still (73 s instead of 117 s
+for 24 MP on a Ryzen 5 8600G; width 64 takes 225 s), denoising a little less. Any Python 3.10+
+works; the target prints the versions it used. Width 32 becomes the default once prepared.
+
 ## License
 
 Silmä is free software: you can redistribute it and/or modify it under the terms of the GNU
