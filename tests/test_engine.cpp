@@ -1,6 +1,7 @@
 #include "Color.h"
 #include "Engine.h"
 #include "Export.h"
+#include "AiDenoise.h"
 #include "Heal.h"
 
 #include <QDir>
@@ -138,6 +139,33 @@ private slots:
         // Extent includes the brush; the cap is a fifth of the long edge.
         QVERIFY(std::abs(healExtent(st, W, H) - (200 + 16) / 400.0) < 1e-9);
         QVERIFY(healExtent(HealSpot{0.5, 0.5, 0.02, 0, {}}, W, H) < kMaxHealExtent);
+    }
+
+    void preparedAiModels()
+    {
+        // The NAFNet width-32 models are made locally (ai-models target), never downloaded.
+        QTemporaryDir dir;
+        const QByteArray before = qgetenv("SILMA_MODEL_DIR");
+        qputenv("SILMA_MODEL_DIR", dir.path().toUtf8());
+        const AiModelInfo* w32 = findAiModel("nafnet-sidd-w32");
+        QVERIFY(w32 && w32->prepared && findAiModel("nafnet-sidd-w32-int8")->prepared);
+        QCOMPARE(defaultAiDenoiseModel(), QStringLiteral("nafnet-sidd-w64"));
+        try {
+            downloadAiModel("nafnet-sidd-w32");
+            QFAIL("prepared models cannot be downloaded");
+        } catch (const std::runtime_error& e) {
+            QVERIFY(QString::fromUtf8(e.what()).contains("--target ai-models"));
+        }
+        // Once prepared, width 32 is the default (same quality as width 64, about twice as fast).
+        QDir().mkpath(aiModelDir("nafnet-sidd-w32"));
+        QFile f(aiModelDir("nafnet-sidd-w32") + "/" + w32->onnxFile);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.close();
+        QCOMPARE(defaultAiDenoiseModel(), QStringLiteral("nafnet-sidd-w32"));
+        if (before.isNull())
+            qunsetenv("SILMA_MODEL_DIR");
+        else
+            qputenv("SILMA_MODEL_DIR", before);
     }
 
     void settingsJsonRoundTrip()

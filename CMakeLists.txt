@@ -37,6 +37,23 @@ add_subdirectory(src/app)
 enable_testing()
 add_subdirectory(tests)
 
+# AI models that are not downloaded but made from the original weights (NAFNet width 32,
+# full precision and 8-bit). Not part of the default build: needs Python 3 and the network.
+#   cmake --build <dir> --target ai-models
+find_package(Python3 COMPONENTS Interpreter QUIET)
+set(SILMA_CALIBRATION_RAWS "${CMAKE_SOURCE_DIR}/example-raws" CACHE PATH "Raw files for calibrating the 8-bit AI denoise model")
+if(Python3_FOUND)
+  set(AI_VENV "${CMAKE_BINARY_DIR}/ai-models-venv")
+  add_custom_target(ai-models
+    COMMAND ${Python3_EXECUTABLE} -m venv "${AI_VENV}"
+    COMMAND "${AI_VENV}/bin/pip" install --quiet -r "${CMAKE_SOURCE_DIR}/tools/ai-models-requirements.txt"
+    COMMAND "${AI_VENV}/bin/python" "${CMAKE_SOURCE_DIR}/tools/prepare_ai_models.py"
+            --silma $<TARGET_FILE:silma> --raws "${SILMA_CALIBRATION_RAWS}" --work "${CMAKE_BINARY_DIR}/ai-models-work"
+    DEPENDS silma
+    USES_TERMINAL
+    COMMENT "Preparing NAFNet width-32 denoise models")
+endif()
+
 include(GNUInstallDirs)
 install(FILES data/silma.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
 install(FILES data/silma-mime.xml DESTINATION ${CMAKE_INSTALL_DATADIR}/mime/packages)

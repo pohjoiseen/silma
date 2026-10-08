@@ -1,0 +1,7 @@
+# Python packages for tools/prepare_ai_models.py (installed into a venv in the build dir by
+# the ai-models target). CPU-only PyTorch: the export does not need a GPU.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.1+cpu
+onnx==1.23.2
+onnxruntime==1.30.0
+numpy==2.5.3

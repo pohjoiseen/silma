@@ -80,6 +80,19 @@ libjxl, as LibRaw cannot unpack them; their transparency masks (uncovered panora
 come out black, and Auto Crop finds the largest fully covered rectangle (any aspect ratio
 unless the crop already has a locked one). JPEG XL compressed mosaic (CFA) DNGs are not supported yet.
 
+
+### Faster AI denoise models
+
+NAFNet width 32 denoises as well as the default width-64 model in about half the time, but no
+ready-made ONNX export of it exists, so it is made locally from the official weights (needs
+Python 3 and the network; PyTorch is installed into a venv in the build dir):
+
+    cmake --build build --target ai-models
+
+This also makes an 8-bit version, calibrated on the raw files in `example-raws/` (set
+`SILMA_CALIBRATION_RAWS` to use another folder); it denoises a little less, and is only
+noticeably faster with ONNX Runtime builds that have fast 8-bit kernels (Microsoft's release
+builds; Arch's package gains about 10%). Width 32 becomes the default once prepared.
 ## License
 
 Silmä is free software: you can redistribute it and/or modify it under the terms of the GNU

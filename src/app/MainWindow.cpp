@@ -31,6 +31,7 @@
 #include <QDBusMessage>
 #include <QDesktopServices>
 #include <QDialogButtonBox>
+#include <QElapsedTimer>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QSpinBox>
@@ -49,6 +50,7 @@
 #include <QShortcut>
 #include <QSplitter>
 #include <QStandardPaths>
+#include <QStandardItemModel>
 #include <QStatusBar>
 #include <QTabWidget>
 #include <QThreadPool>
@@ -1263,6 +1265,18 @@ void MainWindow::deleteRejected()
         QMessageBox::warning(this, tr("Delete Rejected Photos"), tr("Could not delete:\n%1").arg(failed.join('\n')));
 }
 
+namespace {
+// "42 s", "3:05" or "1:02:03".
+QString formatDuration(qint64 seconds)
+{
+    if (seconds < 60)
+        return QObject::tr("%1 s").arg(seconds);
+    if (seconds < 3600)
+        return QStringLiteral("%1:%2").arg(seconds / 60).arg(seconds % 60, 2, 10, QChar('0'));
+    return QStringLiteral("%1:%2:%3").arg(seconds / 3600).arg(seconds / 60 % 60, 2, 10, QChar('0')).arg(seconds % 60, 2, 10, QChar('0'));
+}
+} // namespace
+
 void MainWindow::runDerivedJob(const QString& title,
                                std::function<QList<qint64>(Batch&, const std::function<void(const QString&, int, int)>&, const std::atomic<bool>*)> job)
 {
@@ -1274,18 +1288,46 @@ void MainWindow::runDerivedJob(const QString& title,
     auto cancel = std::make_shared<std::atomic<bool>>(false);
     connect(progress, &QProgressDialog::canceled, this, [cancel] { *cancel = true; });
     QPointer<QProgressDialog> pd(progress);
+    // Elapsed time, and the time left estimated from the current step's pace.
+    struct Timing {
+        QElapsedTimer job, step;
+        QString stepName, text;
+        int done = 0, total = 0;
+    };
+    auto timing = std::make_shared<Timing>();
+    timing->job.start();
+    timing->step.start();
+    auto showTiming = [pd, timing] {
+        if (!pd)
+            return;
+        QString t = tr("Elapsed %1").arg(formatDuration(timing->job.elapsed() / 1000));
+        // After a few units of work the pace is meaningful.
+        if (timing->total > 0 && timing->done >= 3 && timing->done < timing->total && timing->step.elapsed() > 2000)
+            t += tr(" · about %1 left").arg(formatDuration(timing->step.elapsed() * (timing->total - timing->done) / timing->done / 1000));
+        pd->setLabelText(timing->text + '\n' + t);
+    };
+    auto* tick = new QTimer(progress);
+    connect(tick, &QTimer::timeout, progress, showTiming);
+    tick->start(1000);
     QString batchFile = m_batch.file();
-    auto future = QtConcurrent::run([batchFile, job, cancel, pd]() -> QPair<QList<qint64>, QString> {
+    auto future = QtConcurrent::run([batchFile, job, cancel, pd, timing, showTiming]() -> QPair<QList<qint64>, QString> {
         try {
             Batch b;
             b.open(batchFile);
-            auto ids = job(b, [pd](const QString& step, int done, int total) {
-                QMetaObject::invokeMethod(qApp, [pd, step, done, total] {
+            auto ids = job(b, [pd, timing, showTiming](const QString& step, int done, int total) {
+                QMetaObject::invokeMethod(qApp, [pd, step, done, total, timing, showTiming] {
                     if (!pd)
                         return;
-                    pd->setLabelText(total > 0 ? QStringLiteral("%1 (%2 / %3)").arg(step).arg(done).arg(total) : step);
+                    if (step != timing->stepName) { // a new step: its own pace
+                        timing->stepName = step;
+                        timing->step.restart();
+                    }
+                    timing->done = done;
+                    timing->total = total;
+                    timing->text = total > 0 ? QStringLiteral("%1 (%2 / %3)").arg(step).arg(done).arg(total) : step;
                     pd->setMaximum(std::max(0, total));
                     pd->setValue(total > 0 ? done : 0);
+                    showTiming();
                 });
             }, cancel.get());
             return {ids, QString()};
@@ -1318,9 +1360,24 @@ void MainWindow::aiDenoise()
     dlg.setWindowTitle(tr("AI Denoise"));
     auto* l = new QFormLayout(&dlg);
     auto* model = new QComboBox(&dlg);
-    for (const auto& m : aiDenoiseModels())
-        model->addItem(QStringLiteral("%1 — %2%3").arg(m.name, m.license, aiModelInstalled(m.id) ? QString() : tr(" (will be downloaded)")), m.id);
-    model->setCurrentIndex(model->findData(QSettings().value("ai/model", defaultAiDenoiseModel()).toString()));
+    for (const auto& m : aiDenoiseModels()) {
+        const bool installed = aiModelInstalled(m.id);
+        QString note = installed ? QString() : m.prepared ? tr(" (not prepared)") : tr(" (will be downloaded)");
+        model->addItem(QStringLiteral("%1 — %2%3").arg(m.name, m.license, note), m.id);
+        if (!installed && m.prepared) {
+            // Made from the original weights by a build step; cannot be downloaded.
+            auto* item = qobject_cast<QStandardItemModel*>(model->model())->item(model->count() - 1);
+            item->setEnabled(false);
+            item->setToolTip(tr("Prepare it from the original weights with: cmake --build <build dir> --target ai-models"));
+        }
+    }
+    // The last used model, unless it is a prepared one that is not there (any more).
+    const QString last = QSettings().value("ai/model", defaultAiDenoiseModel()).toString();
+    const AiModelInfo* lastInfo = findAiModel(last);
+    int current = model->findData(last);
+    if (current < 0 || (lastInfo && lastInfo->prepared && !aiModelInstalled(last)))
+        current = model->findData(defaultAiDenoiseModel());
+    model->setCurrentIndex(current);
     l->addRow(tr("Model:"), model);
     auto* strength = new QSpinBox(&dlg);
     strength->setRange(0, 100);

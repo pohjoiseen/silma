@@ -27,11 +27,13 @@ struct AiModelInfo {
     int tileSize = 256;  // fixed input size (0 = dynamic)
     int multiple = 8;    // dynamic sizes must be multiples of this
     QString about;       // origin of the weights and of the ONNX export (HTML)
+    bool prepared = false; // not downloaded: made from the original weights by the ai-models build target
 };
 
 QList<AiModelInfo> aiDenoiseModels();
 AiModelInfo aiInpaintModel();
 const AiModelInfo* findAiModel(const QString& id);
+// The best installed denoise model (NAFNet width 32 once prepared).
 QString defaultAiDenoiseModel();
 
 // Model storage: $XDG_DATA_HOME/silma/models/<id>/
@@ -56,6 +58,10 @@ ImageF runAiDenoise(const QString& modelPath, const ImageF& encoded, int tileSiz
 
 // LaMa inpainting of a 512x512 image (0..1, display-like encoding); mask 1 = fill.
 ImageF runAiInpaint(const ImageF& img, const PlaneF& mask, QString* providerUsed = nullptr);
+
+// The model-domain encoding of linear camera RGB used for denoising: an invertible log
+// curve adapted to the image brightness. `k` and `norm` are needed to decode.
+ImageF aiDenoiseEncode(const ImageF& linear, float* k = nullptr, float* norm = nullptr);
 
 // Denoises linear camera RGB (0..1, white-balanced). Wraps runAiDenoise with an invertible
 // log encoding adapted to the image brightness. strength 0..1 blends with the input.

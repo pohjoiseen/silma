@@ -15,6 +15,7 @@
 #include "Color.h"
 
 #include <QDir>
+#include <random>
 #include <QElapsedTimer>
 #include <QtConcurrent>
 #include <atomic>
@@ -827,6 +828,39 @@ std::map<QString, Command> commands()
                     both.px(x + cw, y)[c] = srgbEncode(std::min(1.0f, den.px(x, y)[c] * gain));
                 }
         writeJpeg(a.positional()[2], both, 92, QString());
+    }};
+
+    m["ai-calibration-tiles"] = {"ai-calibration-tiles RAWFILE... --out DIR [--per-image N]", "Debug: write denoise model input tiles (for quantizing models)", {"out", "per-image"}, {}, false, [](const Args& a, Batch*, bool) {
+        // Tiles exactly as the denoiser feeds them to a model: float32, 1x3x256x256 (NCHW).
+        const QString dir = a.value("out");
+        if (dir.isEmpty() || a.positional().isEmpty())
+            fail("ai-calibration-tiles RAWFILE... --out DIR");
+        QDir().mkpath(dir);
+        const int perImage = std::max(1, a.value("per-image", "6").toInt());
+        constexpr int T = 256;
+        int written = 0;
+        for (const QString& f : a.positional()) {
+            RawImage raw = decodeRaw(f);
+            const ImageF enc = aiDenoiseEncode(raw.image);
+            if (enc.width < T || enc.height < T)
+                continue;
+            std::mt19937 rng(uint32_t(qHash(QFileInfo(f).fileName()))); // repeatable
+            std::vector<float> tile(size_t(3) * T * T);
+            for (int n = 0; n < perImage; ++n) {
+                const int x0 = std::uniform_int_distribution<int>(0, enc.width - T)(rng);
+                const int y0 = std::uniform_int_distribution<int>(0, enc.height - T)(rng);
+                for (int c = 0; c < 3; ++c)
+                    for (int y = 0; y < T; ++y)
+                        for (int x = 0; x < T; ++x)
+                            tile[(size_t(c) * T + y) * T + x] = enc.px(x0 + x, y0 + y)[c];
+                QFile out(QStringLiteral("%1/%2_%3.f32").arg(dir, QFileInfo(f).completeBaseName()).arg(n));
+                if (!out.open(QIODevice::WriteOnly))
+                    fail("Cannot write " + out.fileName());
+                out.write(reinterpret_cast<const char*>(tile.data()), qint64(tile.size() * sizeof(float)));
+                ++written;
+            }
+        }
+        out() << "Wrote " << written << " tiles to " << dir << '\n';
     }};
 
     m["ai-denoise"] = {"ai-denoise PHOTO... [--model ID] [--strength 0..100]", "AI noise reduction into a new DNG photo (slow on CPU)", {"model", "strength", "import"}, {}, true, [](const Args& a, Batch* b, bool json) {

@@ -24,6 +24,12 @@ namespace silma {
 QList<AiModelInfo> aiDenoiseModels()
 {
     static const QList<AiModelInfo> models = {
+        // Made by `cmake --build <dir> --target ai-models` (tools/prepare_ai_models.py) from the
+        // official weights: no ready-made ONNX export is published.
+        {"nafnet-sidd-w32", "NAFNet (SIDD, width 32)", "MIT", "nafnet_w32.onnx", {}, {}, 256, 8,
+         "<a href=\"https://github.com/megvii-research/NAFNet\">megvii-research/NAFNet</a> NAFNet-SIDD-width32; ONNX export made locally", true},
+        {"nafnet-sidd-w32-int8", "NAFNet (SIDD, width 32, fast 8-bit)", "MIT", "nafnet_w32_int8.onnx", {}, {}, 256, 8,
+         "<a href=\"https://github.com/megvii-research/NAFNet\">megvii-research/NAFNet</a> NAFNet-SIDD-width32; 8-bit quantized locally", true},
         {"nafnet-sidd-w64", "NAFNet (SIDD, width 64)", "MIT", "nafnet_denoise-onnx-float/nafnet_denoise.onnx", {},
          "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/nafnet_denoise/releases/v0.64.0/nafnet_denoise-onnx-float.zip", 256, 8,
          "<a href=\"https://github.com/megvii-research/NAFNet\">megvii-research/NAFNet</a>; ONNX: Qualcomm AI Hub nafnet_denoise v0.64.0"},
@@ -52,7 +58,11 @@ const AiModelInfo* findAiModel(const QString& id)
     return nullptr;
 }
 
-QString defaultAiDenoiseModel() { return QStringLiteral("nafnet-sidd-w64"); }
+QString defaultAiDenoiseModel()
+{
+    // Width 32 denoises as well as width 64 at about two thirds of the time.
+    return aiModelInstalled(QStringLiteral("nafnet-sidd-w32")) ? QStringLiteral("nafnet-sidd-w32") : QStringLiteral("nafnet-sidd-w64");
+}
 
 QString aiModelDir(const QString& id)
 {
@@ -123,6 +133,9 @@ void downloadAiModel(const QString& id, const DownloadProgress& progress, const 
     const AiModelInfo* m = findAiModel(id);
     if (!m)
         throw std::runtime_error(("Unknown model " + id).toStdString());
+    if (m->prepared)
+        throw std::runtime_error(("The " + m->name + " model is not downloaded but prepared from the original weights: "
+                                  "run `cmake --build <build dir> --target ai-models`").toStdString());
     QString dir = aiModelDir(id);
     QDir().mkpath(dir);
     if (!m->archive.isEmpty()) {
@@ -352,14 +365,8 @@ ImageF runAiInpaint(const ImageF& img, const PlaneF& mask, QString* providerUsed
     return out;
 }
 
-ImageF aiDenoiseLinear(const QString& modelId, const ImageF& linear, double strength, const AiProgress& progress, const std::atomic<bool>* cancel,
-                       QString* providerUsed)
+ImageF aiDenoiseEncode(const ImageF& linear, float* kOut, float* normOut)
 {
-    const AiModelInfo* m = findAiModel(modelId);
-    if (!m)
-        throw std::runtime_error(("Unknown model " + modelId).toStdString());
-    if (!aiModelInstalled(modelId))
-        throw std::runtime_error("Model not installed");
     // Invertible encoding e = log1p(k x) / log1p(k), with k chosen so the median maps to ~0.45.
     std::vector<float> lum;
     lum.reserve(linear.pixelCount() / 16 + 1);
@@ -381,6 +388,23 @@ ImageF aiDenoiseLinear(const QString& modelId, const ImageF& linear, double stre
 #pragma omp parallel for schedule(static)
     for (size_t i = 0; i < linear.data.size(); ++i)
         enc.data[i] = std::log1p(fk * std::clamp(linear.data[i], 0.0f, 1.0f)) * norm;
+    if (kOut)
+        *kOut = fk;
+    if (normOut)
+        *normOut = norm;
+    return enc;
+}
+
+ImageF aiDenoiseLinear(const QString& modelId, const ImageF& linear, double strength, const AiProgress& progress, const std::atomic<bool>* cancel,
+                       QString* providerUsed)
+{
+    const AiModelInfo* m = findAiModel(modelId);
+    if (!m)
+        throw std::runtime_error(("Unknown model " + modelId).toStdString());
+    if (!aiModelInstalled(modelId))
+        throw std::runtime_error("Model not installed");
+    float fk = 1, norm = 1;
+    const ImageF enc = aiDenoiseEncode(linear, &fk, &norm);
     ImageF den = runAiDenoise(aiModelDir(modelId) + "/" + m->onnxFile, enc, m->tileSize, progress, cancel, providerUsed);
     const float s = float(std::clamp(strength, 0.0, 1.0));
     ImageF out(linear.width, linear.height);
