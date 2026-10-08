@@ -130,6 +130,8 @@ private:
     void toggleSidePanels();
     void setCropTool(bool on);
     void setHealTool(bool on);
+    // Makes sure an AI model is installed, offering to download it (modal). False if not.
+    bool ensureAiModel(const QString& id);
     void setWbPicker(bool on);
     void pickWhiteBalance(QPointF cropPoint);
     void healAt(QPointF cropPoint, double radius);

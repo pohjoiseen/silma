@@ -9,6 +9,7 @@
 #include "MetadataView.h"
 #include "DevelopPanel.h"
 #include "Upright.h"
+#include "Versions.h"
 #include "AiDenoise.h"
 #include "Derived.h"
 #include "Merge.h"
@@ -53,6 +54,9 @@
 #include <QToolBar>
 #include <QToolButton>
 #include <QtConcurrent>
+#ifdef SILMA_HAVE_KCOLORSCHEME
+#include <kcolorscheme_version.h>
+#endif
 
 namespace silma {
 
@@ -332,7 +336,7 @@ void MainWindow::createActions()
             setWbPicker(false);
     });
     photo->addAction(tr("&Crop Tool"), QKeySequence(Qt::Key_R), this, [this] { setCropTool(!m_cropTool); });
-    photo->addAction(tr("&Heal Tool"), QKeySequence(Qt::Key_Q), this, [this] { setHealTool(!m_healTool); });
+    photo->addAction(tr("AI &Heal Tool"), QKeySequence(Qt::Key_Q), this, [this] { setHealTool(!m_healTool); });
     photo->addSeparator();
     QAction* actDenoise = photo->addAction(tr("AI &Denoise..."), this, &MainWindow::aiDenoise);
     QAction* actHdr = photo->addAction(tr("Merge to &HDR..."), QKeySequence(Qt::CTRL | Qt::Key_H), this, [this] { mergePhotos(true); });
@@ -456,7 +460,28 @@ void MainWindow::createActions()
                                     "</table>"));
     });
     help->addAction(tr("&About Silmä"), this, [this] {
-        QMessageBox::about(this, tr("About Silmä"), tr("<b>Silmä</b> %1<br>A streamlined raw photo developer.").arg(QStringLiteral(SILMA_VERSION)));
+        QString libs = QStringLiteral("<tr><td>Qt</td><td>%1</td></tr>").arg(QString::fromLatin1(qVersion()));
+#ifdef SILMA_HAVE_KCOLORSCHEME
+        libs += QStringLiteral("<tr><td>KDE Frameworks (KColorScheme)</td><td>%1</td></tr>").arg(QStringLiteral(KCOLORSCHEME_VERSION_STRING));
+#endif
+        for (const auto& [name, version] : libraryVersions())
+            libs += QStringLiteral("<tr><td>%1</td><td>%2</td></tr>").arg(name, version);
+        QString models;
+        for (const AiModelInfo& m : aiDenoiseModels() + QList<AiModelInfo>{aiInpaintModel()})
+            models += QStringLiteral("<tr><td>%1</td><td>%2, %3%4</td></tr>")
+                          .arg(m.name, m.license, m.about, aiModelInstalled(m.id) ? QString() : tr(" (not downloaded)"));
+        QMessageBox box(this);
+        box.setWindowTitle(tr("About Silmä"));
+        box.setTextFormat(Qt::RichText);
+        box.setText(tr("<h3>Silmä %1</h3>"
+                       "<p>A streamlined raw photo developer.<br>"
+                       "By Claude Opus 5.5, steered by Alexander Ulyanov. GPL-3.0.</p>"
+                       "<p><b>Libraries</b></p><table cellspacing=\"6\">%2</table>"
+                       "<p><b>AI models</b></p><table cellspacing=\"6\">%3</table>")
+                        .arg(QStringLiteral(SILMA_VERSION), libs, models));
+        box.setTextInteractionFlags(Qt::TextBrowserInteraction); // clickable links
+        box.setIconPixmap(windowIcon().pixmap(64, 64));
+        box.exec();
     });
 }
 
@@ -1363,9 +1388,52 @@ void MainWindow::mergePhotos(bool hdr)
     }
 }
 
+bool MainWindow::ensureAiModel(const QString& id)
+{
+    if (aiModelInstalled(id))
+        return true;
+    const AiModelInfo* m = findAiModel(id);
+    if (!m)
+        return false;
+    qint64 size = 0;
+    for (const auto& f : m->files)
+        size += f.size;
+    const QString sizeText = size > 0 ? tr("%1 MB").arg(size / 1000000) : tr("a few hundred MB");
+    if (QMessageBox::question(this, tr("Download AI Model"),
+                              tr("This needs the %1 model (%2, %3 license), which is downloaded once and then kept in\n%4\n\nDownload it now?")
+                                  .arg(m->name, sizeText, m->license, QDir::toNativeSeparators(aiModelDir(id))))
+        != QMessageBox::Yes)
+        return false;
+    QProgressDialog pd(tr("Downloading %1...").arg(m->name), tr("Cancel"), 0, 1000, this);
+    pd.setWindowModality(Qt::WindowModal);
+    pd.setMinimumDuration(0);
+    pd.setAutoClose(false);
+    pd.setAutoReset(false);
+    pd.setValue(0);
+    std::atomic<bool> cancel = false;
+    connect(&pd, &QProgressDialog::canceled, this, [&cancel] { cancel = true; });
+    try {
+        downloadAiModel(id, [&pd, m](qint64 received, qint64 total) {
+            if (total > 0) {
+                pd.setValue(int(received * 1000 / total));
+                pd.setLabelText(tr("Downloading %1...\n%2 of %3 MB").arg(m->name).arg(received / 1000000).arg(total / 1000000));
+            }
+        }, &cancel);
+    } catch (const std::exception& e) {
+        pd.close();
+        if (!cancel)
+            QMessageBox::warning(this, tr("Download AI Model"),
+                                 tr("The download did not succeed:\n%1\n\nThe server may be temporarily unavailable; you can try again later.").arg(QString::fromUtf8(e.what())));
+        return false;
+    }
+    return aiModelInstalled(id);
+}
+
 void MainWindow::setHealTool(bool on)
 {
     if (on && !m_pane->engine())
+        on = false;
+    if (on && !ensureAiModel(aiInpaintModel().id))
         on = false;
     if (on && m_cropTool)
         setCropTool(false);
@@ -1478,7 +1546,7 @@ void MainWindow::healAt(QPointF cropPoint, double radius)
         m_healToolObj->clearBusy();
         statusBar()->clearMessage();
         if (!err.isEmpty()) {
-            QMessageBox::warning(this, tr("Heal"), err);
+            QMessageBox::warning(this, tr("AI Heal"), err);
             return;
         }
         HealSpot sp = spot;

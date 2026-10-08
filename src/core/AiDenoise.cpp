@@ -4,6 +4,8 @@
 #include <QDir>
 #include <QEventLoop>
 #include <QFile>
+#include <QFileInfo>
+#include <QTimer>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QProcess>
@@ -22,11 +24,13 @@ QList<AiModelInfo> aiDenoiseModels()
 {
     static const QList<AiModelInfo> models = {
         {"nafnet-sidd-w64", "NAFNet (SIDD, width 64)", "MIT", "nafnet_denoise-onnx-float/nafnet_denoise.onnx", {},
-         "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/nafnet_denoise/releases/v0.64.0/nafnet_denoise-onnx-float.zip", 256, 8},
+         "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/nafnet_denoise/releases/v0.64.0/nafnet_denoise-onnx-float.zip", 256, 8,
+         "<a href=\"https://github.com/megvii-research/NAFNet\">megvii-research/NAFNet</a>; ONNX: Qualcomm AI Hub nafnet_denoise v0.64.0"},
         {"scunet-real-psnr", "SCUNet (real-world, PSNR)", "Apache-2.0", "scunet_color_real_psnr.onnx",
-         {{"scunet_color_real_psnr.onnx", "https://huggingface.co/Heliosoph/scunet-onnx/resolve/main/scunet_color_real_psnr.onnx", 3798678},
-          {"scunet_color_real_psnr.onnx.data", "https://huggingface.co/Heliosoph/scunet-onnx/resolve/main/scunet_color_real_psnr.onnx.data", 73138176}},
-         {}, 256, 64},
+         {{"scunet_color_real_psnr.onnx", "https://huggingface.co/Heliosoph/scunet-onnx/resolve/6d11417ee2fbcc73783c502a238ac115097754fe/scunet_color_real_psnr.onnx", 3798678},
+          {"scunet_color_real_psnr.onnx.data", "https://huggingface.co/Heliosoph/scunet-onnx/resolve/6d11417ee2fbcc73783c502a238ac115097754fe/scunet_color_real_psnr.onnx.data", 73138176}},
+         {}, 256, 64,
+         "<a href=\"https://github.com/cszn/SCUNet\">cszn/SCUNet</a>; ONNX: <a href=\"https://huggingface.co/Heliosoph/scunet-onnx\">Heliosoph/scunet-onnx</a> @6d11417"},
     };
     return models;
 }
@@ -34,7 +38,8 @@ QList<AiModelInfo> aiDenoiseModels()
 AiModelInfo aiInpaintModel()
 {
     return {"lama", "LaMa (big-lama)", "Apache-2.0", "lama_fp32.onnx",
-            {{"lama_fp32.onnx", "https://huggingface.co/Carve/LaMa-ONNX/resolve/main/lama_fp32.onnx", 208044816}}, {}, 512, 512};
+            {{"lama_fp32.onnx", "https://huggingface.co/Carve/LaMa-ONNX/resolve/c3c0c9e468934d62e79c329e35d82dd09ff8c444/lama_fp32.onnx", 208044816}}, {}, 512, 512,
+            "<a href=\"https://github.com/advimman/lama\">advimman/lama</a> (big-lama); ONNX: <a href=\"https://huggingface.co/Carve/LaMa-ONNX\">Carve/LaMa-ONNX</a> @c3c0c9e"};
 }
 
 const AiModelInfo* findAiModel(const QString& id)
@@ -64,30 +69,47 @@ bool aiModelInstalled(const QString& id)
 
 namespace {
 
-void downloadFile(const QString& url, const QString& dest, const DownloadProgress& progress)
+// `expectedSize` > 0: the download must have exactly that size (catches truncation).
+void downloadFile(const QString& url, const QString& dest, qint64 expectedSize, const DownloadProgress& progress,
+                  const std::atomic<bool>* cancel)
 {
     QNetworkAccessManager nam;
     QNetworkRequest req{QUrl(url)};
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+    req.setTransferTimeout(30000); // give up when no data arrives for 30 s
     QFile out(dest + ".part");
     if (!out.open(QIODevice::WriteOnly))
         throw std::runtime_error(("Cannot write " + dest).toStdString());
     QNetworkReply* reply = nam.get(req);
     QEventLoop loop;
+    bool canceled = false;
     QObject::connect(reply, &QNetworkReply::readyRead, [&] { out.write(reply->readAll()); });
     QObject::connect(reply, &QNetworkReply::downloadProgress, [&](qint64 r, qint64 t) {
         if (progress)
-            progress(r, t);
+            progress(r, t > 0 ? t : expectedSize);
     });
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    // Cancellation is polled so it also works while the transfer stalls.
+    QTimer poll;
+    QObject::connect(&poll, &QTimer::timeout, [&] {
+        if (cancel && *cancel && !canceled) {
+            canceled = true;
+            reply->abort();
+        }
+    });
+    poll.start(100);
     loop.exec();
+    poll.stop();
     out.write(reply->readAll());
     out.close();
-    QString err = reply->error() == QNetworkReply::NoError ? QString() : reply->errorString();
+    QString err = canceled ? QStringLiteral("canceled")
+                           : reply->error() == QNetworkReply::NoError ? QString() : reply->errorString();
     reply->deleteLater();
+    if (err.isEmpty() && expectedSize > 0 && QFileInfo(out).size() != expectedSize)
+        err = QStringLiteral("incomplete download (%1 of %2 bytes)").arg(QFileInfo(out).size()).arg(expectedSize);
     if (!err.isEmpty()) {
         QFile::remove(dest + ".part");
-        throw std::runtime_error(("Download failed: " + url + ": " + err).toStdString());
+        throw std::runtime_error(canceled ? std::string("Download canceled") : ("Download failed: " + url + ": " + err).toStdString());
     }
     QFile::remove(dest);
     QFile::rename(dest + ".part", dest);
@@ -95,7 +117,7 @@ void downloadFile(const QString& url, const QString& dest, const DownloadProgres
 
 } // namespace
 
-void downloadAiModel(const QString& id, const DownloadProgress& progress)
+void downloadAiModel(const QString& id, const DownloadProgress& progress, const std::atomic<bool>* cancel)
 {
     const AiModelInfo* m = findAiModel(id);
     if (!m)
@@ -104,7 +126,7 @@ void downloadAiModel(const QString& id, const DownloadProgress& progress)
     QDir().mkpath(dir);
     if (!m->archive.isEmpty()) {
         QString zip = dir + "/model.zip";
-        downloadFile(m->archive, zip, progress);
+        downloadFile(m->archive, zip, 0, progress, cancel);
         // Unpack with the system tool (bsdtar handles zip; unzip as fallback).
         int rc = QProcess::execute("bsdtar", {"-xf", zip, "-C", dir});
         if (rc != 0)
@@ -113,8 +135,22 @@ void downloadAiModel(const QString& id, const DownloadProgress& progress)
         if (rc != 0)
             throw std::runtime_error("Cannot unpack the model archive (needs bsdtar or unzip)");
     } else {
+        // Several files: report progress over all of them.
+        qint64 total = 0, before = 0;
         for (const auto& f : m->files)
-            downloadFile(f.url, dir + "/" + f.name, progress);
+            total += f.size;
+        for (const auto& f : m->files) {
+            if (QFileInfo(dir + "/" + f.name).size() == f.size && f.size > 0) {
+                before += f.size; // already there (an earlier attempt got this far)
+                continue;
+            }
+            auto fileProgress = [&](qint64 r, qint64 t) {
+                if (progress)
+                    progress(before + r, total > 0 ? total : t);
+            };
+            downloadFile(f.url, dir + "/" + f.name, f.size, fileProgress, cancel);
+            before += f.size;
+        }
     }
     if (!aiModelInstalled(id))
         throw std::runtime_error("Model files missing after download");

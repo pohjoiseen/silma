@@ -26,6 +26,7 @@ struct AiModelInfo {
     QString archive;     // optional zip URL instead of files
     int tileSize = 256;  // fixed input size (0 = dynamic)
     int multiple = 8;    // dynamic sizes must be multiples of this
+    QString about;       // origin of the weights and of the ONNX export (HTML)
 };
 
 QList<AiModelInfo> aiDenoiseModels();
@@ -36,9 +37,10 @@ QString defaultAiDenoiseModel();
 // Model storage: $XDG_DATA_HOME/silma/models/<id>/
 QString aiModelDir(const QString& id);
 bool aiModelInstalled(const QString& id);
-// Downloads model files (blocking; runs a local event loop). Throws on failure.
+// Downloads model files (blocking; runs a local event loop, so a GUI stays responsive
+// when called from the main thread). Throws on failure, also when `cancel` gets set.
 using DownloadProgress = std::function<void(qint64 received, qint64 total)>;
-void downloadAiModel(const QString& id, const DownloadProgress& progress = {});
+void downloadAiModel(const QString& id, const DownloadProgress& progress = {}, const std::atomic<bool>* cancel = nullptr);
 
 // Names of execution providers that will be tried, in order (e.g. "MIGraphX", "CPU").
 QStringList aiExecutionProviders();

@@ -70,7 +70,7 @@ private:
     QToolButton* m_healTool;
     QToolButton* m_wbPicker;
     QSlider* m_healSize;
-    QLabel* m_healInfo;
+    QLabel* m_healSizeLabel;
     bool m_updating = false;
 };
 

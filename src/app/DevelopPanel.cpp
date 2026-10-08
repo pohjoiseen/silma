@@ -193,10 +193,10 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
     }
 
     // Heal
-    auto* heal = addSection(layout, "heal", tr("Heal"), false);
+    auto* heal = addSection(layout, "heal", tr("AI Heal"), false);
     {
         auto* row = new QHBoxLayout();
-        m_healTool = rowButton(tr("Heal Tool"), heal);
+        m_healTool = rowButton(tr("AI Heal Tool"), heal);
         m_healTool->setCheckable(true);
         m_healTool->setToolTip(tr("Click on the image to remove a spot with generative fill (Q). Alt+click removes a spot."));
         row->addWidget(m_healTool);
@@ -204,17 +204,17 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
         row->addWidget(clear);
         heal->contentLayout()->addLayout(row);
         auto* sizeRow = new QHBoxLayout();
-        sizeRow->addWidget(new QLabel(tr("Size"), heal));
+        m_healSizeLabel = new QLabel(tr("Size"), heal);
+        sizeRow->addWidget(m_healSizeLabel);
         m_healSize = new QSlider(Qt::Horizontal, heal);
         makeSliderAbsolute(m_healSize);
         m_healSize->setRange(5, 200); // per-mille of the long edge
         m_healSize->setValue(QSettings().value("heal/size", 30).toInt());
         sizeRow->addWidget(m_healSize, 1);
         heal->contentLayout()->addLayout(sizeRow);
-        m_healInfo = new QLabel(tr("Uses the LaMa inpainting model (downloaded on first use)."), heal);
-        m_healInfo->setWordWrap(true);
-        makeDim(m_healInfo);
-        heal->contentLayout()->addWidget(m_healInfo);
+        // The brush size only matters while the tool is on.
+        m_healSize->setEnabled(false);
+        m_healSizeLabel->setEnabled(false);
         connect(m_healTool, &QToolButton::toggled, this, [this](bool on) {
             if (!m_updating)
                 emit healToolToggled(on);
@@ -336,6 +336,8 @@ void DevelopPanel::setHealToolActive(bool on)
 {
     m_updating = true;
     m_healTool->setChecked(on);
+    m_healSize->setEnabled(on);
+    m_healSizeLabel->setEnabled(on);
     m_updating = false;
 }
 
