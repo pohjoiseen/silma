@@ -8,6 +8,7 @@
 #include <QBuffer>
 #include <QStringList>
 #include <libraw/libraw.h>
+#include <tiffio.h>
 #include <memory>
 #include <stdexcept>
 
@@ -65,6 +66,43 @@ void collectOpcodes(const QByteArray& file, DngOpcodes& out)
             if (const TiffReader::Entry* e = ifd->find(tag); e && list->isEmpty())
                 *list = t.blob(*e);
     }
+}
+
+// Coverage from a DNG transparency mask (NewSubfileType 4, e.g. our own panoramas) that
+// libtiff can decompress; null when there is none.
+std::shared_ptr<const ValidMask> readTransparencyMask(const QString& path, const QByteArray& file, int width, int height)
+{
+    TiffReader t(file);
+    const auto ifds = t.ifds();
+    for (const auto& ifd : ifds) {
+        if (t.uint(ifd, 0x00FE) != 4 || t.uint(ifd, 0x0115, 1) != 1 || t.uint(ifd, 0x0102) != 8
+            || int(t.uint(ifd, 0x0100)) != width || int(t.uint(ifd, 0x0101)) != height)
+            continue;
+        TIFFSetWarningHandler(nullptr);
+        TIFF* tif = TIFFOpen(QFile::encodeName(path).constData(), "r");
+        if (!tif)
+            return nullptr;
+        std::vector<uint8_t> mask(size_t(width) * height, 0);
+        bool ok = TIFFSetSubDirectory(tif, ifd.offset);
+        if (ok && TIFFIsTiled(tif)) {
+            uint32_t tw = 0, th = 0;
+            TIFFGetField(tif, TIFFTAG_TILEWIDTH, &tw);
+            TIFFGetField(tif, TIFFTAG_TILELENGTH, &th);
+            std::vector<uint8_t> tile(size_t(TIFFTileSize(tif)));
+            for (uint32_t ty = 0; ok && ty < uint32_t(height); ty += th)
+                for (uint32_t tx = 0; ok && tx < uint32_t(width); tx += tw) {
+                    ok = TIFFReadTile(tif, tile.data(), tx, ty, 0, 0) >= 0 && tile.size() >= size_t(tw) * th;
+                    for (uint32_t y = 0; ok && y < th && ty + y < uint32_t(height); ++y)
+                        std::copy_n(&tile[size_t(y) * tw], std::min(tw, uint32_t(width) - tx), &mask[size_t(ty + y) * width + tx]);
+                }
+        } else if (ok) {
+            for (int y = 0; ok && y < height; ++y)
+                ok = TIFFReadScanline(tif, &mask[size_t(y) * width], uint32_t(y)) >= 0;
+        }
+        TIFFClose(tif);
+        return ok ? makeValidMask(mask, width, height) : nullptr;
+    }
+    return nullptr;
 }
 
 } // namespace
@@ -219,6 +257,8 @@ RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts)
             out.cropH = std::min(int(ic.cheight), fullH - out.cropY);
         }
         collectOpcodes(dngFile, out.opcodes);
+        if (!out.valid)
+            out.valid = readTransparencyMask(path, dngFile, fullW, fullH);
     }
     return out;
 }

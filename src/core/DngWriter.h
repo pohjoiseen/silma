@@ -20,6 +20,9 @@ struct LinearDngInfo {
     QString software;
     float whiteScale = 1.0f;   // values are divided by this before writing (HDR headroom)
     bool lensCorrected = false; // pixels already lens-corrected: omit lens metadata/opcodes
+    // Full-resolution coverage (255 = image data, 0 = none, e.g. outside a panorama), written
+    // as a DNG transparency mask; empty = all covered.
+    std::vector<uint8_t> transparencyMask;
 };
 
 // `cameraLinear`: camera-native linear RGB (not white balanced), 0..1 (clipped above).

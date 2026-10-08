@@ -113,4 +113,18 @@ ImageF applyOrientation(const ImageF& src, int orientation)
     return dst;
 }
 
+std::shared_ptr<const ValidMask> makeValidMask(const std::vector<uint8_t>& mask, int width, int height)
+{
+    auto valid = std::make_shared<ValidMask>();
+    const int cell = std::max(1, (std::max(width, height) + 2047) / 2048);
+    valid->width = (width + cell - 1) / cell;
+    valid->height = (height + cell - 1) / cell;
+    valid->data.assign(size_t(valid->width) * valid->height, 1);
+    for (int y = 0; y < height; ++y)
+        for (int x = 0; x < width; ++x)
+            if (mask[size_t(y) * width + x] < 128)
+                valid->data[size_t(y / cell) * valid->width + x / cell] = 0;
+    return valid;
+}
+
 } // namespace silma

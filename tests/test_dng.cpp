@@ -41,6 +41,38 @@ private slots:
         QVERIFY2(std::abs(mean - 0.25) < 0.01, qPrintable(QString::number(mean)));
     }
 
+    void transparencyMaskRoundTrip()
+    {
+        // Our own panoramas store their coverage as a DNG transparency mask.
+        QTemporaryDir tmp;
+        ImageF img(700, 400);
+        LinearDngInfo info;
+        info.make = "Test";
+        info.model = "Cam";
+        info.color.xyzToCam = {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
+        info.transparencyMask.assign(img.pixelCount(), 0);
+        for (int y = 0; y < img.height; ++y)
+            for (int x = 0; x < img.width; ++x)
+                if (x < 420) { // left 60% covered
+                    info.transparencyMask[size_t(y) * img.width + x] = 255;
+                    for (int c = 0; c < 3; ++c)
+                        img.px(x, y)[c] = 0.25f;
+                }
+        QString f = tmp.filePath("m.dng");
+        writeLinearDng(f, img, info, true);
+        RawImage r = decodeRaw(f);
+        // LibRaw still decodes the main image, not the mask.
+        QCOMPARE(r.image.width, 700);
+        QVERIFY(std::abs(r.image.px(100, 100)[1] - 0.25f) < 0.01f);
+        QVERIFY(r.valid);
+        QVERIFY(r.valid->at(0.3, 0.5));
+        QVERIFY(!r.valid->at(0.7, 0.5));
+        DevelopEngine e(f);
+        QRectF c = autoCropRect(e.geometry(DevelopSettings(), true), 0);
+        QVERIFY2(c.right() <= 0.6 && c.width() > 0.55 && c.height() > 0.95,
+                 qPrintable(QStringLiteral("%1 %2 %3 %4").arg(c.x()).arg(c.y()).arg(c.width()).arg(c.height())));
+    }
+
     void jpegXlDng()
     {
         // Lightroom panorama: DNG 1.7, JPEG XL compressed linear raw with a transparency mask.

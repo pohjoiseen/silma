@@ -603,6 +603,8 @@ qint64 createPanorama(Batch& b, const QList<qint64>& idsIn, const PanoOptions& o
     info.lensCorrected = true;
     info.whiteScale = float(std::max(1.0, mx / nativeClip));
     info.baselineExposure += std::log2(info.whiteScale);
+    // Coverage, so auto crop can find the stitched area later (e.g. with --no-crop).
+    info.transparencyMask.assign(valid.datastart, valid.dataend);
     QList<qint64> ids;
     for (const auto& p : photos)
         ids << p.id;

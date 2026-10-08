@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace silma {
@@ -36,6 +37,10 @@ struct ValidMask {
         return x >= 0 && y >= 0 && x < width && y < height && data[size_t(y) * width + x];
     }
 };
+
+// Builds a ValidMask (cells of a few pixels) from a full-resolution 8-bit coverage mask
+// (>= 128 = covered).
+std::shared_ptr<const ValidMask> makeValidMask(const std::vector<uint8_t>& mask, int width, int height);
 
 // Single-channel float image.
 struct PlaneF {

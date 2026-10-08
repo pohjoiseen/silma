@@ -115,6 +115,12 @@ void writeLinearDng(const QString& path, const ImageF& img, const LinearDngInfo&
         throw std::runtime_error(("Cannot create " + path).toStdString());
     TIFFMergeFieldInfo(tif, kExtraFields, 1);
     const uint8_t dngVersion[4] = {1, 4, 0, 0}, backVersion[4] = {1, 1, 0, 0};
+    const bool withMask = info.transparencyMask.size() == img.pixelCount();
+    if (withMask) {
+        // The mask goes into a SubIFD, written after the main image's directory.
+        uint64_t subIfd[1] = {0};
+        TIFFSetField(tif, TIFFTAG_SUBIFD, uint16_t(1), subIfd);
+    }
     TIFFSetField(tif, TIFFTAG_SUBFILETYPE, 0);
     TIFFSetField(tif, TIFFTAG_IMAGEWIDTH, uint32_t(img.width));
     TIFFSetField(tif, TIFFTAG_IMAGELENGTH, uint32_t(img.height));
@@ -177,6 +183,27 @@ void writeLinearDng(const QString& path, const ImageF& img, const LinearDngInfo&
             }
             ok = TIFFWriteTile(tif, tile.data(), uint32_t(tx), uint32_t(ty), 0, 0) >= 0;
         }
+    if (ok && withMask) {
+        ok = TIFFWriteDirectory(tif);
+        TIFFSetField(tif, TIFFTAG_SUBFILETYPE, 4); // transparency mask of the main image
+        TIFFSetField(tif, TIFFTAG_IMAGEWIDTH, uint32_t(img.width));
+        TIFFSetField(tif, TIFFTAG_IMAGELENGTH, uint32_t(img.height));
+        TIFFSetField(tif, TIFFTAG_SAMPLESPERPIXEL, uint16_t(1));
+        TIFFSetField(tif, TIFFTAG_BITSPERSAMPLE, uint16_t(8));
+        TIFFSetField(tif, TIFFTAG_PHOTOMETRIC, uint16_t(32895)); // TransparencyMask
+        TIFFSetField(tif, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
+        TIFFSetField(tif, TIFFTAG_COMPRESSION, COMPRESSION_ADOBE_DEFLATE);
+        TIFFSetField(tif, TIFFTAG_TILEWIDTH, uint32_t(tw));
+        TIFFSetField(tif, TIFFTAG_TILELENGTH, uint32_t(th));
+        std::vector<uint8_t> mtile(size_t(tw) * th);
+        for (int ty = 0; ty < img.height && ok; ty += th)
+            for (int tx = 0; tx < img.width && ok; tx += tw) {
+                std::fill(mtile.begin(), mtile.end(), uint8_t(0));
+                for (int y = 0; y < th && ty + y < img.height; ++y)
+                    std::copy_n(&info.transparencyMask[size_t(ty + y) * img.width + tx], std::min(tw, img.width - tx), &mtile[size_t(y) * tw]);
+                ok = TIFFWriteTile(tif, mtile.data(), uint32_t(tx), uint32_t(ty), 0, 0) >= 0;
+            }
+    }
     TIFFClose(tif);
     if (!ok) {
         QFile::remove(tmp);

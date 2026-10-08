@@ -68,7 +68,8 @@ window and exits (works with `QT_QPA_PLATFORM=offscreen`).
 ## Derived photos
 
 AI denoise, HDR and panorama results are written as linear (floating point) DNGs next to the
-source photo, added to the batch and developed like any raw. AI models are downloaded on first
+source photo, added to the batch and developed like any raw. Panoramas include a DNG transparency
+mask of the stitched area, so Auto Crop works on them later too (e.g. after `pano --no-crop`). AI models are downloaded on first
 use to `~/.local/share/silma/models` (NAFNet-SIDD by default, SCUNet optional; LaMa for heal).
 Generated heal fills are stored in the batch, so heal spots are ordinary undoable edits.
 

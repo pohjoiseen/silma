@@ -14,6 +14,7 @@ public:
         qint64 offset = 0; // of the value (inline values point into the entry)
     };
     struct Ifd {
+        quint32 offset = 0; // in the file
         QList<Entry> entries;
         const Entry* find(quint16 tag) const;
     };

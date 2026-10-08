@@ -53,6 +53,7 @@ void TiffReader::walk(quint32 ifd, QList<Ifd>& out, int depth) const
     if (depth > 4 || ifd == 0 || ifd >= quint32(m_d.size()) || out.size() > 64)
         return;
     Ifd cur;
+    cur.offset = ifd;
     int n = u16(ifd);
     for (int i = 0; i < n; ++i) {
         qint64 e = ifd + 2 + i * 12;

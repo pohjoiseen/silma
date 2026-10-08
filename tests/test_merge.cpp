@@ -2,9 +2,11 @@
 #include "Engine.h"
 #include "Importer.h"
 #include "Merge.h"
+#include "Upright.h"
 
 #include <QDir>
 #include <QTemporaryDir>
+
 #include <QtTest>
 
 using namespace silma;
@@ -47,8 +49,17 @@ private slots:
         QVERIFY(p && p->kind == PhotoKind::DerivedDng);
         QVERIFY(p->width >= 6016);
         DevelopEngine e(p->path, {.halfSize = true});
-        auto r = e.render(DevelopSettings::fromJsonString(m_batch.settings(id)), {.width = 400, .height = 300});
+        const DevelopSettings s = DevelopSettings::fromJsonString(m_batch.settings(id));
+        auto r = e.render(s, {.width = 400, .height = 300});
         QVERIFY(!r.image.isNull());
+        // The DNG carries its coverage: auto crop later finds about the merge's own crop.
+        Geometry g = e.geometry(s, true);
+        QVERIFY(g.hasValidMask());
+        QRectF c = autoCropRect(g, 0);
+        for (QPointF p : {c.topLeft(), c.topRight(), c.bottomLeft(), c.bottomRight()})
+            QVERIFY(g.canvasValid(p));
+        const double area = c.width() * c.height(), mergeArea = s.crop.width() * s.crop.height();
+        QVERIFY2(std::abs(area - mergeArea) < 0.1 * mergeArea, qPrintable(QStringLiteral("%1 vs %2").arg(area).arg(mergeArea)));
     }
 
     void hdr()
