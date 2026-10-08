@@ -9,6 +9,11 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -g -DNDEBUG")
 add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -march=x86-64-v3)
+# Keep the build warning-free. Packagers on newer compilers can opt out with
+# `cmake --compile-no-warning-as-error` or -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF.
+if(NOT DEFINED CMAKE_COMPILE_WARNING_AS_ERROR)
+  set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
+endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Concurrent Network DBus Test)
 find_library(ONNXRUNTIME_LIB onnxruntime REQUIRED)
