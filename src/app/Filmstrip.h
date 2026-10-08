@@ -22,6 +22,8 @@ public:
     // Refreshes rows from the database while keeping the list structure where possible.
     void refresh();
     void invalidateThumbnail(qint64 id);
+    // The photo's edit history moved (for the "edited" marker).
+    void setHistoryPos(qint64 id, int pos);
 
     int rowCount(const QModelIndex& = {}) const override { return int(m_photos.size()); }
     QVariant data(const QModelIndex& idx, int role) const override;
@@ -56,6 +58,7 @@ public:
 
 protected:
     void wheelEvent(QWheelEvent* e) override;
+    void mouseMoveEvent(QMouseEvent* e) override;
     void resizeEvent(QResizeEvent* e) override;
     void selectionChanged(const QItemSelection& selected, const QItemSelection& deselected) override;
 

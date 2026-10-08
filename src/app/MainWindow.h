@@ -103,6 +103,7 @@ private:
     void copySettings();
     void pasteSettings();
     void scheduleThumbnail();
+    void historyChanged(qint64 id);
     void renderThumbnail(qint64 id);
 
     // culling / files

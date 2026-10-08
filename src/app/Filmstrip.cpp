@@ -2,6 +2,7 @@
 
 #include <QPainter>
 #include <QScrollBar>
+#include <QMouseEvent>
 #include <QWheelEvent>
 
 namespace silma {
@@ -56,6 +57,22 @@ void PhotoListModel::invalidateThumbnail(qint64 id)
     int r = rowOf(id);
     if (r >= 0)
         emit dataChanged(index(r), index(r));
+}
+
+void PhotoListModel::setHistoryPos(qint64 id, int pos)
+{
+    int r = rowOf(id);
+    if (r < 0)
+        return;
+    m_photos[r].historyPos = pos;
+    const bool edited = pos > 0;
+    if (edited == m_edited.contains(id))
+        return;
+    if (edited)
+        m_edited.insert(id);
+    else
+        m_edited.remove(id);
+    emit dataChanged(index(r), index(r));
 }
 
 int PhotoListModel::rowOf(qint64 id) const
@@ -156,6 +173,7 @@ Filmstrip::Filmstrip(QWidget* parent) : QListView(parent)
     setMovement(QListView::Static);
     setResizeMode(QListView::Adjust);
     setSelectionMode(QAbstractItemView::ExtendedSelection);
+    setAutoScroll(false);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
@@ -192,6 +210,17 @@ void Filmstrip::selectionChanged(const QItemSelection& selected, const QItemSele
         m_delegate->multiSelection = multi;
         viewport()->update();
     }
+}
+
+void Filmstrip::mouseMoveEvent(QMouseEvent* e)
+{
+    // No drag selection (it also auto-scrolls the strip at its ends): selecting is by
+    // click, Ctrl+click and Shift+click.
+    if (e->buttons() != Qt::NoButton) {
+        e->accept();
+        return;
+    }
+    QListView::mouseMoveEvent(e);
 }
 
 void Filmstrip::wheelEvent(QWheelEvent* e)

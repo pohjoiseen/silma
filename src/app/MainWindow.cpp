@@ -736,6 +736,7 @@ void MainWindow::commit(const DevelopSettings& s, const QString& label)
     m_batch.pushHistory(m_photo->id, label, s.toJsonString());
     m_committed = s;
     m_dataVersion = m_batch.dataVersion();
+    historyChanged(m_photo->id);
     applySettingsToUi();
     reloadHistory();
     scheduleThumbnail();
@@ -789,6 +790,7 @@ void MainWindow::jumpToHistory(int seq)
     } catch (...) {
         return;
     }
+    historyChanged(m_photo->id);
     applySettingsToUi();
     reloadHistory();
     scheduleThumbnail();
@@ -880,6 +882,7 @@ void MainWindow::resetSettings()
         if (m_photo && id == m_photo->id)
             continue;
         m_batch.pushHistory(id, tr("Reset"), DevelopSettings().toJsonString());
+        historyChanged(id);
         m_model->invalidateThumbnail(id);
         renderThumbnail(id);
     }
@@ -912,6 +915,8 @@ void MainWindow::pasteSettings()
 }
 
 void MainWindow::scheduleThumbnail() { m_thumbTimer.start(); }
+
+void MainWindow::historyChanged(qint64 id) { m_model->setHistoryPos(id, m_batch.historyPos(id)); }
 
 void MainWindow::renderThumbnail(qint64 id)
 {
@@ -1411,6 +1416,7 @@ void MainWindow::healAt(QPointF cropPoint, double radius)
             DevelopSettings s = DevelopSettings::fromJsonString(m_batch.settings(photoId));
             s.heals.append(sp);
             m_batch.pushHistory(photoId, tr("Heal"), s.toJsonString());
+            historyChanged(photoId);
             renderThumbnail(photoId);
             return;
         }

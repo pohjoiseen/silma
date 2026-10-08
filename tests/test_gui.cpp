@@ -224,6 +224,39 @@ private slots:
         QVERIFY(texts.contains(QStringLiteral("&Export %1 Photos...").arg(strip->model()->rowCount())));
     }
 
+    void filmstripEditedMarkerAndNoDragSelect()
+    {
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QVERIFY(w.openBatch(m_batchFile));
+        auto* strip = w.findChild<Filmstrip*>();
+        QVERIFY(strip && strip->model()->rowCount() >= 3);
+        const QModelIndex last = strip->model()->index(2, 0);
+        strip->setCurrentIndex(last);
+        QTRY_COMPARE(w.currentPhoto()->id, last.data(PhotoListModel::IdRole).toLongLong());
+        QVERIFY(!last.data(PhotoListModel::EditedRole).toBool());
+
+        // The marker follows edits and undo right away.
+        ParamSlider* exp = slider(w, "exposure");
+        emit exp->edited(0.7, true);
+        QVERIFY(last.data(PhotoListModel::EditedRole).toBool());
+        w.testUndo();
+        QVERIFY(!last.data(PhotoListModel::EditedRole).toBool());
+
+        // Dragging across thumbnails does not extend the selection.
+        QPoint a = strip->visualRect(strip->model()->index(0, 0)).center(), b = strip->visualRect(last).center();
+        QTest::mousePress(strip->viewport(), Qt::LeftButton, {}, a);
+        for (int i = 1; i <= 10; ++i)
+            QTest::mouseMove(strip->viewport(), a + (b - a) * i / 10);
+        QTest::mouseRelease(strip->viewport(), Qt::LeftButton, {}, b);
+        QCOMPARE(strip->selectionModel()->selectedIndexes().size(), 1);
+        // Shift+click still selects a range.
+        QTest::mouseClick(strip->viewport(), Qt::LeftButton, Qt::ShiftModifier, b);
+        QCOMPARE(strip->selectionModel()->selectedIndexes().size(), 3);
+    }
+
     void importDialogLateName()
     {
         ImportInfo existing;
@@ -255,8 +288,12 @@ private slots:
             w.resize(1400, 900);
             w.show();
             QVERIFY(w.openBatch(m_batchFile));
+            // Start from the first photo, whichever an earlier test viewed last.
+            auto* strip = w.findChild<Filmstrip*>();
+            strip->setCurrentIndex(strip->model()->index(0, 0));
             QVERIFY(w.currentPhoto());
             firstId = w.currentPhoto()->id;
+            QCOMPARE(firstId, strip->model()->index(0, 0).data(PhotoListModel::IdRole).toLongLong());
             QTRY_VERIFY_WITH_TIMEOUT(w.mainPane()->hasRender(), 15000);
 
             // Slider edit -> one history step.
