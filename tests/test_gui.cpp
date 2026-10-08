@@ -5,6 +5,9 @@
 #include "Importer.h"
 #include "MainWindow.h"
 #include "Widgets.h"
+#include "Dialogs.h"
+#include <QLineEdit>
+#include <QRadioButton>
 #include "CropTool.h"
 #include "AiDenoise.h"
 
@@ -219,6 +222,29 @@ private slots:
         emit strip->customContextMenuRequested(r1.center());
         QVERIFY(texts.contains(QStringLiteral("Merge to &HDR...")));
         QVERIFY(texts.contains(QStringLiteral("&Export %1 Photos...").arg(strip->model()->rowCount())));
+    }
+
+    void importDialogLateName()
+    {
+        ImportInfo existing;
+        existing.name = QStringLiteral("2026-08-08");
+        {
+            // The capture dates arrive after the dialog opened: an existing import with that name is preselected.
+            ImportDialog dlg({QStringLiteral("a.nef")}, {existing}, QString());
+            QVERIFY(dlg.options().importName.isEmpty()); // automatic (capture date) until then
+            dlg.setDefaultName(QStringLiteral("2026-08-08"));
+            QCOMPARE(dlg.options().importName, QStringLiteral("2026-08-08"));
+            QVERIFY(dlg.findChildren<QRadioButton*>().at(1)->isChecked());
+        }
+        {
+            // A name the user typed meanwhile is kept.
+            ImportDialog dlg({QStringLiteral("a.nef")}, {existing}, QString());
+            auto* name = dlg.findChild<QLineEdit*>();
+            name->setFocus();
+            QTest::keyClicks(name, "Trip");
+            dlg.setDefaultName(QStringLiteral("2026-08-08"));
+            QCOMPARE(dlg.options().importName, QStringLiteral("Trip"));
+        }
     }
 
     void editUndoRejectRestore()

@@ -20,8 +20,12 @@ class ImportDialog : public QDialog {
 public:
     ImportDialog(const QStringList& files, const QList<ImportInfo>& imports, const QString& defaultName, QWidget* parent = nullptr);
     ImportOptions options() const;
+    // Suggested name for a new import (it may arrive after the dialog opened); ignored
+    // when the user already typed a name or picked a destination.
+    void setDefaultName(const QString& name);
 
 private:
+    bool m_destinationChosen = false;
     QRadioButton* m_new;
     QRadioButton* m_existing;
     QLineEdit* m_name;

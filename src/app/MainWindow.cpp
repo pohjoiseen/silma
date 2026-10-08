@@ -979,21 +979,29 @@ void MainWindow::importPhotos()
         return;
     qs.setValue("import/lastDir", QFileInfo(files.first()).absolutePath());
 
-    // Default import name: the earliest capture date.
-    QList<QDateTime> dates = QtConcurrent::blockingMapped(files, [](const QString& f) {
+    // Default import name: the earliest capture date. Reading it from every file takes
+    // a while, so the dialog opens right away and gets the name when it is ready.
+    ImportDialog dlg(files, m_batch.imports(), QString(), this);
+    auto* dates = new QFutureWatcher<QDateTime>(&dlg);
+    connect(dates, &QFutureWatcher<QDateTime>::finished, &dlg, [dates, &dlg] {
+        if (dates->isCanceled())
+            return;
+        QDateTime earliest;
+        for (const QDateTime& d : dates->future().results())
+            if (d.isValid() && (!earliest.isValid() || d < earliest))
+                earliest = d;
+        dlg.setDefaultName((earliest.isValid() ? earliest : QDateTime::currentDateTime()).toString(QStringLiteral("yyyy-MM-dd")));
+    });
+    dates->setFuture(QtConcurrent::mapped(files, [](const QString& f) {
         try {
             return readMetadataSummary(f).captureTime;
         } catch (...) {
             return QFileInfo(f).lastModified();
         }
-    });
-    QDateTime earliest;
-    for (const auto& d : dates)
-        if (d.isValid() && (!earliest.isValid() || d < earliest))
-            earliest = d;
-    QString defName = (earliest.isValid() ? earliest : QDateTime::currentDateTime()).toString(QStringLiteral("yyyy-MM-dd"));
-    ImportDialog dlg(files, m_batch.imports(), defName, this);
-    if (dlg.exec() != QDialog::Accepted)
+    }));
+    const int accepted = dlg.exec();
+    dates->cancel();
+    if (accepted != QDialog::Accepted)
         return;
     ImportOptions opts = dlg.options();
 

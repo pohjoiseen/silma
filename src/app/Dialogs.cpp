@@ -46,14 +46,12 @@ ImportDialog::ImportDialog(const QStringList& files, const QList<ImportInfo>& im
     m_move = new QCheckBox(tr("Move files instead of copying"), this);
     l->addWidget(m_move);
 
-    // An import with the default name already existing: preselect it.
-    int existingIdx = m_imports->findData(defaultName);
-    if (existingIdx >= 0) {
-        m_existing->setChecked(true);
-        m_imports->setCurrentIndex(existingIdx);
-    } else {
-        m_new->setChecked(true);
-    }
+    m_new->setChecked(true);
+    // Empty name: named after the capture date when importing.
+    m_name->setPlaceholderText(tr("Capture date"));
+    setDefaultName(defaultName);
+    for (QAbstractButton* b : {static_cast<QAbstractButton*>(m_new), static_cast<QAbstractButton*>(m_existing), static_cast<QAbstractButton*>(m_split)})
+        connect(b, &QAbstractButton::clicked, this, [this] { m_destinationChosen = true; });
     m_existing->setEnabled(!imports.isEmpty());
     auto sync = [this] {
         m_name->setEnabled(m_new->isChecked() && !m_split->isChecked());
@@ -69,6 +67,19 @@ ImportDialog::ImportDialog(const QStringList& files, const QList<ImportInfo>& im
     connect(bb, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(bb, &QDialogButtonBox::rejected, this, &QDialog::reject);
     l->addWidget(bb);
+}
+
+void ImportDialog::setDefaultName(const QString& name)
+{
+    if (name.isEmpty() || m_destinationChosen || m_name->isModified())
+        return;
+    m_name->setText(name);
+    // An import with that name already existing: preselect it.
+    int existingIdx = m_imports->findData(name);
+    if (existingIdx >= 0) {
+        m_existing->setChecked(true);
+        m_imports->setCurrentIndex(existingIdx);
+    }
 }
 
 ImportOptions ImportDialog::options() const
