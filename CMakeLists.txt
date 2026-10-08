@@ -40,9 +40,13 @@ add_subdirectory(tests)
 # AI models that are not downloaded but made from the original weights (NAFNet width 32,
 # full precision and 8-bit). Not part of the default build: needs Python 3 and the network.
 #   cmake --build <dir> --target ai-models
+# The newest Python found anywhere: by default the first directory in PATH with any
+# python3.X wins, which can be an old one (e.g. in ~/.local/bin).
+set(Python3_FIND_STRATEGY VERSION)
 find_package(Python3 COMPONENTS Interpreter QUIET)
 set(SILMA_CALIBRATION_RAWS "${CMAKE_SOURCE_DIR}/example-raws" CACHE PATH "Raw files for calibrating the 8-bit AI denoise model")
 if(Python3_FOUND)
+  message(STATUS "ai-models target: Python ${Python3_VERSION} (${Python3_EXECUTABLE})")
   set(AI_VENV "${CMAKE_BINARY_DIR}/ai-models-venv")
   add_custom_target(ai-models
     COMMAND ${Python3_EXECUTABLE} -m venv "${AI_VENV}"
