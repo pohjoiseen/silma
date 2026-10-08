@@ -187,7 +187,7 @@ qint64 createHdrMerge(Batch& b, const QList<qint64>& idsIn, const HdrOptions& o,
                 cv::Mat(w).convertTo(Hm(cv::Rect(0, 0, 3, 2)), CV_64F);
             }
             // Scale from preview to full-resolution coordinates.
-            cv::Mat S = (cv::Mat_<double>(3, 3) << f, 0, 0, 0, f, 0, 0, 0, 1), Si = S.inv();
+            cv::Mat S(cv::Matx33d(f, 0, 0, 0, f, 0, 0, 0, 1)), Si = S.inv();
             warps[i] = S * Hm * Si;
         }
     }
@@ -242,7 +242,6 @@ qint64 createHdrMerge(Batch& b, const QList<qint64>& idsIn, const HdrOptions& o,
     for (int y = 0; y < H; ++y) {
         std::vector<float> wts(n);
         for (int x = 0; x < W; ++x) {
-            float refLum = 0;
             bool refValid = false;
             {
                 const float* p = raws[ref].image.px(x, y);
@@ -250,7 +249,6 @@ qint64 createHdrMerge(Batch& b, const QList<qint64>& idsIn, const HdrOptions& o,
                 // Dark reference pixels are noisy but still show where things are; only clipped
                 // ones cannot be trusted for deghosting.
                 refValid = t > 0.002f && t < 0.95f;
-                refLum = native(ref, x, y, 1);
             }
             double wsum = 0;
             for (int i = 0; i < n; ++i) {
