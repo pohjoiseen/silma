@@ -42,6 +42,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPainter>
+#include <QProgressBar>
 #include <QProgressDialog>
 #include <QPushButton>
 #include <QSettings>
@@ -151,6 +152,19 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
         }
     });
 
+    m_healProgress = new QProgressBar(this);
+    m_healProgress->setRange(0, 0); // indeterminate
+    m_healProgress->setMaximumWidth(120);
+    m_healProgress->setMaximumHeight(statusBar()->fontMetrics().height());
+    m_healProgress->setTextVisible(false);
+    m_healProgress->hide();
+    statusBar()->addPermanentWidget(m_healProgress);
+    m_healAnim.setInterval(40);
+    connect(&m_healAnim, &QTimer::timeout, this, [this] {
+        m_healToolObj->tick();
+        if (m_healTool)
+            m_pane->update();
+    });
     m_status = new QLabel(this);
     statusBar()->addPermanentWidget(m_status);
 
@@ -451,6 +465,7 @@ void MainWindow::createActions()
                                     "<tr><td><b>C</b></td><td>Compare with another photo (select it too, or the previous one is used)</td></tr>"
                                     "<tr><td><b>R</b></td><td>Crop tool</td></tr>"
                                     "<tr><td><b>W</b></td><td>White balance picker (click a neutral point)</td></tr>"
+                                    "<tr><td><b>Q</b></td><td>AI heal: click a spot or drag along something; Alt+click removes</td></tr>"
                                     "<tr><td><b>Ctrl+U</b></td><td>Auto tone</td></tr>"
                                     "<tr><td><b>Ctrl+Z / Ctrl+Shift+Z</b></td><td>Undo / redo</td></tr>"
                                     "<tr><td><b>Ctrl+Shift+C / V</b></td><td>Copy / paste settings (to all selected)</td></tr>"
@@ -1507,28 +1522,48 @@ void MainWindow::ensureHealPatches(DevelopEngine* e, const DevelopSettings& s)
         addHealPatches(*e, loadHealPatches(m_batch, missing));
 }
 
-void MainWindow::healAt(QPointF cropPoint, double radius)
+void MainWindow::updateHealBusy()
+{
+    const bool busy = m_healJobs > 0;
+    m_healProgress->setVisible(busy);
+    if (busy && !m_healAnim.isActive())
+        m_healAnim.start();
+    else if (!busy)
+        m_healAnim.stop();
+    if (busy)
+        statusBar()->showMessage(m_healJobs == 1 ? tr("Generating fill...") : tr("Generating %1 fills...").arg(m_healJobs));
+    else
+        statusBar()->clearMessage();
+    m_pane->update();
+}
+
+void MainWindow::healAt(const QList<QPointF>& stroke, double radius)
 {
     auto e = m_pane->engine();
-    if (!m_photo || !e)
+    if (!m_photo || !e || stroke.isEmpty())
         return;
     if (e->isHalfSize()) {
         statusBar()->showMessage(tr("Still loading the full-resolution image; try again in a moment"), 3000);
         return;
     }
     Geometry g = e->geometry(m_settings);
-    float src[6], gain[3];
-    if (!g.mapCrop(cropPoint.x(), cropPoint.y(), src, gain))
+    QList<QPointF> sensor;
+    for (const QPointF& p : stroke) {
+        float src[6], gain[3];
+        if (g.mapCrop(p.x(), p.y(), src, gain))
+            sensor.append(QPointF(src[2], src[3]));
+    }
+    if (sensor.isEmpty())
         return;
     QSizeF crop = g.cropSize();
     HealSpot spot;
-    spot.x = src[2];
-    spot.y = src[3];
+    spot.x = sensor[0].x();
+    spot.y = sensor[0].y();
+    spot.path = sensor.mid(1);
     spot.radius = radius * std::max(crop.width(), crop.height()) / std::max(e->raw().fullWidth, e->raw().fullHeight) / g.lensZoom();
-    m_healToolObj->setBusy(cropPoint, radius);
-    m_pane->update();
+    m_healToolObj->addBusy(stroke, radius);
     ++m_healJobs;
-    statusBar()->showMessage(tr("Generating fill..."));
+    updateHealBusy();
     qint64 photoId = m_photo->id;
     QPointer<MainWindow> self(this);
     auto future = QtConcurrent::run([e, spot]() -> std::pair<HealPatch, QString> {
@@ -1539,12 +1574,12 @@ void MainWindow::healAt(QPointF cropPoint, double radius)
         }
     });
     auto* w = new QFutureWatcher<std::pair<HealPatch, QString>>(this);
-    connect(w, &QFutureWatcherBase::finished, this, [this, w, e, spot, photoId] {
+    connect(w, &QFutureWatcherBase::finished, this, [this, w, e, spot, stroke, photoId] {
         auto [patch, err] = w->result();
         w->deleteLater();
         --m_healJobs;
-        m_healToolObj->clearBusy();
-        statusBar()->clearMessage();
+        m_healToolObj->removeBusy(stroke);
+        updateHealBusy();
         if (!err.isEmpty()) {
             QMessageBox::warning(this, tr("AI Heal"), err);
             return;

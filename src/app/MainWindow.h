@@ -16,6 +16,7 @@
 class QAction;
 class QDockWidget;
 class QLabel;
+class QProgressBar;
 class QListWidget;
 class QSplitter;
 class QTabWidget;
@@ -57,10 +58,12 @@ public:
     void testAutoUpright(int mode) { autoUpright(mode); }
     void testCropTool(bool on) { setCropTool(on); }
     void testWbPicker(bool on) { setWbPicker(on); }
+    void testHealTool(bool on) { setHealTool(on); }
     void testPickWhiteBalance(QPointF p) { pickWhiteBalance(p); }
     bool wbPickerActive() const { return m_wbPicker; }
     CropTool* cropTool() const { return m_cropToolObj; }
-    void testHealAt(QPointF p, double r) { healAt(p, r); }
+    void testHealAt(QPointF p, double r) { healAt({p}, r); }
+    void testHealStroke(const QList<QPointF>& stroke, double r) { healAt(stroke, r); }
     int pendingHealJobs() const { return m_healJobs; }
 
     // Auto hide & show for the left panel, right panel and filmstrip (Qt::LeftEdge,
@@ -134,7 +137,9 @@ private:
     bool ensureAiModel(const QString& id);
     void setWbPicker(bool on);
     void pickWhiteBalance(QPointF cropPoint);
-    void healAt(QPointF cropPoint, double radius);
+    // Heals along a stroke (crop-normalized points; one point = round spot).
+    void healAt(const QList<QPointF>& stroke, double radius);
+    void updateHealBusy();
     void ensureHealPatches(DevelopEngine* e, const DevelopSettings& s);
     void updateHealOverlay();
     QList<qint64> selectedPhotoIds() const;
@@ -168,6 +173,8 @@ private:
     CropTool* m_cropToolObj;
     HealTool* m_healToolObj;
     bool m_healTool = false;
+    QTimer m_healAnim; // animates areas being generated
+    QProgressBar* m_healProgress = nullptr;
     WbPickerTool* m_wbPickerObj;
     bool m_wbPicker = false;
     int m_healJobs = 0;

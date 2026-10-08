@@ -170,8 +170,12 @@ bool DevelopEngine::hasHealPatch(qint64 id) const
 void DevelopEngine::applyHeals(const DevelopSettings& s) const
 {
     QString key;
-    for (const auto& h : s.heals)
-        key += QStringLiteral("%1,%2,%3,%4;").arg(h.x).arg(h.y).arg(h.radius).arg(h.patchId);
+    for (const auto& h : s.heals) {
+        key += QStringLiteral("%1,%2,%3,%4").arg(h.x).arg(h.y).arg(h.radius).arg(h.patchId);
+        for (const QPointF& p : h.path)
+            key += QStringLiteral(",%1:%2").arg(p.x()).arg(p.y());
+        key += ';';
+    }
     std::lock_guard lock(m_mutex);
     if (key == m_healKey)
         return;

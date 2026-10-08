@@ -24,11 +24,12 @@ struct CurvePoints {
     bool operator==(const CurvePoints&) const = default;
 };
 
-// A healed spot: centre and radius in sensor coordinates (normalized; radius relative to
-// the sensor's long edge) with the generated fill stored in the batch.
+// A healed area: a brush stroke (or a single round spot) in sensor coordinates (normalized;
+// radius relative to the sensor's long edge) with the generated fill stored in the batch.
 struct HealSpot {
-    double x = 0, y = 0, radius = 0.02;
+    double x = 0, y = 0, radius = 0.02; // where the stroke starts (the centre of a round spot)
     qint64 patchId = 0;
+    QList<QPointF> path; // further stroke points; empty for a round spot
     bool operator==(const HealSpot&) const = default;
 };
 

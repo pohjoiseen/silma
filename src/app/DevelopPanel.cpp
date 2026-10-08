@@ -198,7 +198,7 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
         auto* row = new QHBoxLayout();
         m_healTool = rowButton(tr("AI Heal Tool"), heal);
         m_healTool->setCheckable(true);
-        m_healTool->setToolTip(tr("Click on the image to remove a spot with generative fill (Q). Alt+click removes a spot."));
+        m_healTool->setToolTip(tr("Click, or drag along it, to remove something with generative fill (Q). Alt+click removes a heal."));
         row->addWidget(m_healTool);
         auto* clear = rowButton(tr("Clear All"), heal);
         row->addWidget(clear);
@@ -208,7 +208,7 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
         sizeRow->addWidget(m_healSizeLabel);
         m_healSize = new QSlider(Qt::Horizontal, heal);
         makeSliderAbsolute(m_healSize);
-        m_healSize->setRange(5, 200); // per-mille of the long edge
+        m_healSize->setRange(5, 100); // brush radius in per-mille of the long edge (heals are capped at 20%)
         m_healSize->setValue(QSettings().value("heal/size", 30).toInt());
         sizeRow->addWidget(m_healSize, 1);
         heal->contentLayout()->addLayout(sizeRow);

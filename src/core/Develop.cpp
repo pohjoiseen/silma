@@ -183,8 +183,16 @@ QJsonObject DevelopSettings::toJson() const
         o["crop_lock_aspect"] = cropLockAspect;
     if (!heals.isEmpty()) {
         QJsonArray a;
-        for (const auto& h : heals)
-            a.append(QJsonArray{h.x, h.y, h.radius, h.patchId});
+        for (const auto& h : heals) {
+            QJsonArray spot{h.x, h.y, h.radius, h.patchId};
+            if (!h.path.isEmpty()) {
+                QJsonArray pts;
+                for (const QPointF& p : h.path)
+                    pts << p.x() << p.y();
+                spot.append(pts);
+            }
+            a.append(spot);
+        }
         o["heal"] = a;
     }
     return o;
@@ -211,8 +219,13 @@ DevelopSettings DevelopSettings::fromJson(const QJsonObject& o)
     s.cropLockAspect = o.value("crop_lock_aspect").toBool(true);
     for (const auto& v : o.value("heal").toArray()) {
         auto a = v.toArray();
-        if (a.size() == 4)
-            s.heals.append({a[0].toDouble(), a[1].toDouble(), a[2].toDouble(), qint64(a[3].toDouble())});
+        if (a.size() < 4)
+            continue;
+        HealSpot h{a[0].toDouble(), a[1].toDouble(), a[2].toDouble(), qint64(a[3].toDouble()), {}};
+        const QJsonArray pts = a.size() > 4 ? a[4].toArray() : QJsonArray();
+        for (qsizetype i = 0; i + 1 < pts.size(); i += 2)
+            h.path.append(QPointF(pts[i].toDouble(), pts[i + 1].toDouble()));
+        s.heals.append(h);
     }
     return s;
 }

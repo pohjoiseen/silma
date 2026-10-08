@@ -5,6 +5,7 @@
 #include "Importer.h"
 #include "MainWindow.h"
 #include "Widgets.h"
+#include "HealTool.h"
 #include "Dialogs.h"
 #include <QLineEdit>
 #include <QRadioButton>
@@ -541,6 +542,53 @@ private slots:
         auto s = DevelopSettings::fromJsonString(b.settings(id));
         QVERIFY(b.patch(s.heals.last().patchId, nullptr, nullptr));
         QTRY_VERIFY_WITH_TIMEOUT(w.mainPane()->hasRender(), 15000);
+
+        // A stroke: stored with its path; the patch covers just the stroke (plus feather).
+        w.testHealStroke({QPointF(0.3, 0.6), QPointF(0.35, 0.62), QPointF(0.4, 0.6)}, 0.01);
+        QTRY_COMPARE_WITH_TIMEOUT(w.pendingHealJobs(), 0, 60000);
+        s = DevelopSettings::fromJsonString(b.settings(id));
+        QCOMPARE(s.heals.last().path.size(), 2);
+        QRect r;
+        QVERIFY(b.patch(s.heals.last().patchId, &r, nullptr));
+        const int sensorLong = std::max(w.mainPane()->engine()->raw().fullWidth, w.mainPane()->engine()->raw().fullHeight);
+        // About 10% + 2.5% brush and feather of the long edge wide, far below the 3x context.
+        QVERIFY2(r.width() < sensorLong * 0.16 && r.height() < sensorLong * 0.08, qPrintable(QStringLiteral("%1x%2").arg(r.width()).arg(r.height())));
+    }
+
+    void healToolStroke()
+    {
+        // Drawing with the tool (no model needed: the request is checked, not generated).
+        HealTool tool;
+        Geometry g(GeometrySource{6000, 4000, 1, 0, nullptr, nullptr}, DevelopSettings());
+        tool.setSpots({}, g, 6000);
+        tool.setBrushSize(0.01);
+        QList<QPointF> got;
+        double gotRadius = 0;
+        connect(&tool, &HealTool::healRequested, [&](const QList<QPointF>& s, double r) {
+            got = s;
+            gotRadius = r;
+        });
+        ImagePane pane;
+        QMouseEvent ev(QEvent::MouseButtonPress, QPointF(), QPointF(), Qt::LeftButton, Qt::LeftButton, {});
+        // A click: a round spot.
+        tool.press(pane, {0.5, 0.5}, &ev);
+        tool.release(pane, {0.5, 0.5}, &ev);
+        QCOMPARE(got.size(), 1);
+        QCOMPARE(gotRadius, 0.01);
+        // A drag: a stroke.
+        tool.press(pane, {0.2, 0.5}, &ev);
+        for (int i = 1; i <= 20; ++i)
+            tool.move(pane, {0.2 + i * 0.005, 0.5}, &ev);
+        tool.release(pane, {0.3, 0.5}, &ev);
+        QVERIFY(got.size() > 5);
+        QCOMPARE(got.last(), QPointF(0.3, 0.5));
+        // A long drag stops at the size cap (20% of the long edge, brush included).
+        tool.press(pane, {0.1, 0.5}, &ev);
+        for (int i = 1; i <= 80; ++i)
+            tool.move(pane, {0.1 + i * 0.01, 0.5}, &ev);
+        tool.release(pane, {0.9, 0.5}, &ev);
+        const double extent = got.last().x() - got.first().x() + 2 * 0.01;
+        QVERIFY2(extent <= 0.2 + 1e-9 && extent > 0.18, qPrintable(QString::number(extent)));
     }
 };
 

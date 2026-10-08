@@ -1,6 +1,7 @@
 #include "Color.h"
 #include "Engine.h"
 #include "Export.h"
+#include "Heal.h"
 
 #include <QDir>
 #include <QTemporaryDir>
@@ -109,6 +110,34 @@ private slots:
                 ++checked;
             }
         QVERIFY2(checked >= 3, qPrintable(QString::number(checked)));
+    }
+
+    void healStrokes()
+    {
+        // Stroke heals survive the settings JSON; round spots stay in the old form.
+        DevelopSettings s;
+        s.heals = {HealSpot{0.1, 0.2, 0.01, 5, {}}, HealSpot{0.3, 0.3, 0.02, 6, {QPointF(0.35, 0.3), QPointF(0.4, 0.32)}}};
+        QCOMPARE(DevelopSettings::fromJsonString(s.toJsonString()).heals, s.heals);
+        QCOMPARE(s.toJson()["heal"].toArray()[0].toArray().size(), 4);
+
+        // Pasting follows the stroke: fully replaced on it, untouched away from it.
+        const int W = 400, H = 200;
+        ImageF img(W, H); // zeros
+        HealSpot st{0.25, 0.5, 0.02, 1, {QPointF(0.75, 0.5)}}; // horizontal, radius 8 px
+        HealPatch patch;
+        patch.rect = QRect(0, 0, W, H);
+        patch.data = ImageF(W, H);
+        std::fill(patch.data.data.begin(), patch.data.data.end(), 0.5f);
+        pasteHealPatch(img, 1.0, W, H, st, patch);
+        QCOMPARE(img.px(200, 100)[1], 0.5f); // on the line
+        QCOMPARE(img.px(100, 104)[1], 0.5f); // within the brush
+        QCOMPARE(img.px(200, 130)[1], 0.0f); // beyond brush and feather
+        QCOMPARE(img.px(60, 100)[1], 0.0f);  // past the stroke's end (x = 100 - 8 - feather)
+        QVERIFY(img.px(200, 109)[1] > 0 && img.px(200, 109)[1] < 0.5f); // feathered edge
+
+        // Extent includes the brush; the cap is a fifth of the long edge.
+        QVERIFY(std::abs(healExtent(st, W, H) - (200 + 16) / 400.0) < 1e-9);
+        QVERIFY(healExtent(HealSpot{0.5, 0.5, 0.02, 0, {}}, W, H) < kMaxHealExtent);
     }
 
     void settingsJsonRoundTrip()
