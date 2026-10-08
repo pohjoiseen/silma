@@ -1,7 +1,11 @@
 #include "RawDecoder.h"
 
+#include "DngJxl.h"
+#include "TiffReader.h"
+
 #include <QFile>
 #include <QFileInfo>
+#include <QBuffer>
 #include <QStringList>
 #include <libraw/libraw.h>
 #include <memory>
@@ -43,68 +47,25 @@ std::array<double, 3> normalizeMul(const float* m)
     return out;
 }
 
-// Reads a raw TIFF tag blob for DNG opcode lists. LibRaw does not expose them, so we
-// locate the tags with a tiny TIFF walker over IFD0 and its SubIFDs.
-class TiffWalker {
-public:
-    explicit TiffWalker(const QByteArray& d) : m_d(d) {}
-
-    bool valid() const { return m_d.size() > 8 && (m_d.startsWith("II") || m_d.startsWith("MM")); }
-
-    void collect(DngOpcodes& out)
-    {
-        if (!valid())
-            return;
-        m_le = m_d.startsWith("II");
-        walk(u32(4), out, 0);
+// DNG opcode lists of the main image; LibRaw does not expose them.
+void collectOpcodes(const QByteArray& file, DngOpcodes& out)
+{
+    TiffReader t(file);
+    const auto ifds = t.ifds();
+    // The main image's IFD (NewSubfileType 0) first, then any other.
+    QList<const TiffReader::Ifd*> order;
+    for (const auto& ifd : ifds)
+        if (t.uint(ifd, 0x00FE, 0) == 0)
+            order << &ifd;
+    for (const auto& ifd : ifds)
+        if (!order.contains(&ifd))
+            order << &ifd;
+    for (const TiffReader::Ifd* ifd : order) {
+        for (auto [tag, list] : {std::pair<quint16, QByteArray*>{0xC740, &out.list1}, {0xC741, &out.list2}, {0xC74E, &out.list3}})
+            if (const TiffReader::Entry* e = ifd->find(tag); e && list->isEmpty())
+                *list = t.blob(*e);
     }
-
-private:
-    quint16 u16(qint64 o) const
-    {
-        if (o < 0 || o + 2 > m_d.size())
-            return 0;
-        auto p = reinterpret_cast<const uchar*>(m_d.constData() + o);
-        return m_le ? quint16(p[0] | p[1] << 8) : quint16(p[0] << 8 | p[1]);
-    }
-    quint32 u32(qint64 o) const
-    {
-        if (o < 0 || o + 4 > m_d.size())
-            return 0;
-        auto p = reinterpret_cast<const uchar*>(m_d.constData() + o);
-        return m_le ? quint32(p[0] | p[1] << 8 | p[2] << 16 | quint32(p[3]) << 24)
-                    : quint32(quint32(p[0]) << 24 | p[1] << 16 | p[2] << 8 | p[3]);
-    }
-
-    void walk(quint32 ifd, DngOpcodes& out, int depth)
-    {
-        if (depth > 4 || ifd == 0 || ifd >= quint32(m_d.size()))
-            return;
-        int n = u16(ifd);
-        for (int i = 0; i < n; ++i) {
-            qint64 e = ifd + 2 + i * 12;
-            quint16 tag = u16(e), type = u16(e + 2);
-            quint32 count = u32(e + 4);
-            static const int typeSize[] = {0, 1, 1, 2, 4, 8, 1, 1, 2, 4, 8, 4, 8, 4};
-            qint64 bytes = qint64(count) * (type < 14 ? typeSize[type] : 1);
-            qint64 valOff = bytes <= 4 ? e + 8 : u32(e + 8);
-            auto blob = [&] { return valOff + bytes <= m_d.size() ? m_d.mid(valOff, bytes) : QByteArray(); };
-            switch (tag) {
-            case 0x014A: // SubIFDs
-                for (quint32 k = 0; k < count && k < 8; ++k)
-                    walk(count == 1 ? u32(e + 8) : u32(valOff + 4 * k), out, depth + 1);
-                break;
-            case 0xC740: if (out.list1.isEmpty()) out.list1 = blob(); break;
-            case 0xC741: if (out.list2.isEmpty()) out.list2 = blob(); break;
-            case 0xC74E: if (out.list3.isEmpty()) out.list3 = blob(); break;
-            default: break;
-            }
-        }
-    }
-
-    const QByteArray& m_d;
-    bool m_le = true;
-};
+}
 
 } // namespace
 
@@ -134,7 +95,16 @@ RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts)
     out.lens = QString::fromLatin1(raw->imgdata.lens.Lens);
     out.isDng = raw->imgdata.idata.dng_version != 0;
 
-    check(raw->unpack(), "Cannot unpack raw data");
+    // LibRaw cannot unpack JPEG XL compressed DNGs (DNG 1.7): we decode those ourselves.
+    QByteArray dngFile;
+    if (out.isDng) {
+        QFile f(path);
+        if (f.open(QIODevice::ReadOnly))
+            dngFile = f.readAll();
+    }
+    const bool jxl = out.isDng && isJxlDng(dngFile);
+    if (!jxl)
+        check(raw->unpack(), "Cannot unpack raw data");
     // Full-resolution visible size (LibRaw shrinks sizes when decoding at half size).
     const int fullW = S.width, fullH = S.height;
 
@@ -163,45 +133,66 @@ RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts)
     if (!std::isfinite(out.color.baselineExposure) || std::abs(out.color.baselineExposure) > 10)
         out.color.baselineExposure = 0;
 
-    // White-balance for demosaicing with as-shot multipliers; the pipeline re-balances later.
-    for (int c = 0; c < 3; ++c)
-        P.user_mul[c] = float(out.color.asShotMul[c]);
-    P.user_mul[3] = float(out.color.asShotMul[1]);
-    P.use_camera_wb = 0;
-    P.use_auto_wb = 0;
-    P.output_color = 0; // camera color space
-    P.output_bps = 16;
-    P.gamm[0] = 1.0;
-    P.gamm[1] = 1.0;
-    P.no_auto_bright = 1;
-    P.highlight = 0; // clip
-    P.user_flip = 0; // orientation handled by us
-    P.half_size = opts.halfSize ? 1 : 0;
-    P.user_qual = 3; // AHD
-
-    check(raw->dcraw_process(), "Cannot process raw data");
-
     // LibRaw normalizes multipliers so the smallest is 1.
     double minMul = std::min({out.color.asShotMul[0], out.color.asShotMul[1], out.color.asShotMul[2]});
     for (int c = 0; c < 3; ++c)
         out.color.appliedMul[c] = out.color.asShotMul[c] / minMul;
 
-    int err = 0;
-    libraw_processed_image_t* img = raw->dcraw_make_mem_image(&err);
-    if (!img)
-        throw std::runtime_error(std::string("Cannot create image: ") + libraw_strerror(err));
-    std::unique_ptr<libraw_processed_image_t, void (*)(libraw_processed_image_t*)> guard(img, LibRaw::dcraw_clear_mem);
-    if (img->colors != 3 || img->bits != 16)
-        throw std::runtime_error("Unexpected raw output format");
-
-    out.image = ImageF(img->width, img->height);
-    const quint16* src = reinterpret_cast<const quint16*>(img->data);
-    const size_t n = size_t(img->width) * img->height * 3;
-    constexpr float scale = 1.0f / 65535.0f;
-    float* dst = out.image.data.data();
+    if (jxl) {
+        DngJxlImage j = decodeDngJxl(dngFile);
+        if (j.width != fullW || j.height != fullH)
+            throw std::runtime_error("JPEG XL DNG: image size does not match the metadata");
+        // Same as LibRaw's output: white-balanced with appliedMul and clipped at 1.
+        const int f = opts.halfSize ? 2 : 1;
+        out.image = ImageF(j.width / f, j.height / f);
+        const float mul[3] = {float(out.color.appliedMul[0]), float(out.color.appliedMul[1]), float(out.color.appliedMul[2])};
+        const float norm = 1.0f / float(f * f);
 #pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < n; ++i)
-        dst[i] = src[i] * scale;
+        for (int y = 0; y < out.image.height; ++y)
+            for (int x = 0; x < out.image.width; ++x)
+                for (int c = 0; c < 3; ++c) {
+                    float sum = 0;
+                    for (int dy = 0; dy < f; ++dy)
+                        for (int dx = 0; dx < f; ++dx)
+                            sum += j.data[(size_t(y * f + dy) * j.width + x * f + dx) * 3 + c];
+                    out.image.data[(size_t(y) * out.image.width + x) * 3 + c] = std::min(1.0f, sum * norm * mul[c]);
+                }
+    } else {
+        // White-balance for demosaicing with as-shot multipliers; the pipeline re-balances later.
+        for (int c = 0; c < 3; ++c)
+            P.user_mul[c] = float(out.color.asShotMul[c]);
+        P.user_mul[3] = float(out.color.asShotMul[1]);
+        P.use_camera_wb = 0;
+        P.use_auto_wb = 0;
+        P.output_color = 0; // camera color space
+        P.output_bps = 16;
+        P.gamm[0] = 1.0;
+        P.gamm[1] = 1.0;
+        P.no_auto_bright = 1;
+        P.highlight = 0; // clip
+        P.user_flip = 0; // orientation handled by us
+        P.half_size = opts.halfSize ? 1 : 0;
+        P.user_qual = 3; // AHD
+
+        check(raw->dcraw_process(), "Cannot process raw data");
+
+        int err = 0;
+        libraw_processed_image_t* img = raw->dcraw_make_mem_image(&err);
+        if (!img)
+            throw std::runtime_error(std::string("Cannot create image: ") + libraw_strerror(err));
+        std::unique_ptr<libraw_processed_image_t, void (*)(libraw_processed_image_t*)> guard(img, LibRaw::dcraw_clear_mem);
+        if (img->colors != 3 || img->bits != 16)
+            throw std::runtime_error("Unexpected raw output format");
+
+        out.image = ImageF(img->width, img->height);
+        const quint16* src = reinterpret_cast<const quint16*>(img->data);
+        const size_t n = size_t(img->width) * img->height * 3;
+        constexpr float scale = 1.0f / 65535.0f;
+        float* dst = out.image.data.data();
+#pragma omp parallel for schedule(static)
+        for (size_t i = 0; i < n; ++i)
+            dst[i] = src[i] * scale;
+    }
 
     out.halfSize = opts.halfSize;
     out.fullWidth = fullW;
@@ -226,11 +217,7 @@ RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts)
             out.cropW = std::min(int(ic.cwidth), fullW - out.cropX);
             out.cropH = std::min(int(ic.cheight), fullH - out.cropY);
         }
-        QFile f(path);
-        if (f.open(QIODevice::ReadOnly)) {
-            QByteArray d = f.readAll();
-            TiffWalker(d).collect(out.opcodes);
-        }
+        collectOpcodes(dngFile, out.opcodes);
     }
     return out;
 }
@@ -247,6 +234,18 @@ QByteArray extractEmbeddedPreview(const QString& path)
         if (t.tformat == LIBRAW_INTERNAL_THUMBNAIL_JPEG && qint64(t.twidth) * t.theight > bestSize) {
             bestSize = qint64(t.twidth) * t.theight;
             best = i;
+        }
+    }
+    if (raw->imgdata.idata.dng_version != 0) {
+        // JPEG XL DNGs keep their bigger previews JPEG XL compressed too.
+        QFile f(path);
+        QImage jxl = f.open(QIODevice::ReadOnly) ? decodeDngJxlPreview(f.readAll()) : QImage();
+        if (!jxl.isNull() && qint64(jxl.width()) * jxl.height() > bestSize) {
+            QByteArray jpeg;
+            QBuffer buf(&jpeg);
+            buf.open(QIODevice::WriteOnly);
+            jxl.save(&buf, "JPEG", 90);
+            return jpeg;
         }
     }
     if (best >= 0) {

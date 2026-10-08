@@ -5,7 +5,7 @@ Develop module. See `SPEC.md` for the goals.
 
 ## Building
 
-Dependencies (Arch): `cmake ninja qt6-base libraw exiv2 lensfun libjpeg-turbo libtiff sqlite lcms2 opencv onnxruntime-cpu`.
+Dependencies (Arch): `cmake ninja qt6-base libraw exiv2 lensfun libjpeg-turbo libtiff libjxl sqlite lcms2 opencv onnxruntime-cpu`.
 Optional: `kcolorscheme` (KDE color schemes: the app defaults to Breeze Dark and offers the installed schemes under View → Color Scheme; without it a built-in dark palette is used).
 
 For GPU-accelerated AI denoise install `onnxruntime-opt-rocm` (AMD) or `onnxruntime-cuda`
@@ -71,3 +71,7 @@ AI denoise, HDR and panorama results are written as linear (floating point) DNGs
 source photo, added to the batch and developed like any raw. AI models are downloaded on first
 use to `~/.local/share/silma/models` (NAFNet-SIDD by default, SCUNet optional; LaMa for heal).
 Generated heal fills are stored in the batch, so heal spots are ordinary undoable edits.
+
+JPEG XL compressed DNGs (DNG 1.7, e.g. Lightroom's HDR and panorama merges) are decoded with
+libjxl, as LibRaw cannot unpack them; their transparency masks (uncovered panorama areas)
+come out black. JPEG XL compressed mosaic (CFA) DNGs are not supported yet.
