@@ -175,7 +175,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
         it.value()->setChecked(QSettings().value(QStringLiteral("ui/autoHide/%1").arg(it.key()), false).toBool());
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow()
+{
+    // Child widgets are destroyed after our members and can still emit signals then
+    // (e.g. a focused slider spin box losing focus): make sure none reaches us.
+    for (QObject* o : findChildren<QObject*>())
+        disconnect(o, nullptr, this, nullptr);
+}
 
 void MainWindow::createDocks()
 {
