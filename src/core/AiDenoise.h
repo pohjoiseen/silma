@@ -44,6 +44,8 @@ void downloadAiModel(const QString& id, const DownloadProgress& progress = {}, c
 
 // Names of execution providers that will be tried, in order (e.g. "MIGraphX", "CPU").
 QStringList aiExecutionProviders();
+// CPU threads used for inference: one per physical core (SILMA_AI_THREADS overrides).
+int aiThreadCount();
 
 using AiProgress = std::function<void(int done, int total)>;
 

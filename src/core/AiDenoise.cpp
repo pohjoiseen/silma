@@ -9,6 +9,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QProcess>
+#include <QSet>
 #include <QStandardPaths>
 #include <QThread>
 #include <algorithm>
@@ -156,6 +157,24 @@ void downloadAiModel(const QString& id, const DownloadProgress& progress, const 
         throw std::runtime_error("Model files missing after download");
 }
 
+// Inference threads: one per physical core. The networks are bound by vector units, which
+// SMT siblings share, so extra threads only add contention (about 12% slower measured on a
+// 6-core/12-thread Ryzen). SILMA_AI_THREADS overrides.
+int aiThreadCount()
+{
+    if (qEnvironmentVariableIsSet("SILMA_AI_THREADS"))
+        return std::max(1, qEnvironmentVariableIntValue("SILMA_AI_THREADS"));
+    const int logical = int(std::max(1u, std::thread::hardware_concurrency()));
+    QSet<QString> cores; // distinct sibling sets = physical cores
+    for (int i = 0; i < logical; ++i) {
+        QFile f(QStringLiteral("/sys/devices/system/cpu/cpu%1/topology/thread_siblings_list").arg(i));
+        if (!f.open(QIODevice::ReadOnly))
+            return logical;
+        cores.insert(QString::fromLatin1(f.readAll()).trimmed());
+    }
+    return cores.isEmpty() ? logical : int(cores.size());
+}
+
 namespace {
 
 Ort::Env& ortEnv()
@@ -207,7 +226,7 @@ ImageF runAiDenoise(const QString& modelPath, const ImageF& in, int tile, const 
 {
     Ort::SessionOptions so;
     so.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
-    so.SetIntraOpNumThreads(int(std::max(1u, std::thread::hardware_concurrency())));
+    so.SetIntraOpNumThreads(aiThreadCount());
     QString provider = configureAiProviders(so);
     if (providerUsed)
         *providerUsed = provider;
@@ -296,7 +315,7 @@ ImageF runAiInpaint(const ImageF& img, const PlaneF& mask, QString* providerUsed
         throw std::runtime_error("Inpainting input must be 512x512");
     Ort::SessionOptions so;
     so.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
-    so.SetIntraOpNumThreads(int(std::max(1u, std::thread::hardware_concurrency())));
+    so.SetIntraOpNumThreads(aiThreadCount());
     QString provider = configureAiProviders(so);
     if (providerUsed)
         *providerUsed = provider;

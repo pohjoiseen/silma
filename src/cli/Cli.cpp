@@ -871,7 +871,7 @@ std::map<QString, Command> commands()
         if (json)
             printJson(QJsonObject{{"models", arr}, {"providers", QJsonArray::fromStringList(aiExecutionProviders())}, {"model_dir", aiModelDir("")}});
         else
-            out() << "Execution providers: " << aiExecutionProviders().join(", ") << "\nModel directory: " << aiModelDir("") << '\n';
+            out() << "Execution providers: " << aiExecutionProviders().join(", ") << "\nCPU threads: " << aiThreadCount() << "\nModel directory: " << aiModelDir("") << '\n';
     }};
 
     m["linear-copy"] = {"linear-copy PHOTO", "Debug: re-encode a raw as linear DNG (round-trip test)", {}, {}, true, [](const Args& a, Batch* b, bool) {
