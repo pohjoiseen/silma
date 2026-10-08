@@ -79,3 +79,11 @@ JPEG XL compressed DNGs (DNG 1.7, e.g. Lightroom's HDR and panorama merges) are 
 libjxl, as LibRaw cannot unpack them; their transparency masks (uncovered panorama areas)
 come out black, and Auto Crop finds the largest fully covered rectangle (any aspect ratio
 unless the crop already has a locked one). JPEG XL compressed mosaic (CFA) DNGs are not supported yet.
+
+## License
+
+Silmä is free software: you can redistribute it and/or modify it under the terms of the GNU
+General Public License as published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version (GPL-3.0-or-later). See [LICENSE](LICENSE).
+
+The AI models it downloads have their own licenses (MIT and Apache-2.0; see Help › About).

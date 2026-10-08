@@ -490,7 +490,8 @@ void MainWindow::createActions()
         box.setTextFormat(Qt::RichText);
         box.setText(tr("<h3>Silmä %1</h3>"
                        "<p>A streamlined raw photo developer.<br>"
-                       "By Claude Opus 5.5, steered by Alexander Ulyanov. GPL-3.0.</p>"
+                       "By Claude Opus 5.5, steered by Alexander Ulyanov.<br>"
+                       "Free software under the GNU GPL, version 3 or later.</p>"
                        "<p><b>Libraries</b></p><table cellspacing=\"6\">%2</table>"
                        "<p><b>AI models</b></p><table cellspacing=\"6\">%3</table>")
                         .arg(QStringLiteral(SILMA_VERSION), libs, models));
