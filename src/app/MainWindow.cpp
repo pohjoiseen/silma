@@ -676,7 +676,9 @@ void MainWindow::showCurrentPhoto()
     ensureHealPatches(engine.get(), m_settings);
     m_pane->setSettings(m_settings);
     m_pane->setEngine(engine);
-    m_pane->setMessage(engine ? QString() : tr("Loading…"));
+    // A failed decode is remembered (and reported) once: show it again when coming back.
+    const QString error = engine ? QString() : m_engines.errorFor(p.path);
+    m_pane->setMessage(engine ? QString() : error.isEmpty() ? tr("Loading…") : tr("Cannot decode: %1").arg(error));
     if (engine)
         m_panel->setLensInfo(engine->lensDescription());
     updatePanes();
