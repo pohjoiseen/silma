@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Batch.h"
+#include "Develop.h"
 #include "Export.h"
 #include "Importer.h"
 
@@ -12,6 +13,7 @@ class QComboBox;
 class QLineEdit;
 class QRadioButton;
 class QSpinBox;
+class QTreeWidget;
 
 namespace silma {
 
@@ -32,6 +34,19 @@ private:
     QComboBox* m_imports;
     QCheckBox* m_split;
     QCheckBox* m_move;
+};
+
+// Choose which parts of the copied settings to paste (remembered across sessions).
+class PasteSettingsDialog : public QDialog {
+    Q_OBJECT
+public:
+    PasteSettingsDialog(int photoCount, QWidget* parent = nullptr);
+    QSet<QString> parts() const; // SettingsPart keys
+    void setParts(const QSet<QString>& parts);
+    void accept() override;
+
+private:
+    QTreeWidget* m_tree;
 };
 
 enum class ExportScope { Selected, Import, Batch };

@@ -7,6 +7,7 @@
 #include <QList>
 #include <QPointF>
 #include <QRectF>
+#include <QSet>
 #include <QString>
 #include <span>
 
@@ -103,6 +104,19 @@ struct ParamDef {
 
 std::span<const ParamDef> paramDefs();
 const ParamDef* findParam(const QString& key);
+
+// Parts of the settings that can be pasted separately, in panel order. Keys are "wb"
+// (mode, temperature and tint), "curve", "crop" and the scalar param keys otherwise.
+// Heal spots are not among them: their fills are made from the source photo's pixels.
+struct SettingsPart {
+    const char* key;
+    const char* label;
+    const char* group; // "wb", "tone", "presence", "curve", "lens", "transform", "crop", "sharpening", "noise"
+};
+std::span<const SettingsPart> settingsParts();
+
+// `target` with the given parts taken from `source`.
+DevelopSettings copySettingsParts(const DevelopSettings& target, const DevelopSettings& source, const QSet<QString>& parts);
 
 QString wbModeName(WbMode m);
 std::optional<WbMode> wbModeFromName(const QString& s);

@@ -902,14 +902,22 @@ void MainWindow::pasteSettings()
     if (!m_clipboard)
         return;
     QList<qint64> ids = selectedPhotoIds();
+    PasteSettingsDialog dlg(int(std::max<qsizetype>(1, ids.size())), this);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    const QSet<QString> parts = dlg.parts();
     for (qint64 id : ids) {
         if (m_photo && id == m_photo->id)
             continue;
-        m_batch.pushHistory(id, tr("Paste Settings"), m_clipboard->toJsonString());
+        const DevelopSettings before = DevelopSettings::fromJsonString(m_batch.settings(id));
+        const DevelopSettings after = copySettingsParts(before, *m_clipboard, parts);
+        if (after == before)
+            continue;
+        m_batch.pushHistory(id, tr("Paste Settings"), after.toJsonString());
         renderThumbnail(id);
     }
     if (m_photo && (ids.contains(m_photo->id) || ids.isEmpty()))
-        commit(*m_clipboard, tr("Paste Settings"));
+        commit(copySettingsParts(m_committed, *m_clipboard, parts), tr("Paste Settings"));
     m_model->refresh();
     statusBar()->showMessage(tr("Settings pasted to %n photo(s)", nullptr, int(std::max<qsizetype>(1, ids.size()))), 2000);
 }

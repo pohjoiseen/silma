@@ -49,6 +49,8 @@ public:
     void testUndo() { undo(); }
     void testRedo() { redo(); }
     void testReject() { setRejected(true); }
+    void testCopySettings() { copySettings(); }
+    void testPasteSettings() { pasteSettings(); }
     void testSetViewMode(ViewMode m) { setViewMode(m); }
     void testPoll() { pollDatabase(); }
     void testAutoUpright(int mode) { autoUpright(mode); }

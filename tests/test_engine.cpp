@@ -30,6 +30,33 @@ private slots:
             }
     }
 
+    void pasteParts()
+    {
+        DevelopSettings src, dst;
+        src.exposure = 1.5;
+        src.contrast = 20;
+        src.wbMode = WbMode::Custom;
+        src.temperature = 4000;
+        src.crop = QRectF(0.1, 0.1, 0.5, 0.5);
+        src.sharpenAmount = 90;
+        src.heals = {HealSpot{0.5, 0.5, 0.02, 7}};
+        dst.contrast = -30;
+        dst.heals = {HealSpot{0.2, 0.2, 0.02, 3}};
+        DevelopSettings r = copySettingsParts(dst, src, {"exposure", "wb", "sharpen_amount"});
+        QCOMPARE(r.exposure, 1.5);
+        QCOMPARE(r.contrast, -30.0); // not chosen: the target's value stays
+        QCOMPARE(r.wbMode, WbMode::Custom);
+        QCOMPARE(r.temperature, 4000.0);
+        QCOMPARE(r.crop, QRectF(0, 0, 1, 1));
+        QCOMPARE(r.sharpenAmount, 90.0);
+        QCOMPARE(r.heals, dst.heals); // heal spots are never pasted
+        // Every part key is handled (scalar keys must name a param).
+        for (const SettingsPart& p : settingsParts()) {
+            const QString k = QString::fromLatin1(p.key);
+            QVERIFY2(k == "wb" || k == "curve" || k == "crop" || findParam(k), p.key);
+        }
+    }
+
     void settingsJsonRoundTrip()
     {
         DevelopSettings s;

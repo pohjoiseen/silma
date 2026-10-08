@@ -18,6 +18,8 @@
 #include <QSlider>
 #include <QDockWidget>
 #include <QMenu>
+#include <QPushButton>
+#include <QTreeWidget>
 #include <QTabWidget>
 #include <QToolButton>
 #include <QSettings>
@@ -255,6 +257,63 @@ private slots:
         // Shift+click still selects a range.
         QTest::mouseClick(strip->viewport(), Qt::LeftButton, Qt::ShiftModifier, b);
         QCOMPARE(strip->selectionModel()->selectedIndexes().size(), 3);
+    }
+
+    void pasteSettingsDialog()
+    {
+        QSettings().remove("paste/excluded");
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QVERIFY(w.openBatch(m_batchFile));
+        auto* strip = w.findChild<Filmstrip*>();
+        QVERIFY(strip && strip->model()->rowCount() >= 3);
+        const QModelIndex src = strip->model()->index(1, 0), dst = strip->model()->index(2, 0);
+        strip->setCurrentIndex(src);
+        QTRY_COMPARE(w.currentPhoto()->id, src.data(PhotoListModel::IdRole).toLongLong());
+        emit slider(w, "exposure")->edited(1.25, true);
+        emit slider(w, "contrast")->edited(40, true);
+        w.testCopySettings();
+
+        // Paste to the other photo with only Exposure checked.
+        strip->setCurrentIndex(dst);
+        QTRY_COMPARE(w.currentPhoto()->id, dst.data(PhotoListModel::IdRole).toLongLong());
+        bool seen = false;
+        QTimer::singleShot(100, [&] {
+            auto* dlg = qobject_cast<PasteSettingsDialog*>(QApplication::activeModalWidget());
+            if (!dlg)
+                return;
+            seen = true;
+            QVERIFY(!dlg->parts().contains("crop")); // off by default
+            QVERIFY(dlg->parts().contains("contrast"));
+            dlg->setParts({"exposure"});
+            dlg->accept();
+        });
+        w.testPasteSettings();
+        QVERIFY(seen);
+        QCOMPARE(w.currentSettings().exposure, 1.25);
+        QCOMPARE(w.currentSettings().contrast, 0.0);
+        // The choice is remembered.
+        PasteSettingsDialog again(1);
+        QCOMPARE(again.parts(), QSet<QString>{"exposure"});
+        // Check All / Check None, and a section's checkbox sets all its settings.
+        auto button = [&](const QString& text) {
+            for (auto* b : again.findChildren<QPushButton*>())
+                if (b->text() == text)
+                    return b;
+            return static_cast<QPushButton*>(nullptr);
+        };
+        button("Check &All")->click();
+        QCOMPARE(again.parts().size(), qsizetype(settingsParts().size()));
+        button("Check &None")->click();
+        QVERIFY(again.parts().isEmpty());
+        auto* tree = again.findChild<QTreeWidget*>();
+        QTreeWidgetItem* tone = tree->findItems("Tone", Qt::MatchExactly).value(0);
+        QVERIFY(tone && tone->childCount() == 6);
+        tone->setCheckState(0, Qt::Checked);
+        QCOMPARE(again.parts(), (QSet<QString>{"exposure", "contrast", "highlights", "shadows", "whites", "blacks"}));
+        QSettings().remove("paste/excluded");
     }
 
     void importDialogLateName()

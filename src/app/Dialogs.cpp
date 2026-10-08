@@ -15,6 +15,7 @@
 #include <QSettings>
 #include <QSpinBox>
 #include <QStandardPaths>
+#include <QTreeWidget>
 #include <QVBoxLayout>
 
 namespace silma {
@@ -93,6 +94,93 @@ ImportOptions ImportDialog::options() const
     else
         o.importName = m_name->text().trimmed();
     return o;
+}
+
+PasteSettingsDialog::PasteSettingsDialog(int photoCount, QWidget* parent) : QDialog(parent)
+{
+    setWindowTitle(tr("Paste Settings"));
+    auto* l = new QVBoxLayout(this);
+    l->addWidget(new QLabel(photoCount == 1 ? tr("Paste these settings:") : tr("Paste these settings to %1 photos:").arg(photoCount), this));
+    m_tree = new QTreeWidget(this);
+    m_tree->setHeaderHidden(true);
+    m_tree->setRootIsDecorated(true);
+    const QHash<QString, QString> groupLabels = {
+        {"tone", tr("Tone")}, {"presence", tr("Presence")}, {"lens", tr("Lens Corrections")},
+        {"transform", tr("Transform")}, {"sharpening", tr("Sharpening")}, {"noise", tr("Noise Reduction")},
+    };
+    QHash<QString, QTreeWidgetItem*> groups;
+    for (const SettingsPart& p : settingsParts()) {
+        const QString group = QString::fromLatin1(p.group);
+        QTreeWidgetItem* item;
+        if (groupLabels.contains(group)) {
+            // Sections with several settings: a parent item checking all of them.
+            QTreeWidgetItem*& parentItem = groups[group];
+            if (!parentItem) {
+                parentItem = new QTreeWidgetItem(m_tree, {groupLabels[group]});
+                parentItem->setFlags(parentItem->flags() | Qt::ItemIsUserCheckable | Qt::ItemIsAutoTristate);
+            }
+            item = new QTreeWidgetItem(parentItem, {QString::fromUtf8(p.label)});
+        } else {
+            item = new QTreeWidgetItem(m_tree, {QString::fromUtf8(p.label)});
+        }
+        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+        item->setData(0, Qt::UserRole, QString::fromLatin1(p.key));
+        item->setCheckState(0, Qt::Checked);
+    }
+    l->addWidget(m_tree, 1);
+
+    // Unchecked parts are remembered, so parts added in later versions start checked.
+    // Crop is off by default: it rarely suits other photos.
+    const QStringList excluded = QSettings().value("paste/excluded", QStringList{"crop"}).toStringList();
+    QSet<QString> initial;
+    for (const SettingsPart& p : settingsParts())
+        if (!excluded.contains(QString::fromLatin1(p.key)))
+            initial.insert(QString::fromLatin1(p.key));
+    setParts(initial);
+
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    bb->button(QDialogButtonBox::Ok)->setText(tr("Paste"));
+    QPushButton* all = bb->addButton(tr("Check &All"), QDialogButtonBox::ResetRole);
+    QPushButton* none = bb->addButton(tr("Check &None"), QDialogButtonBox::ResetRole);
+    auto setAll = [this](Qt::CheckState st) {
+        for (int i = 0; i < m_tree->topLevelItemCount(); ++i)
+            m_tree->topLevelItem(i)->setCheckState(0, st); // auto-tristate parents set their children
+    };
+    connect(all, &QPushButton::clicked, this, [setAll] { setAll(Qt::Checked); });
+    connect(none, &QPushButton::clicked, this, [setAll] { setAll(Qt::Unchecked); });
+    connect(bb, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    // Nothing to paste: disable the button.
+    connect(m_tree, &QTreeWidget::itemChanged, this, [this, bb] { bb->button(QDialogButtonBox::Ok)->setEnabled(!parts().isEmpty()); });
+    l->addWidget(bb);
+    resize(std::max(420, sizeHint().width()), 520);
+}
+
+QSet<QString> PasteSettingsDialog::parts() const
+{
+    QSet<QString> out;
+    for (QTreeWidgetItemIterator it(m_tree); *it; ++it)
+        if ((*it)->childCount() == 0 && (*it)->checkState(0) == Qt::Checked)
+            out.insert((*it)->data(0, Qt::UserRole).toString());
+    return out;
+}
+
+void PasteSettingsDialog::setParts(const QSet<QString>& parts)
+{
+    for (QTreeWidgetItemIterator it(m_tree); *it; ++it)
+        if ((*it)->childCount() == 0)
+            (*it)->setCheckState(0, parts.contains((*it)->data(0, Qt::UserRole).toString()) ? Qt::Checked : Qt::Unchecked);
+}
+
+void PasteSettingsDialog::accept()
+{
+    const QSet<QString> chosen = parts();
+    QStringList excluded;
+    for (const SettingsPart& p : settingsParts())
+        if (!chosen.contains(QString::fromLatin1(p.key)))
+            excluded << QString::fromLatin1(p.key);
+    QSettings().setValue("paste/excluded", excluded);
+    QDialog::accept();
 }
 
 ExportDialog::ExportDialog(int selected, int inImport, int inBatch, QWidget* parent) : QDialog(parent)

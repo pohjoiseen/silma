@@ -72,6 +72,63 @@ CurvePoints curveFromJson(const QJsonValue& v)
 
 std::span<const ParamDef> paramDefs() { return kParams; }
 
+namespace {
+const SettingsPart kParts[] = {
+    {"wb", "White Balance", "wb"},
+    {"exposure", "Exposure", "tone"},
+    {"contrast", "Contrast", "tone"},
+    {"highlights", "Highlights", "tone"},
+    {"shadows", "Shadows", "tone"},
+    {"whites", "Whites", "tone"},
+    {"blacks", "Blacks", "tone"},
+    {"texture", "Texture", "presence"},
+    {"clarity", "Clarity", "presence"},
+    {"dehaze", "Dehaze", "presence"},
+    {"vibrance", "Vibrance", "presence"},
+    {"saturation", "Saturation", "presence"},
+    {"curve", "Tone Curve", "curve"},
+    {"lens_distortion", "Distortion", "lens"},
+    {"lens_vignetting", "Vignetting", "lens"},
+    {"vertical", "Vertical", "transform"},
+    {"horizontal", "Horizontal", "transform"},
+    {"rotate", "Rotate", "transform"},
+    {"scale", "Scale", "transform"},
+    {"crop", "Crop", "crop"},
+    {"sharpen_amount", "Amount", "sharpening"},
+    {"sharpen_radius", "Radius", "sharpening"},
+    {"sharpen_detail", "Detail", "sharpening"},
+    {"sharpen_masking", "Masking", "sharpening"},
+    {"nr_luminance", "Luminance", "noise"},
+    {"nr_luma_detail", "Luminance Detail", "noise"},
+    {"nr_color", "Color", "noise"},
+};
+} // namespace
+
+std::span<const SettingsPart> settingsParts() { return kParts; }
+
+DevelopSettings copySettingsParts(const DevelopSettings& target, const DevelopSettings& source, const QSet<QString>& parts)
+{
+    DevelopSettings s = target;
+    for (const QString& key : parts) {
+        if (key == QLatin1String("wb")) {
+            s.wbMode = source.wbMode;
+            s.temperature = source.temperature;
+            s.tint = source.tint;
+        } else if (key == QLatin1String("curve")) {
+            s.curveRgb = source.curveRgb;
+            s.curveR = source.curveR;
+            s.curveG = source.curveG;
+            s.curveB = source.curveB;
+        } else if (key == QLatin1String("crop")) {
+            s.crop = source.crop;
+            s.cropLockAspect = source.cropLockAspect;
+        } else if (const ParamDef* p = findParam(key)) {
+            s.*p->field = source.*p->field;
+        }
+    }
+    return s;
+}
+
 const ParamDef* findParam(const QString& key)
 {
     for (const auto& p : kParams)
