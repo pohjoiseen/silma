@@ -10,7 +10,7 @@ endif()
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -g -DNDEBUG")
 add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -march=x86-64-v3)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Concurrent Network Test)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Concurrent Network DBus Test)
 find_library(ONNXRUNTIME_LIB onnxruntime REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc features stitching photo video)
 find_package(PkgConfig REQUIRED)

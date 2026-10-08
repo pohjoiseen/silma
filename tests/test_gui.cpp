@@ -14,6 +14,7 @@
 #include <QSignalSpy>
 #include <QSlider>
 #include <QDockWidget>
+#include <QMenu>
 #include <QTabWidget>
 #include <QToolButton>
 #include <QSettings>
@@ -172,6 +173,52 @@ private slots:
                 verticalOff = true;
         QVERIFY(verticalOff);
         w.testUndo();
+    }
+
+    void filmstripSelectionAndMenu()
+    {
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QVERIFY(w.openBatch(m_batchFile));
+        auto* strip = w.findChild<Filmstrip*>();
+        QVERIFY(strip && strip->model()->rowCount() >= 3);
+        auto* delegate = static_cast<FilmstripDelegate*>(strip->itemDelegate());
+        QVERIFY(!delegate->multiSelection);
+        strip->selectAll();
+        QVERIFY(delegate->multiSelection);
+
+        // Right-clicking a photo outside the selection selects just it; the menu offers the photo actions.
+        strip->clearSelection();
+        strip->setCurrentIndex(strip->model()->index(0, 0));
+        QRect r1 = strip->visualRect(strip->model()->index(1, 0));
+        QStringList texts;
+        auto grabMenu = [&] {
+            QTimer::singleShot(200, [&] {
+                if (auto* m = qobject_cast<QMenu*>(QApplication::activePopupWidget())) {
+                    for (QAction* a : m->actions())
+                        if (!a->isSeparator())
+                            texts << a->text();
+                    m->close();
+                }
+            });
+        };
+        grabMenu();
+        QTest::mouseClick(strip->viewport(), Qt::RightButton, {}, r1.center());
+        emit strip->customContextMenuRequested(r1.center());
+        QCOMPARE(strip->selectionModel()->selectedIndexes().size(), 1);
+        QVERIFY(texts.contains(QStringLiteral("&Reject")));
+        QVERIFY(texts.contains(QStringLiteral("Show in &File Manager")));
+        QVERIFY(!texts.contains(QStringLiteral("Merge to &HDR...")));
+
+        // With several selected, the menu acts on all of them.
+        strip->selectAll();
+        texts.clear();
+        grabMenu();
+        emit strip->customContextMenuRequested(r1.center());
+        QVERIFY(texts.contains(QStringLiteral("Merge to &HDR...")));
+        QVERIFY(texts.contains(QStringLiteral("&Export %1 Photos...").arg(strip->model()->rowCount())));
     }
 
     void editUndoRejectRestore()

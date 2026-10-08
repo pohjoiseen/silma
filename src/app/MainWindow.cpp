@@ -23,7 +23,11 @@
 #include <QCloseEvent>
 #include <QDockWidget>
 #include <QCheckBox>
+#include <QClipboard>
 #include <QComboBox>
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDesktopServices>
 #include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QFormLayout>
@@ -32,6 +36,7 @@
 #include <QJsonDocument>
 #include <QLabel>
 #include <QListWidget>
+#include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPainter>
@@ -60,6 +65,19 @@ QString exposureText(double t)
     if (t < 0.5)
         return QStringLiteral("1/%1 s").arg(qRound(1.0 / t));
     return QStringLiteral("%1 s").arg(t, 0, 'g', 3);
+}
+} // namespace
+
+namespace {
+// Opens the file's folder with the file selected (freedesktop FileManager1, as Dolphin
+// and most file managers implement), or just the folder.
+void showInFileManager(const QString& path)
+{
+    QDBusMessage m = QDBusMessage::createMethodCall(QStringLiteral("org.freedesktop.FileManager1"), QStringLiteral("/org/freedesktop/FileManager1"),
+                                                    QStringLiteral("org.freedesktop.FileManager1"), QStringLiteral("ShowItems"));
+    m << QStringList{QUrl::fromLocalFile(path).toString()} << QString();
+    if (QDBusConnection::sessionBus().call(m, QDBus::Block, 3000).type() != QDBusMessage::ReplyMessage)
+        QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(path).absolutePath()));
 }
 } // namespace
 
@@ -266,7 +284,7 @@ void MainWindow::createActions()
     m_recentMenu = file->addMenu(tr("Open &Recent"));
     file->addSeparator();
     file->addAction(tr("&Import Photos..."), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_I), this, &MainWindow::importPhotos);
-    file->addAction(tr("&Export..."), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E), this, &MainWindow::exportPhotos);
+    QAction* actExport = file->addAction(tr("&Export..."), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E), this, &MainWindow::exportPhotos);
     file->addSeparator();
     file->addAction(tr("&Delete Rejected Photos..."), this, &MainWindow::deleteRejected);
     file->addSeparator();
@@ -277,15 +295,15 @@ void MainWindow::createActions()
     m_actRedo = edit->addAction(tr("&Redo"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Z), this, &MainWindow::redo);
     m_actRedo->setShortcuts({QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Z), QKeySequence(Qt::CTRL | Qt::Key_Y)});
     edit->addSeparator();
-    edit->addAction(tr("&Copy Settings"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_C), this, &MainWindow::copySettings);
-    edit->addAction(tr("&Paste Settings"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_V), this, &MainWindow::pasteSettings);
-    edit->addAction(tr("R&eset Settings"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_R), this, &MainWindow::resetSettings);
+    QAction* actCopy = edit->addAction(tr("&Copy Settings"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_C), this, &MainWindow::copySettings);
+    QAction* actPaste = edit->addAction(tr("&Paste Settings"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_V), this, &MainWindow::pasteSettings);
+    QAction* actReset = edit->addAction(tr("R&eset Settings"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_R), this, &MainWindow::resetSettings);
     edit->addSeparator();
-    edit->addAction(tr("Select &All"), QKeySequence::SelectAll, m_filmstrip, &QListView::selectAll);
+    QAction* actSelectAll = edit->addAction(tr("Select &All"), QKeySequence::SelectAll, m_filmstrip, &QListView::selectAll);
 
     auto* photo = menuBar()->addMenu(tr("&Photo"));
-    photo->addAction(tr("&Reject"), QKeySequence(Qt::Key_X), this, [this] { setRejected(true); });
-    photo->addAction(tr("&Unreject"), QKeySequence(Qt::Key_U), this, [this] { setRejected(false); });
+    QAction* actReject = photo->addAction(tr("&Reject"), QKeySequence(Qt::Key_X), this, [this] { setRejected(true); });
+    QAction* actUnreject = photo->addAction(tr("&Unreject"), QKeySequence(Qt::Key_U), this, [this] { setRejected(false); });
     photo->addSeparator();
     photo->addAction(tr("Auto &Tone"), QKeySequence(Qt::CTRL | Qt::Key_U), this, &MainWindow::autoTone);
     photo->addAction(tr("Auto &White Balance"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_U), this, [this] {
@@ -296,9 +314,9 @@ void MainWindow::createActions()
     photo->addAction(tr("&Crop Tool"), QKeySequence(Qt::Key_R), this, [this] { setCropTool(!m_cropTool); });
     photo->addAction(tr("&Heal Tool"), QKeySequence(Qt::Key_Q), this, [this] { setHealTool(!m_healTool); });
     photo->addSeparator();
-    photo->addAction(tr("AI &Denoise..."), this, &MainWindow::aiDenoise);
-    photo->addAction(tr("Merge to &HDR..."), QKeySequence(Qt::CTRL | Qt::Key_H), this, [this] { mergePhotos(true); });
-    photo->addAction(tr("Merge to Pa&norama..."), QKeySequence(Qt::CTRL | Qt::Key_M), this, [this] { mergePhotos(false); });
+    QAction* actDenoise = photo->addAction(tr("AI &Denoise..."), this, &MainWindow::aiDenoise);
+    QAction* actHdr = photo->addAction(tr("Merge to &HDR..."), QKeySequence(Qt::CTRL | Qt::Key_H), this, [this] { mergePhotos(true); });
+    QAction* actPano = photo->addAction(tr("Merge to Pa&norama..."), QKeySequence(Qt::CTRL | Qt::Key_M), this, [this] { mergePhotos(false); });
     photo->addSeparator();
     photo->addAction(tr("&Next Photo"), QKeySequence(Qt::Key_Right), this, [this] { navigate(1); });
     photo->addAction(tr("&Previous Photo"), QKeySequence(Qt::Key_Left), this, [this] { navigate(-1); });
@@ -349,6 +367,53 @@ void MainWindow::createActions()
     addAutoHide(Qt::BottomEdge, tr("Auto-Hide F&ilmstrip"), QKeySequence(Qt::SHIFT | Qt::Key_F6));
     view->addSeparator();
     view->addMenu(createColorSchemeMenu(view));
+
+    // Filmstrip context menu: the same actions, for the photo(s) under the mouse.
+    m_filmstrip->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_filmstrip, &QWidget::customContextMenuRequested, this, [=, this](const QPoint& pos) {
+        QMenu menu(this);
+        // Copies, so items can be left out here without touching the main menu.
+        auto add = [&menu](QAction* a, const QString& text = {}) {
+            QAction* c = menu.addAction(text.isEmpty() ? a->text() : text, a, &QAction::trigger);
+            c->setShortcut(a->shortcut());
+            return c;
+        };
+        // Right-clicking a photo selects it (unless it is part of the selection already).
+        const QModelIndex at = m_filmstrip->indexAt(pos);
+        const QList<qint64> ids = selectedPhotoIds();
+        if (!at.isValid() || ids.isEmpty()) {
+            add(actSelectAll);
+            menu.addAction(tr("&Import Photos..."), this, &MainWindow::importPhotos);
+        } else {
+            const int n = int(ids.size());
+            bool anyRejected = false, anyKept = false;
+            for (qint64 id : ids) {
+                int r = m_model->rowOf(id);
+                (r >= 0 && m_model->photoAt(r).rejected ? anyRejected : anyKept) = true;
+            }
+            if (anyKept)
+                add(actReject, n > 1 ? tr("&Reject %n Photos", nullptr, n) : QString());
+            if (anyRejected)
+                add(actUnreject, n > 1 ? tr("&Unreject %n Photos", nullptr, n) : QString());
+            menu.addSeparator();
+            if (n == 1)
+                add(actCopy);
+            add(actPaste, n > 1 ? tr("&Paste Settings to %n Photos", nullptr, n) : QString())->setEnabled(m_clipboard.has_value());
+            add(actReset, n > 1 ? tr("R&eset Settings of %n Photos", nullptr, n) : QString());
+            menu.addSeparator();
+            add(actDenoise);
+            if (n > 1) {
+                add(actHdr);
+                add(actPano);
+            }
+            add(actExport, n > 1 ? tr("&Export %n Photos...", nullptr, n) : QString());
+            menu.addSeparator();
+            const QString path = at.data(PhotoListModel::PathRole).toString();
+            menu.addAction(tr("Show in &File Manager"), this, [path] { showInFileManager(path); });
+            menu.addAction(tr("Copy File Pa&th"), this, [path] { QGuiApplication::clipboard()->setText(path); });
+        }
+        menu.exec(m_filmstrip->viewport()->mapToGlobal(pos));
+    });
 
     auto* help = menuBar()->addMenu(tr("&Help"));
     help->addAction(tr("&Keyboard Shortcuts"), this, [this] {

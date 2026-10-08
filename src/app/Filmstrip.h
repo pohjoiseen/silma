@@ -45,6 +45,7 @@ public:
     void paint(QPainter* p, const QStyleOptionViewItem& opt, const QModelIndex& idx) const override;
     QSize sizeHint(const QStyleOptionViewItem& opt, const QModelIndex& idx) const override;
     int thumbHeight = 96;
+    bool multiSelection = false; // more than one photo selected
 };
 
 class Filmstrip : public QListView {
@@ -56,6 +57,7 @@ public:
 protected:
     void wheelEvent(QWheelEvent* e) override;
     void resizeEvent(QResizeEvent* e) override;
+    void selectionChanged(const QItemSelection& selected, const QItemSelection& deselected) override;
 
 private:
     FilmstripDelegate* m_delegate;

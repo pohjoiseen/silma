@@ -111,7 +111,10 @@ void FilmstripDelegate::paint(QPainter* p, const QStyleOptionViewItem& opt, cons
     QRect r = opt.rect.adjusted(2, 2, -2, -2);
     bool selected = opt.state & QStyle::State_Selected;
     bool current = opt.state & QStyle::State_HasFocus || (opt.widget && static_cast<const QListView*>(opt.widget)->currentIndex() == idx);
-    p->fillRect(r, selected ? QColor(90, 90, 90) : QColor(52, 52, 52));
+    // With several photos selected, wash the selected ones out (the opposite of the
+    // dimmed rejected ones) so the selection reads at a glance.
+    bool multi = selected && multiSelection;
+    p->fillRect(r, multi ? QColor(150, 150, 150) : selected ? QColor(90, 90, 90) : QColor(52, 52, 52));
     QPixmap px = idx.data(Qt::DecorationRole).value<QPixmap>();
     QRect inner = r.adjusted(3, 3, -3, -3);
     bool rejected = idx.data(PhotoListModel::RejectedRole).toBool();
@@ -122,6 +125,8 @@ void FilmstripDelegate::paint(QPainter* p, const QStyleOptionViewItem& opt, cons
             p->setOpacity(0.35);
         p->drawPixmap(ir, px);
         p->setOpacity(1.0);
+        if (multi)
+            p->fillRect(ir, QColor(255, 255, 255, 70));
     }
     if (current) {
         p->setPen(QPen(QColor(230, 230, 230), 2));
@@ -176,6 +181,17 @@ void Filmstrip::resizeEvent(QResizeEvent* e)
     int sb = horizontalScrollBar()->isVisible() ? horizontalScrollBar()->height() : 0;
     setThumbHeight(std::max(40, viewport()->height() - 12 + (sb ? 0 : 0)));
     QListView::resizeEvent(e);
+}
+
+void Filmstrip::selectionChanged(const QItemSelection& selected, const QItemSelection& deselected)
+{
+    QListView::selectionChanged(selected, deselected);
+    bool multi = selectionModel()->selectedIndexes().size() > 1;
+    if (multi != m_delegate->multiSelection) {
+        // Going from one to several selected photos (or back) changes how all of them look.
+        m_delegate->multiSelection = multi;
+        viewport()->update();
+    }
 }
 
 void Filmstrip::wheelEvent(QWheelEvent* e)

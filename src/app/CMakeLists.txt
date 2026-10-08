@@ -2,7 +2,7 @@ file(GLOB APP_SOURCES CONFIGURE_DEPENDS *.cpp *.h ../cli/*.cpp ../cli/*.h)
 list(FILTER APP_SOURCES EXCLUDE REGEX ".*/main\\.cpp$")
 add_library(silmaapp STATIC ${APP_SOURCES})
 target_include_directories(silmaapp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../cli)
-target_link_libraries(silmaapp PUBLIC silmacore Qt6::Widgets)
+target_link_libraries(silmaapp PUBLIC silmacore Qt6::Widgets Qt6::DBus)
 
 add_executable(silma main.cpp)
 target_link_libraries(silma PRIVATE silmaapp)
