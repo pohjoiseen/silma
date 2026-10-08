@@ -37,7 +37,8 @@ QList<AiModelInfo> aiDenoiseModels()
          {{"scunet_color_real_psnr.onnx", "https://huggingface.co/Heliosoph/scunet-onnx/resolve/6d11417ee2fbcc73783c502a238ac115097754fe/scunet_color_real_psnr.onnx", 3798678},
           {"scunet_color_real_psnr.onnx.data", "https://huggingface.co/Heliosoph/scunet-onnx/resolve/6d11417ee2fbcc73783c502a238ac115097754fe/scunet_color_real_psnr.onnx.data", 73138176}},
          {}, 256, 64,
-         "<a href=\"https://github.com/cszn/SCUNet\">cszn/SCUNet</a>; ONNX: <a href=\"https://huggingface.co/Heliosoph/scunet-onnx\">Heliosoph/scunet-onnx</a> @6d11417"},
+         "<a href=\"https://github.com/cszn/SCUNet\">cszn/SCUNet</a>; ONNX: <a href=\"https://huggingface.co/Heliosoph/scunet-onnx\">Heliosoph/scunet-onnx</a> @6d11417",
+         false, false, true},
     };
     return models;
 }

@@ -152,6 +152,7 @@ private slots:
         // Only the 8-bit model uses the blocked layout (its conversions cost more elsewhere).
         QVERIFY(findAiModel("nafnet-sidd-w32-int8")->blockedLayout);
         QVERIFY(!w32->blockedLayout && !findAiModel("nafnet-sidd-w64")->blockedLayout && !aiInpaintModel().blockedLayout);
+        QVERIFY(findAiModel("scunet-real-psnr")->slowOnCpu && !w32->slowOnCpu);
         QCOMPARE(defaultAiDenoiseModel(), QStringLiteral("nafnet-sidd-w64"));
         try {
             downloadAiModel("nafnet-sidd-w32");
