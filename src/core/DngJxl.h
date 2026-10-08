@@ -3,8 +3,11 @@
 // unpack them without Adobe's DNG SDK, so the image data is decoded here with libjxl;
 // LibRaw still provides the color metadata.
 
+#include "Image.h"
+
 #include <QByteArray>
 #include <QImage>
+#include <memory>
 #include <vector>
 
 namespace silma {
@@ -13,6 +16,8 @@ struct DngJxlImage {
     int width = 0, height = 0;
     // Interleaved RGB, black-subtracted and scaled so 1.0 = WhiteLevel (camera space, not white-balanced).
     std::vector<float> data;
+    // From the DNG's transparency mask (panoramas); null when the whole image is valid.
+    std::shared_ptr<const ValidMask> valid;
 };
 
 // True if the main (full-resolution) image of the DNG is JPEG XL compressed.

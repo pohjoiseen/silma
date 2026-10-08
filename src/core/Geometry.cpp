@@ -138,7 +138,7 @@ QPointF Geometry::sensorToCrop(QPointF target) const
 bool Geometry::canvasValid(QPointF c) const
 {
     float s[6], g[3];
-    return mapCanvas(c.x(), c.y(), s, g);
+    return mapCanvas(c.x(), c.y(), s, g) && (!m_src.valid || m_src.valid->at(s[2], s[3]));
 }
 
 namespace {

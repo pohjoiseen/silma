@@ -136,6 +136,7 @@ DevelopEngine::DevelopEngine(const QString& path, const EngineLoadOptions& opts)
     m_geoSrc.orientation = m_raw->orientation;
     m_geoSrc.focalLength35 = focal35;
     m_geoSrc.lens = m_lens;
+    m_geoSrc.valid = m_raw->valid;
     m_pyramid.resize(8);
 }
 

@@ -145,6 +145,7 @@ RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts)
         // Same as LibRaw's output: white-balanced with appliedMul and clipped at 1.
         const int f = opts.halfSize ? 2 : 1;
         out.image = ImageF(j.width / f, j.height / f);
+        out.valid = j.valid;
         const float mul[3] = {float(out.color.appliedMul[0]), float(out.color.appliedMul[1]), float(out.color.appliedMul[2])};
         const float norm = 1.0f / float(f * f);
 #pragma omp parallel for schedule(static)

@@ -1,6 +1,8 @@
 #include "DngWriter.h"
+#include "Engine.h"
 #include "Importer.h"
 #include "RawDecoder.h"
+#include "Upright.h"
 
 #include <QTemporaryDir>
 #include <QtTest>
@@ -63,6 +65,22 @@ private slots:
         // The thumbnail comes from the 1024 px JPEG XL preview, not the 256 px JPEG one.
         QImage thumb = QImage::fromData(thumbnailFromEmbeddedPreview(f, 1));
         QCOMPARE(thumb.width(), 512);
+
+        // Auto crop keeps to the stitched area: any shape when free, or the given aspect.
+        DevelopEngine e(f, {.halfSize = true});
+        Geometry g = e.geometry(DevelopSettings(), true);
+        QVERIFY(g.hasValidMask());
+        const QSizeF cs = g.canvasSize();
+        for (double aspect : {0.0, 16.0 / 9.0}) {
+            QRectF c = autoCropRect(g, aspect);
+            for (QPointF p : {c.topLeft(), c.topRight(), c.bottomLeft(), c.bottomRight(), c.center()})
+                QVERIFY2(g.canvasValid(p), qPrintable(QStringLiteral("aspect %1: %2,%3").arg(aspect).arg(p.x()).arg(p.y())));
+            const double area = c.width() * c.height();
+            if (aspect == 0)
+                QVERIFY2(area > 0.6, qPrintable(QString::number(area)));
+            else
+                QVERIFY(std::abs(c.width() * cs.width() / (c.height() * cs.height()) - aspect) < 0.02);
+        }
     }
 
     void hdrValuesAboveOne()

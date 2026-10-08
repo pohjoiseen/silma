@@ -196,6 +196,17 @@ DngJxlImage decodeDngJxl(const QByteArray& file)
         for (size_t i = 0; i < mask.size(); ++i)
             for (int c = 0; c < 3; ++c)
                 p[i * 3 + c] *= std::clamp(mask[i], 0.0f, 1.0f);
+        // Coverage for auto crop, in cells of a few pixels.
+        auto valid = std::make_shared<ValidMask>();
+        const int cell = std::max(1, (std::max(img.width, img.height) + 2047) / 2048);
+        valid->width = (img.width + cell - 1) / cell;
+        valid->height = (img.height + cell - 1) / cell;
+        valid->data.assign(size_t(valid->width) * valid->height, 1);
+        for (int y = 0; y < img.height; ++y)
+            for (int x = 0; x < img.width; ++x)
+                if (mask[size_t(y) * img.width + x] < 0.5f)
+                    valid->data[size_t(y / cell) * valid->width + x / cell] = 0;
+        img.valid = std::move(valid);
         break;
     }
     return img;

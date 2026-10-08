@@ -849,6 +849,8 @@ void MainWindow::autoCrop()
     double aspect = cs.width() / cs.height();
     if (s.cropLockAspect && s.crop != QRectF(0, 0, 1, 1))
         aspect = s.crop.width() * cs.width() / (s.crop.height() * cs.height());
+    else if (g.hasValidMask())
+        aspect = 0; // panorama: the largest covered area, whatever its shape
     s.crop = autoCropRect(g, aspect);
     commit(s, tr("Auto Crop"));
 }

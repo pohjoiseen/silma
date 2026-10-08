@@ -770,7 +770,7 @@ std::map<QString, Command> commands()
             printJson(arr);
     }};
 
-    m["autocrop"] = {"autocrop PHOTO... [--aspect W:H|original]", "Largest crop without empty borders", {"aspect", "import"}, {}, true, [](const Args& a, Batch* b, bool json) {
+    m["autocrop"] = {"autocrop PHOTO... [--aspect W:H|original]", "Largest crop without empty borders (panoramas: any aspect unless given)", {"aspect", "import"}, {}, true, [](const Args& a, Batch* b, bool json) {
         auto ps = resolvePhotos(*b, a.positional(), a.value("import"));
         QJsonArray arr;
         for (const auto& p : ps) {
@@ -782,6 +782,8 @@ std::map<QString, Command> commands()
             QString as = a.value("aspect");
             if (as.contains(':'))
                 aspect = as.section(':', 0, 0).toDouble() / std::max(1e-6, as.section(':', 1, 1).toDouble());
+            else if (as.isEmpty() && g.hasValidMask())
+                aspect = 0; // panorama: the largest covered area, whatever its shape
             else if (as.isEmpty() && s.crop != QRectF(0, 0, 1, 1))
                 aspect = s.crop.width() * cs.width() / (s.crop.height() * cs.height());
             s.crop = autoCropRect(g, aspect);

@@ -2,6 +2,7 @@
 
 #include "Engine.h"
 #include "Filters.h"
+#include "Merge.h"
 
 #include <algorithm>
 #include <cmath>
@@ -244,8 +245,76 @@ UprightResult autoUpright(const DevelopEngine& engine, const DevelopSettings& in
     return res;
 }
 
+namespace {
+
+// Masked sources: the valid area can have any shape, so search a grid of canvas samples.
+QRectF maskedCropRect(const Geometry& g, double aspect)
+{
+    const QSizeF cs = g.canvasSize();
+    // Square cells (in pixels), ~600 along the long side.
+    const double cell = std::max(cs.width(), cs.height()) / 600.0;
+    const int nx = std::max(4, int(cs.width() / cell)), ny = std::max(4, int(cs.height() / cell));
+    std::vector<uint8_t> valid(size_t(nx) * ny);
+#pragma omp parallel for schedule(static)
+    for (int y = 0; y < ny; ++y)
+        for (int x = 0; x < nx; ++x)
+            valid[size_t(y) * nx + x] = g.canvasValid({(x + 0.5) / nx, (y + 0.5) / ny});
+
+    QRect r;
+    if (aspect <= 0) {
+        r = largestRectangle(valid, nx, ny);
+    } else {
+        // Largest w x round(w / aspect) window without invalid cells (binary search on w,
+        // summed-area table for the window test).
+        std::vector<int> bad(size_t(nx + 1) * (ny + 1), 0);
+        for (int y = 0; y < ny; ++y)
+            for (int x = 0; x < nx; ++x)
+                bad[size_t(y + 1) * (nx + 1) + x + 1] = !valid[size_t(y) * nx + x] + bad[size_t(y) * (nx + 1) + x + 1]
+                                                         + bad[size_t(y + 1) * (nx + 1) + x] - bad[size_t(y) * (nx + 1) + x];
+        // A fitting window of width w (the most central one when `central`).
+        auto find = [&](int w, bool central) -> QRect {
+            const int h = std::max(1, int(std::lround(w / aspect)));
+            if (w > nx || h > ny)
+                return {};
+            QRect best;
+            double bestDist = 1e30;
+            for (int y = 0; y + h <= ny; ++y)
+                for (int x = 0; x + w <= nx; ++x) {
+                    auto at = [&](int xx, int yy) { return bad[size_t(yy) * (nx + 1) + xx]; };
+                    if (at(x + w, y + h) - at(x, y + h) - at(x + w, y) + at(x, y) != 0)
+                        continue;
+                    if (!central)
+                        return QRect(x, y, w, h);
+                    double d = std::hypot(x + w / 2.0 - nx / 2.0, y + h / 2.0 - ny / 2.0);
+                    if (d < bestDist) {
+                        bestDist = d;
+                        best = QRect(x, y, w, h);
+                    }
+                }
+            return best;
+        };
+        int lo = 0, hi = nx;
+        while (lo < hi) {
+            int mid = (lo + hi + 1) / 2;
+            if (find(mid, false).isValid())
+                lo = mid;
+            else
+                hi = mid - 1;
+        }
+        r = lo > 0 ? find(lo, true) : QRect();
+    }
+    if (r.width() < 3 || r.height() < 3)
+        return QRectF(0, 0, 1, 1);
+    // Cells were tested at their centres: stay half a cell inside.
+    return QRectF((r.x() + 0.5) / nx, (r.y() + 0.5) / ny, (r.width() - 1.0) / nx, (r.height() - 1.0) / ny);
+}
+
+} // namespace
+
 QRectF autoCropRect(const Geometry& g, double aspect)
 {
+    if (g.hasValidMask())
+        return maskedCropRect(g, aspect);
     QSizeF cs = g.canvasSize();
     // Normalized size for scale t: width t*W0, height t*H0 fitting the aspect in the canvas.
     double wN = 1, hN = 1;

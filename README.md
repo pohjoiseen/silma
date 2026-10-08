@@ -74,4 +74,5 @@ Generated heal fills are stored in the batch, so heal spots are ordinary undoabl
 
 JPEG XL compressed DNGs (DNG 1.7, e.g. Lightroom's HDR and panorama merges) are decoded with
 libjxl, as LibRaw cannot unpack them; their transparency masks (uncovered panorama areas)
-come out black. JPEG XL compressed mosaic (CFA) DNGs are not supported yet.
+come out black, and Auto Crop finds the largest fully covered rectangle (any aspect ratio
+unless the crop already has a locked one). JPEG XL compressed mosaic (CFA) DNGs are not supported yet.

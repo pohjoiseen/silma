@@ -5,6 +5,7 @@
 #include <QByteArray>
 #include <QString>
 #include <array>
+#include <memory>
 #include <vector>
 
 namespace silma {
@@ -48,6 +49,8 @@ struct RawImage {
     bool isDng = false;
     // DNG DefaultCrop in full-resolution pixel coordinates (or whole image).
     int cropX = 0, cropY = 0, cropW = 0, cropH = 0;
+    // Parts of the image holding data (panorama coverage); null = all of it.
+    std::shared_ptr<const ValidMask> valid;
 };
 
 struct RawDecodeOptions {

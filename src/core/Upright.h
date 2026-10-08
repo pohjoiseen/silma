@@ -33,8 +33,9 @@ struct UprightResult {
 // Estimates transform settings that make lines vertical/horizontal.
 UprightResult autoUpright(const DevelopEngine& engine, const DevelopSettings& s, UprightMode mode);
 
-// Largest crop (normalized canvas coords) centred in the canvas, with the given pixel
-// aspect ratio (width / height), that contains only valid image data.
+// Largest crop (normalized canvas coords) with the given pixel aspect ratio (width / height)
+// that contains only valid image data: centred in the canvas, or anywhere in it when the
+// source has a validity mask (panoramas), where aspect <= 0 means any aspect ratio.
 QRectF autoCropRect(const Geometry& canvasGeometry, double aspect);
 
 } // namespace silma

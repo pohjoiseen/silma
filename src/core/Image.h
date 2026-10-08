@@ -2,6 +2,7 @@
 // Simple float images. Pixel values are linear unless stated otherwise.
 
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 namespace silma {
@@ -20,6 +21,20 @@ struct ImageF {
     const float* px(int x, int y) const { return data.data() + (size_t(y) * width + x) * 3; }
     float* row(int y) { return data.data() + size_t(y) * width * 3; }
     const float* row(int y) const { return data.data() + size_t(y) * width * 3; }
+};
+
+// Which parts of an image hold data (e.g. a stitched panorama's coverage), at reduced
+// resolution: a cell is valid only if all pixels in it are.
+struct ValidMask {
+    int width = 0, height = 0;
+    std::vector<uint8_t> data;
+
+    // Normalized image coordinates.
+    bool at(double u, double v) const
+    {
+        int x = int(u * width), y = int(v * height);
+        return x >= 0 && y >= 0 && x < width && y < height && data[size_t(y) * width + x];
+    }
 };
 
 // Single-channel float image.

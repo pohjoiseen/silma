@@ -25,6 +25,7 @@ struct GeometrySource {
     int orientation = 1;
     double focalLength35 = 0; // for perspective; 0 = unknown
     std::shared_ptr<const LensCorrection> lens;
+    std::shared_ptr<const ValidMask> valid; // in sensor coordinates; null = all valid
 };
 
 class Geometry {
@@ -48,6 +49,8 @@ public:
     QPointF canvasToFrame(QPointF c) const;
     // True when the canvas point maps to valid image data.
     bool canvasValid(QPointF c) const;
+    // True when parts of the source hold no data (e.g. outside a panorama's coverage).
+    bool hasValidMask() const { return bool(m_src.valid); }
 
     // Inverse of mapCrop's green channel: normalized sensor -> normalized crop (Newton).
     QPointF sensorToCrop(QPointF sensor) const;
