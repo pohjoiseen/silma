@@ -22,6 +22,7 @@
 #include <QRectF>
 #include <QString>
 #include <array>
+#include <optional>
 #include <memory>
 #include <map>
 #include <mutex>
@@ -68,6 +69,9 @@ public:
     WbValues autoWb() const;
     WbValues effectiveWb(const DevelopSettings& s) const;
     WbValues wbFromTempTint(double temperature, double tint) const;
+    // White balance that makes the area around `cropPoint` (normalized output coordinates)
+    // neutral; nullopt where it is clipped, too dark or outside the image.
+    std::optional<WbValues> wbFromPoint(const DevelopSettings& s, QPointF cropPoint) const;
 
     Geometry geometry(const DevelopSettings& s, bool ignoreCrop = false) const;
     // Full-resolution size of the cropped output.

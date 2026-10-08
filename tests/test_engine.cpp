@@ -57,6 +57,60 @@ private slots:
         }
     }
 
+    void whiteBalancePicker()
+    {
+        const QString f = sample("2026-08-08");
+        if (f.isEmpty())
+            QSKIP("samples not available");
+        DevelopEngine e(f, {.halfSize = true});
+        DevelopSettings s;
+        const QSize out(1800, 1200); // a 3x3 block covers about the picker's sample patch
+        int checked = 0;
+        for (double v = 0.2; v < 0.85; v += 0.15)
+            for (double u = 0.2; u < 0.85; u += 0.15) {
+                auto wb = e.wbFromPoint(s, {u, v});
+                if (!wb)
+                    continue;
+                // The result does not depend on the white balance currently set.
+                DevelopSettings warm = s;
+                warm.wbMode = WbMode::Custom;
+                warm.temperature = 3000;
+                auto wb2 = e.wbFromPoint(warm, {u, v});
+                QVERIFY(wb2 && std::abs(wb2->temperature - wb->temperature) < 1 && std::abs(wb2->tint - wb->tint) < 0.1);
+                if (wb->temperature <= 2000 || wb->temperature >= 50000 || std::abs(wb->tint) >= 150)
+                    continue; // clamped: cannot be fully neutral
+                // Rendered with the picked white balance, the point comes out grey.
+                DevelopSettings picked = s;
+                picked.wbMode = WbMode::Custom;
+                picked.temperature = wb->temperature;
+                picked.tint = wb->tint;
+                // Picking the now-grey point again changes nothing.
+                auto again = e.wbFromPoint(picked, {u, v});
+                QVERIFY(again && std::abs(again->temperature - wb->temperature) < 1 && std::abs(again->tint - wb->tint) < 0.1);
+                // Rendered with the picked white balance, the point comes out grey (judged on
+                // flat areas only: on texture the sampled patch and output pixels differ).
+                QImage img = e.render(picked, {.width = out.width(), .height = out.height()}).image;
+                double avg[3] = {0, 0, 0}, lo[3] = {255, 255, 255}, hi[3] = {0, 0, 0};
+                for (int dy = -1; dy <= 1; ++dy)
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        QColor q = img.pixelColor(int(u * img.width()) + dx, int(v * img.height()) + dy);
+                        const int ch[3] = {q.red(), q.green(), q.blue()};
+                        for (int c = 0; c < 3; ++c) {
+                            avg[c] += ch[c] / 9.0;
+                            lo[c] = std::min(lo[c], double(ch[c]));
+                            hi[c] = std::max(hi[c], double(ch[c]));
+                        }
+                    }
+                const double texture = std::max({hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]});
+                if (texture > 12 || avg[1] < 40 || avg[1] > 230)
+                    continue; // textured, or where the tone curve compresses colour differences
+                const double spread = std::max({avg[0], avg[1], avg[2]}) - std::min({avg[0], avg[1], avg[2]});
+                QVERIFY2(spread <= 6, qPrintable(QStringLiteral("at %1,%2: %3 %4 %5").arg(u).arg(v).arg(avg[0]).arg(avg[1]).arg(avg[2])));
+                ++checked;
+            }
+        QVERIFY2(checked >= 3, qPrintable(QString::number(checked)));
+    }
+
     void settingsJsonRoundTrip()
     {
         DevelopSettings s;

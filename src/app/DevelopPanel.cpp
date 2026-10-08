@@ -71,6 +71,18 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
         m_wbMode->addItem(tr("Auto"), int(WbMode::Auto));
         m_wbMode->addItem(tr("Custom"), int(WbMode::Custom));
         row->addWidget(m_wbMode, 1);
+        m_wbPicker = new QToolButton(wb);
+        m_wbPicker->setCheckable(true);
+        if (QIcon::hasThemeIcon(QStringLiteral("color-picker")))
+            m_wbPicker->setIcon(QIcon::fromTheme(QStringLiteral("color-picker")));
+        else
+            m_wbPicker->setText(tr("Pick"));
+        m_wbPicker->setToolTip(tr("White balance picker (W): click a point in the photo that should be neutral grey"));
+        connect(m_wbPicker, &QToolButton::toggled, this, [this](bool on) {
+            if (!m_updating)
+                emit wbPickerToggled(on);
+        });
+        row->addWidget(m_wbPicker);
         wb->contentLayout()->addLayout(row);
         connect(m_wbMode, &QComboBox::currentIndexChanged, this, [this] {
             if (m_updating)
@@ -324,6 +336,13 @@ void DevelopPanel::setHealToolActive(bool on)
 {
     m_updating = true;
     m_healTool->setChecked(on);
+    m_updating = false;
+}
+
+void DevelopPanel::setWbPickerActive(bool on)
+{
+    m_updating = true;
+    m_wbPicker->setChecked(on);
     m_updating = false;
 }
 

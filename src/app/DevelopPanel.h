@@ -33,6 +33,7 @@ public:
     void setPhotoInfo(const QString& text);
     void setCropToolActive(bool on);
     void setHealToolActive(bool on);
+    void setWbPickerActive(bool on);
     double healSize() const;
     // Adds a widget into a named section (used by tools added later).
     CollapsibleSection* section(const QString& id) const { return m_sections.value(id); }
@@ -45,6 +46,7 @@ signals:
     void cropToolToggled(bool on);
     void aiDenoiseRequested();
     void healToolToggled(bool on);
+    void wbPickerToggled(bool on);
     void healSizeChanged(double radius);
     void healClearRequested();
     void sliderActive(const QString& key, bool active); // for transform guide lines
@@ -66,6 +68,7 @@ private:
     QToolButton* m_cropTool;
     QCheckBox* m_cropLock;
     QToolButton* m_healTool;
+    QToolButton* m_wbPicker;
     QSlider* m_healSize;
     QLabel* m_healInfo;
     bool m_updating = false;

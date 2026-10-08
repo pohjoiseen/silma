@@ -25,6 +25,7 @@ namespace silma {
 class AutoHidePanel;
 class CropTool;
 class HealTool;
+class WbPickerTool;
 class MetadataView;
 class DevelopPanel;
 class Filmstrip;
@@ -55,6 +56,9 @@ public:
     void testPoll() { pollDatabase(); }
     void testAutoUpright(int mode) { autoUpright(mode); }
     void testCropTool(bool on) { setCropTool(on); }
+    void testWbPicker(bool on) { setWbPicker(on); }
+    void testPickWhiteBalance(QPointF p) { pickWhiteBalance(p); }
+    bool wbPickerActive() const { return m_wbPicker; }
     CropTool* cropTool() const { return m_cropToolObj; }
     void testHealAt(QPointF p, double r) { healAt(p, r); }
     int pendingHealJobs() const { return m_healJobs; }
@@ -126,6 +130,8 @@ private:
     void toggleSidePanels();
     void setCropTool(bool on);
     void setHealTool(bool on);
+    void setWbPicker(bool on);
+    void pickWhiteBalance(QPointF cropPoint);
     void healAt(QPointF cropPoint, double radius);
     void ensureHealPatches(DevelopEngine* e, const DevelopSettings& s);
     void updateHealOverlay();
@@ -160,6 +166,8 @@ private:
     CropTool* m_cropToolObj;
     HealTool* m_healToolObj;
     bool m_healTool = false;
+    WbPickerTool* m_wbPickerObj;
+    bool m_wbPicker = false;
     int m_healJobs = 0;
 
     std::optional<PhotoInfo> m_photo;

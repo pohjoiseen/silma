@@ -422,8 +422,9 @@ void ImagePane::resizeEvent(QResizeEvent*)
 
 void ImagePane::mousePressEvent(QMouseEvent* e)
 {
-    if (m_tool && e->button() == Qt::LeftButton && m_tool->press(*this, widgetToImage(e->position()), e)) {
-        m_toolActive = true;
+    if (PaneTool* tool = m_tool; tool && e->button() == Qt::LeftButton && tool->press(*this, widgetToImage(e->position()), e)) {
+        // The press may have ended the tool (e.g. a one-shot picker): then no drag follows.
+        m_toolActive = m_tool == tool;
         return;
     }
     if (!m_interaction) {
@@ -439,7 +440,7 @@ void ImagePane::mousePressEvent(QMouseEvent* e)
 
 void ImagePane::mouseMoveEvent(QMouseEvent* e)
 {
-    if (m_toolActive) {
+    if (m_toolActive && m_tool) {
         m_tool->move(*this, widgetToImage(e->position()), e);
         update();
         return;
@@ -467,7 +468,7 @@ void ImagePane::mouseMoveEvent(QMouseEvent* e)
 
 void ImagePane::mouseReleaseEvent(QMouseEvent* e)
 {
-    if (m_toolActive) {
+    if (m_toolActive && m_tool) {
         m_toolActive = false;
         m_tool->release(*this, widgetToImage(e->position()), e);
         update();

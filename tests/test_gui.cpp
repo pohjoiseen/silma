@@ -376,6 +376,39 @@ private slots:
         QVERIFY(!pane->hasOverlay());
     }
 
+    void whiteBalancePicker()
+    {
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        const QString batchFile = freshBatch("whiteBalancePicker");
+        QVERIFY(w.openBatch(batchFile));
+        QTRY_VERIFY_WITH_TIMEOUT(w.mainPane()->engine() != nullptr, 15000);
+        const qint64 id = w.currentPhoto()->id;
+
+        // Esc cancels the picker.
+        w.testWbPicker(true);
+        QVERIFY(w.wbPickerActive());
+        QVERIFY(w.mainPane()->tool() != nullptr);
+        QTest::keyClick(&w, Qt::Key_Escape);
+        QVERIFY(!w.wbPickerActive());
+        QVERIFY(w.mainPane()->tool() == nullptr);
+
+        // A click on a usable point sets a custom white balance and ends the tool.
+        w.testWbPicker(true);
+        auto expected = w.mainPane()->engine()->wbFromPoint(w.currentSettings(), {0.5, 0.5});
+        QVERIFY(expected);
+        QPointF at = w.mainPane()->imageToWidget({0.5, 0.5});
+        QTest::mouseClick(w.mainPane(), Qt::LeftButton, {}, at.toPoint());
+        QVERIFY(!w.wbPickerActive());
+        QCOMPARE(w.currentSettings().wbMode, WbMode::Custom);
+        QVERIFY(std::abs(w.currentSettings().temperature - expected->temperature) <= 25);
+        Batch b;
+        b.open(batchFile);
+        QCOMPARE(b.history(id).last().label, QStringLiteral("White Balance: Picked"));
+    }
+
     void importDialogLateName()
     {
         ImportInfo existing;

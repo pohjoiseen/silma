@@ -219,6 +219,47 @@ WbValues DevelopEngine::wbFromTempTint(double temperature, double tint) const
     return w;
 }
 
+std::optional<WbValues> DevelopEngine::wbFromPoint(const DevelopSettings& s, QPointF cropPoint) const
+{
+    float src[6], gain[3];
+    if (!geometry(s).mapCrop(cropPoint.x(), cropPoint.y(), src, gain))
+        return std::nullopt;
+    // Average a small patch (about 1/400 of the long edge across) to smooth out noise.
+    const int lvl = levelFor(std::max(m_raw->fullWidth, m_raw->fullHeight) / 2000.0);
+    auto imgPtr = level(lvl);
+    const ImageF& img = *imgPtr;
+    const int cx = int(src[2] * img.width), cy = int(src[3] * img.height), r = 2;
+    double sum[3] = {0, 0, 0};
+    int n = 0;
+    for (int y = cy - r; y <= cy + r; ++y)
+        for (int x = cx - r; x <= cx + r; ++x) {
+            if (x < 0 || y < 0 || x >= img.width || y >= img.height)
+                continue;
+            const float* p = img.px(x, y);
+            if (std::max({p[0], p[1], p[2]}) > 0.95f)
+                return std::nullopt; // clipped: the colour is unknown
+            for (int c = 0; c < 3; ++c)
+                sum[c] += p[c];
+            ++n;
+        }
+    if (n == 0)
+        return std::nullopt;
+    // Back to raw camera values (the decoded data is white-balanced with appliedMul).
+    const Vec3 applied = m_raw->color.appliedMul;
+    double cam[3];
+    for (int c = 0; c < 3; ++c)
+        cam[c] = sum[c] / n / applied[c];
+    if (std::min({cam[0], cam[1], cam[2]}) < 0.002)
+        return std::nullopt; // too dark to tell
+    WbValues w;
+    w.mul = {cam[1] / cam[0], 1.0, cam[1] / cam[2]};
+    m_color->tempTintFor(w.mul, w.temperature, w.tint);
+    w.temperature = std::clamp(w.temperature, 2000.0, 50000.0);
+    w.tint = std::clamp(w.tint, -150.0, 150.0);
+    w.mul = m_color->multipliersFor(w.temperature, w.tint);
+    return w;
+}
+
 WbValues DevelopEngine::autoWb() const
 {
     {

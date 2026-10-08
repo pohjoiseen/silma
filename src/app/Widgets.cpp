@@ -13,6 +13,7 @@
 #include <QProxyStyle>
 #include <QApplication>
 #include <QSlider>
+#include <QStyleOptionSlider>
 #include <QToolButton>
 #include <QVBoxLayout>
 #include <cmath>
@@ -142,6 +143,47 @@ public:
 };
 } // namespace
 
+namespace {
+
+// Slider whose track is a colour gradient showing which way the value shifts the image
+// (white balance); the handle is drawn by the style as usual.
+class GradientSlider : public QSlider {
+public:
+    GradientSlider(const QColor& from, const QColor& to, QWidget* parent) : QSlider(Qt::Horizontal, parent), m_from(from), m_to(to) {}
+
+protected:
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter p(this);
+        QStyleOptionSlider opt;
+        initStyleOption(&opt);
+        const QRect groove = style()->subControlRect(QStyle::CC_Slider, &opt, QStyle::SC_SliderGroove, this);
+        const QRect handle = style()->subControlRect(QStyle::CC_Slider, &opt, QStyle::SC_SliderHandle, this);
+        // Span the handle centre's travel, as thick as a typical groove (a bit more).
+        const double h = std::max(4.0, groove.height() * 0.35);
+        const QRectF track(groove.left() + handle.width() / 2.0, groove.center().y() + 0.5 - h / 2, groove.width() - handle.width(), h);
+        QLinearGradient g(track.topLeft(), track.topRight());
+        QColor from = m_from, to = m_to;
+        if (!isEnabled()) {
+            from.setAlphaF(0.35f);
+            to.setAlphaF(0.35f);
+        }
+        g.setColorAt(0, from);
+        g.setColorAt(1, to);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(Qt::NoPen);
+        p.setBrush(g);
+        p.drawRoundedRect(track, h / 2, h / 2);
+        opt.subControls = QStyle::SC_SliderHandle;
+        style()->drawComplexControl(QStyle::CC_Slider, &opt, &p, this);
+    }
+
+private:
+    QColor m_from, m_to;
+};
+
+} // namespace
+
 void makeSliderAbsolute(QSlider* s)
 {
     // One shared proxy over the application style (not owned, follows style changes).
@@ -165,7 +207,13 @@ ParamSlider::ParamSlider(const ParamDef& def, QWidget* parent)
     m_label->installEventFilter(this);
     // Common label width so the sliders line up across sections.
     m_label->setFixedWidth(fontMetrics().horizontalAdvance(QStringLiteral("Luminance NR")) + 4);
-    m_slider = new QSlider(Qt::Horizontal, this);
+    // White balance sliders show their colour direction: blue to yellow, green to magenta.
+    if (QLatin1String(def.key) == QLatin1String("temperature"))
+        m_slider = new GradientSlider(QColor(64, 112, 214), QColor(222, 192, 58), this);
+    else if (QLatin1String(def.key) == QLatin1String("tint"))
+        m_slider = new GradientSlider(QColor(66, 168, 74), QColor(192, 80, 192), this);
+    else
+        m_slider = new QSlider(Qt::Horizontal, this);
     m_slider->setRange(0, kSliderSteps);
     m_slider->setPageStep(kSliderSteps / 20);
     m_slider->installEventFilter(this);

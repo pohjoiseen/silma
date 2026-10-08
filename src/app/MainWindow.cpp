@@ -5,6 +5,7 @@
 #include "CropTool.h"
 #include "Heal.h"
 #include "HealTool.h"
+#include "WbPickerTool.h"
 #include "MetadataView.h"
 #include "DevelopPanel.h"
 #include "Upright.h"
@@ -43,6 +44,7 @@
 #include <QProgressDialog>
 #include <QPushButton>
 #include <QSettings>
+#include <QShortcut>
 #include <QSplitter>
 #include <QStandardPaths>
 #include <QStatusBar>
@@ -129,6 +131,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
         }
     });
     connect(m_panel, &DevelopPanel::healToolToggled, this, &MainWindow::setHealTool);
+
+    m_wbPickerObj = new WbPickerTool(this);
+    connect(m_wbPickerObj, &WbPickerTool::picked, this, &MainWindow::pickWhiteBalance);
+    connect(m_panel, &DevelopPanel::wbPickerToggled, this, &MainWindow::setWbPicker);
     connect(m_panel, &DevelopPanel::healSizeChanged, this, [this](double r) {
         m_healToolObj->setBrushSize(r);
         m_pane->update();
@@ -319,6 +325,12 @@ void MainWindow::createActions()
         s.wbMode = WbMode::Auto;
         commit(s, tr("Auto White Balance"));
     });
+    photo->addAction(tr("White Balance &Picker"), QKeySequence(Qt::Key_W), this, [this] { setWbPicker(!m_wbPicker); });
+    auto* esc = new QShortcut(QKeySequence(Qt::Key_Escape), this);
+    connect(esc, &QShortcut::activated, this, [this] {
+        if (m_wbPicker)
+            setWbPicker(false);
+    });
     photo->addAction(tr("&Crop Tool"), QKeySequence(Qt::Key_R), this, [this] { setCropTool(!m_cropTool); });
     photo->addAction(tr("&Heal Tool"), QKeySequence(Qt::Key_Q), this, [this] { setHealTool(!m_healTool); });
     photo->addSeparator();
@@ -434,6 +446,7 @@ void MainWindow::createActions()
                                     "<tr><td><b>\\</b></td><td>Before / after</td></tr>"
                                     "<tr><td><b>C</b></td><td>Compare with another photo (select it too, or the previous one is used)</td></tr>"
                                     "<tr><td><b>R</b></td><td>Crop tool</td></tr>"
+                                    "<tr><td><b>W</b></td><td>White balance picker (click a neutral point)</td></tr>"
                                     "<tr><td><b>Ctrl+U</b></td><td>Auto tone</td></tr>"
                                     "<tr><td><b>Ctrl+Z / Ctrl+Shift+Z</b></td><td>Undo / redo</td></tr>"
                                     "<tr><td><b>Ctrl+Shift+C / V</b></td><td>Copy / paste settings (to all selected)</td></tr>"
@@ -638,6 +651,8 @@ void MainWindow::selectPhoto(qint64 id)
         setCropTool(false);
     if (m_healTool)
         setHealTool(false);
+    if (m_wbPicker)
+        setWbPicker(false);
     m_settings = m_committed = DevelopSettings::fromJsonString(m_batch.settings(id));
     if (m_viewMode == ViewMode::Compare) {
         // Keep comparing against the reference; if the reference itself was selected, leave compare.
@@ -867,6 +882,8 @@ void MainWindow::setCropTool(bool on)
         on = false;
     if (on && m_healTool)
         setHealTool(false);
+    if (on && m_wbPicker)
+        setWbPicker(false);
     m_cropTool = on;
     m_panel->setCropToolActive(on);
     if (on) {
@@ -1352,11 +1369,52 @@ void MainWindow::setHealTool(bool on)
         on = false;
     if (on && m_cropTool)
         setCropTool(false);
+    if (on && m_wbPicker)
+        setWbPicker(false);
     m_healTool = on;
     m_panel->setHealToolActive(on);
     m_pane->setTool(on ? m_healToolObj : nullptr);
     if (on)
         updateHealOverlay();
+}
+
+void MainWindow::setWbPicker(bool on)
+{
+    if (on && !m_pane->engine())
+        on = false;
+    if (on && m_cropTool)
+        setCropTool(false);
+    if (on && m_healTool)
+        setHealTool(false);
+    m_wbPicker = on;
+    m_panel->setWbPickerActive(on);
+    if (on)
+        m_pane->setTool(m_wbPickerObj);
+    else if (m_pane->tool() == m_wbPickerObj)
+        m_pane->setTool(nullptr);
+    if (on)
+        statusBar()->showMessage(tr("Click a point that should be neutral grey (Esc or W to cancel)"));
+    else
+        statusBar()->clearMessage();
+}
+
+void MainWindow::pickWhiteBalance(QPointF cropPoint)
+{
+    auto e = m_pane->engine();
+    if (!m_photo || !e)
+        return;
+    auto wb = e->wbFromPoint(m_settings, cropPoint);
+    if (!wb) {
+        // Stay in the tool: the user can try another point.
+        statusBar()->showMessage(tr("That point is too bright (clipped) or too dark to judge its colour; try another one"));
+        return;
+    }
+    setWbPicker(false);
+    DevelopSettings s = m_settings;
+    s.wbMode = WbMode::Custom;
+    s.temperature = std::round(wb->temperature);
+    s.tint = std::round(wb->tint);
+    commit(s, tr("White Balance: Picked"));
 }
 
 void MainWindow::updateHealOverlay()
