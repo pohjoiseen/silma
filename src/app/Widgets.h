@@ -73,6 +73,8 @@ public:
     double value() const { return m_value; }
     // Programmatic update; does not emit.
     void setValue(double v);
+    // The value a double-click resets to (default: the parameter's default).
+    void setResetValue(double v) { m_resetValue = v; }
 
 signals:
     // `final` is false while dragging and true when the change is complete.
@@ -91,6 +93,7 @@ private:
 
     ParamDef m_def;
     double m_value;
+    double m_resetValue;
     bool m_mired;
     QLabel* m_label;
     QSlider* m_slider;

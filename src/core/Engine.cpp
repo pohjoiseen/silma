@@ -689,10 +689,11 @@ void toneStage(ImageF& img, const LocalTone& lt, const QRectF& roi, const Develo
     }
 }
 
+// The base look adds some chroma, like camera profiles do over a plain colour matrix.
+constexpr float kBaseChroma = 1.12f;
+
 void presenceStage(ImageF& img, const DevelopSettings& s)
 {
-    // The base look adds some chroma, like camera profiles do over a plain colour matrix.
-    constexpr float kBaseChroma = 1.12f;
     const float sat = float(s.saturation / 100.0), vib = float(s.vibrance / 100.0);
 #pragma omp parallel for schedule(static)
     for (int y = 0; y < img.height; ++y) {
@@ -816,6 +817,61 @@ void sharpenStage(ImageF& img, const DevelopSettings& s, double outScale)
 }
 
 } // namespace
+
+void undoDefaultLook(ImageF& img)
+{
+    const DevelopSettings defaults;
+    const ToneCurve curve(defaults);
+    // Inverse curve: tabulated over display values (monotonic, so by bisection).
+    constexpr int kInv = 8192;
+    std::vector<float> inv(kInv);
+    for (int i = 0; i < kInv; ++i) {
+        const float target = float(i) / (kInv - 1);
+        float lo = std::exp2(ToneCurve::kMinEv), hi = std::exp2(ToneCurve::kMaxEv);
+        if (curve(lo) >= target) {
+            inv[i] = 0;
+            continue;
+        }
+        for (int k = 0; k < 60; ++k) {
+            const float mid = std::sqrt(lo * hi);
+            (curve(mid) < target ? lo : hi) = mid;
+        }
+        inv[i] = std::sqrt(lo * hi);
+    }
+    auto invCurve = [&](float v) {
+        const float f = std::clamp(v, 0.0f, 1.0f) * (kInv - 1);
+        const int i = std::min(int(f), kInv - 2);
+        const float t = f - i;
+        return inv[i] * (1 - t) + inv[i + 1] * t;
+    };
+    const float gain = float(std::pow(2.0, -defaultBaselineExposure(RawImage{})));
+#pragma omp parallel for schedule(static)
+    for (int y = 0; y < img.height; ++y) {
+        float* p = img.row(y);
+        for (int x = 0; x < img.width; ++x, p += 3) {
+            // Base chroma (presenceStage) first, as it comes last in rendering.
+            float rgb[3] = {std::max(p[0], 0.0f), std::max(p[1], 0.0f), std::max(p[2], 0.0f)}, lab[3];
+            rec2020ToOklab(rgb, lab);
+            lab[1] /= kBaseChroma;
+            lab[2] /= kBaseChroma;
+            oklabToRec2020(lab, rgb);
+            // Tone curve (toneStage): per channel, with the mid channel's position between the
+            // others kept, exactly as rendering does it.
+            float in[3] = {std::max(rgb[0], 0.0f), std::max(rgb[1], 0.0f), std::max(rgb[2], 0.0f)};
+            float out[3] = {invCurve(in[0]), invCurve(in[1]), invCurve(in[2])};
+            const int imax = in[0] >= in[1] ? (in[0] >= in[2] ? 0 : 2) : (in[1] >= in[2] ? 1 : 2);
+            const int imin = in[0] < in[1] ? (in[0] < in[2] ? 0 : 2) : (in[1] < in[2] ? 1 : 2);
+            if (imax != imin) {
+                const int imid = 3 - imax - imin;
+                const float span = in[imax] - in[imin];
+                const float ratio = span > 1e-9f ? (in[imid] - in[imin]) / span : 0.0f;
+                out[imid] = out[imin] + ratio * (out[imax] - out[imin]);
+            }
+            for (int c = 0; c < 3; ++c)
+                p[c] = out[c] * gain;
+        }
+    }
+}
 
 ImageF DevelopEngine::renderEncoded(const DevelopSettings& s, const RenderRequest& req, WbValues* wbOut) const
 {

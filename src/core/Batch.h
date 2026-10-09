@@ -23,7 +23,7 @@ struct ImportInfo {
     int rejectedCount = 0;
 };
 
-enum class PhotoKind { Raw = 0, DerivedDng = 1 };
+enum class PhotoKind { Raw = 0, DerivedDng = 1, Rendered = 2 }; // Rendered: JPEG/HEIC
 
 struct PhotoInfo {
     qint64 id = 0;

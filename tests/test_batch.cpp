@@ -1,5 +1,14 @@
 #include "Batch.h"
+#include "AiDenoise.h"
+#include "Derived.h"
+#include "Develop.h"
 #include "Importer.h"
+#include "RawDecoder.h"
+
+#include <QImage>
+#include <QProcess>
+#include <QStandardPaths>
+#include <exiv2/exiv2.hpp>
 
 #include <QDir>
 #include <QTemporaryDir>
@@ -125,6 +134,55 @@ private slots:
         auto r2 = importFiles(b, files, {});
         QCOMPARE(r2.added.size(), 0);
         QCOMPARE(r2.skipped.size(), 2);
+    }
+
+    void importJpegAndHeic()
+    {
+        QDir d(QString(SILMA_SAMPLES) + "/2026-08-08");
+        const auto raws = d.entryList(QDir::Files, QDir::Name);
+        if (raws.isEmpty())
+            QSKIP("sample raws not available");
+        QTemporaryDir tmp;
+        QDir src(tmp.filePath("card"));
+        QVERIFY(src.mkpath("."));
+        const QString raw = src.filePath("DSC_0001.NEF");
+        QVERIFY(QFile::copy(d.filePath(raws.first()), raw));
+        QImage img(300, 200, QImage::Format_RGB888);
+        img.fill(QColor(200, 120, 60));
+        QVERIFY(img.save(src.filePath("DSC_0001.JPG"), "JPEG", 90)); // the raw's sidecar
+        QVERIFY(img.save(src.filePath("phone.jpg"), "JPEG", 90));
+        // A portrait phone photo stored landscape with an EXIF orientation.
+        QVERIFY(img.save(src.filePath("rotated.jpg"), "JPEG", 90));
+        {
+            auto e = Exiv2::ImageFactory::open(src.filePath("rotated.jpg").toStdString());
+            e->readMetadata();
+            e->exifData()["Exif.Image.Orientation"] = uint16_t(6);
+            e->writeMetadata();
+        }
+        const QString heifEnc = QStandardPaths::findExecutable("heif-enc");
+        if (!heifEnc.isEmpty())
+            QCOMPARE(QProcess::execute(heifEnc, {"-q", "80", "-o", src.filePath("phone.heic"), src.filePath("phone.jpg")}), 0);
+
+        Batch b;
+        b.create(tmp.filePath("t.silma"));
+        auto r = importFiles(b, collectPhotoFiles({src.path()}), {});
+        QVERIFY2(r.errors.isEmpty(), qPrintable(r.errors.join('\n')));
+        QCOMPARE(r.sidecars, QStringList{src.filePath("DSC_0001.JPG")});
+        QCOMPARE(r.added.size(), heifEnc.isEmpty() ? 3 : 4);
+        for (const auto& p : b.photos()) {
+            QVERIFY(!b.thumbnail(p.id).isEmpty());
+            const bool rendered = p.fileName != "DSC_0001.NEF";
+            QCOMPARE(p.kind, rendered ? PhotoKind::Rendered : PhotoKind::Raw);
+            // JPEG/HEIC start without sharpening, colour noise reduction and lens corrections.
+            QCOMPARE(DevelopSettings::fromJsonString(b.settings(p.id)), DevelopSettings::defaults(rendered));
+            if (!rendered)
+                continue;
+            const RawImage r = decodeRaw(p.path);
+            QVERIFY(r.rendered);
+            QCOMPARE(QSize(r.image.width, r.image.height), p.fileName == "rotated.jpg" ? QSize(200, 300) : QSize(300, 200));
+            QCOMPARE(r.orientation, 1);
+            QVERIFY_THROWS_EXCEPTION(std::runtime_error, createAiDenoised(b, p.id, defaultAiDenoiseModel(), 1.0));
+        }
     }
 };
 

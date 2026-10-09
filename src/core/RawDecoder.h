@@ -47,6 +47,7 @@ struct RawImage {
     int fullWidth = 0, fullHeight = 0; // dimensions of the full-resolution decode
     bool halfSize = false;
     bool isDng = false;
+    bool rendered = false; // a JPEG/HEIC (see decodeRendered)
     int hotPixels = 0; // hot/stuck sensor pixels found and removed
     // DNG DefaultCrop in full-resolution pixel coordinates (or whole image).
     int cropX = 0, cropY = 0, cropW = 0, cropH = 0;

@@ -293,6 +293,12 @@ void DevelopPanel::emitEdit(const QString& label, bool final)
     emit edited(m_settings, label, final);
 }
 
+void DevelopPanel::setDefaults(const DevelopSettings& d)
+{
+    for (ParamSlider* s : std::as_const(m_sliders))
+        s->setResetValue(d.*(s->def().field));
+}
+
 void DevelopPanel::setSettings(const DevelopSettings& s)
 {
     m_updating = true;

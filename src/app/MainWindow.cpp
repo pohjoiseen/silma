@@ -13,6 +13,7 @@
 #include "AiDenoise.h"
 #include "Derived.h"
 #include "TaskbarProgress.h"
+#include "RenderedImage.h"
 #include "Merge.h"
 #include "Dialogs.h"
 #include "Filmstrip.h"
@@ -691,6 +692,7 @@ void MainWindow::selectPhoto(qint64 id)
     if (row >= 0)
         m_filmstrip->scrollTo(m_model->index(row), QAbstractItemView::EnsureVisible);
     m_batch.setState("ui.photo", QString::number(id));
+    m_panel->setDefaults(DevelopSettings::defaults(p->kind == PhotoKind::Rendered));
     if (m_cropTool)
         setCropTool(false);
     if (m_healTool)
@@ -946,12 +948,13 @@ void MainWindow::resetSettings()
     for (qint64 id : selectedPhotoIds()) {
         if (m_photo && id == m_photo->id)
             continue;
-        m_batch.pushHistory(id, tr("Reset"), DevelopSettings().toJsonString());
+        auto ph = m_batch.photo(id);
+        m_batch.pushHistory(id, tr("Reset"), DevelopSettings::defaults(ph && ph->kind == PhotoKind::Rendered).toJsonString());
         historyChanged(id);
         m_model->invalidateThumbnail(id);
         renderThumbnail(id);
     }
-    commit(DevelopSettings(), tr("Reset"));
+    commit(DevelopSettings::defaults(m_photo && m_photo->kind == PhotoKind::Rendered), tr("Reset"));
 }
 
 void MainWindow::copySettings()
@@ -1064,7 +1067,9 @@ void MainWindow::importPhotos()
     }
     QSettings qs;
     QString dir = qs.value("import/lastDir", QStandardPaths::writableLocation(QStandardPaths::PicturesLocation)).toString();
-    QString filter = tr("Raw files (%1)").arg(rawFileNameFilters().join(' ')) + ";;" + tr("All files (*)");
+    QString filter = tr("Photos (%1)").arg((rawFileNameFilters() + renderedFileNameFilters()).join(' ')) + ";;"
+                     + tr("Raw files (%1)").arg(rawFileNameFilters().join(' ')) + ";;"
+                     + tr("JPEG and HEIC (%1)").arg(renderedFileNameFilters().join(' ')) + ";;" + tr("All files (*)");
     QStringList files = QFileDialog::getOpenFileNames(this, tr("Import Photos"), dir, filter);
     if (files.isEmpty())
         return;
@@ -1136,6 +1141,8 @@ void MainWindow::importPhotos()
         QString msg = tr("Imported %n photo(s)", nullptr, int(r.added.size()));
         if (!r.skipped.isEmpty())
             msg += tr("; %n duplicate(s) skipped", nullptr, int(r.skipped.size()));
+        if (!r.sidecars.isEmpty())
+            msg += tr("; %n JPEG(s) of RAW+JPEG pairs left out", nullptr, int(r.sidecars.size()));
         if (!r.errors.isEmpty())
             QMessageBox::warning(this, tr("Import"), msg + "\n\n" + r.errors.mid(0, 20).join('\n'));
         else
@@ -1360,9 +1367,21 @@ void MainWindow::runDerivedJob(const QString& title,
 
 void MainWindow::aiDenoise()
 {
-    QList<qint64> ids = selectedPhotoIds();
-    if (ids.isEmpty())
+    // JPEG/HEIC photos were denoised by the camera already; the model works on raw data.
+    QList<qint64> ids;
+    int rendered = 0;
+    for (qint64 id : selectedPhotoIds()) {
+        auto p = m_batch.photo(id);
+        if (p && p->kind == PhotoKind::Rendered)
+            ++rendered;
+        else if (p)
+            ids << id;
+    }
+    if (ids.isEmpty()) {
+        if (rendered)
+            QMessageBox::information(this, tr("AI Denoise"), tr("AI Denoise works on raw photos: JPEG and HEIC photos are already denoised by the camera."));
         return;
+    }
     QDialog dlg(this);
     dlg.setWindowTitle(tr("AI Denoise"));
     auto* l = new QFormLayout(&dlg);
@@ -1383,6 +1402,8 @@ void MainWindow::aiDenoise()
     info->setWordWrap(true);
     l->addRow(info);
     l->addRow(new QLabel(tr("%n photo(s) will be denoised into new DNG files.", nullptr, int(ids.size())), &dlg));
+    if (rendered)
+        l->addRow(new QLabel(tr("%n JPEG/HEIC photo(s) left out (AI Denoise works on raw photos).", nullptr, rendered), &dlg));
     auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
     connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
     connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
@@ -1702,7 +1723,7 @@ void MainWindow::updatePanes()
     }
     m_pane2->show();
     if (m_viewMode == ViewMode::BeforeAfter) {
-        m_pane2->setSettings(DevelopSettings());
+        m_pane2->setSettings(DevelopSettings::defaults(m_photo && m_photo->kind == PhotoKind::Rendered));
         m_pane2->setEngine(m_pane->engine());
         m_pane2->setLabel(tr("Before"));
         m_pane->setLabel(tr("After"));

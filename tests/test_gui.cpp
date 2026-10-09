@@ -340,6 +340,44 @@ private slots:
         QCOMPARE(TaskbarProgress::instance().shownCount(), 0);
     }
 
+    void jpegPhotoDefaults()
+    {
+        // A JPEG gets its own defaults (no sharpening): shown, and what double-click and Reset give.
+        const QString file = freshBatch("jpegPhotoDefaults");
+        QImage img(300, 200, QImage::Format_RGB888);
+        img.fill(QColor(90, 140, 200));
+        const QString jpg = QFileInfo(file).absolutePath() + "/phone.jpg";
+        QVERIFY(img.save(jpg, "JPEG", 90));
+        {
+            Batch b;
+            b.open(file);
+            QCOMPARE(importFiles(b, {jpg}, {.importName = b.imports().first().name}).added.size(), 1);
+        }
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QVERIFY(w.openBatch(file));
+        auto* strip = w.findChild<Filmstrip*>();
+        int row = -1;
+        for (int r = 0; r < strip->model()->rowCount(); ++r)
+            if (strip->model()->index(r, 0).data().toString() == "phone.jpg")
+                row = r;
+        QVERIFY(row >= 0);
+        strip->setCurrentIndex(strip->model()->index(row, 0));
+        QTRY_COMPARE(w.currentPhoto()->fileName, QStringLiteral("phone.jpg"));
+        ParamSlider* sharpen = slider(w, "sharpen_amount");
+        QVERIFY(sharpen);
+        QCOMPARE(sharpen->value(), 0.0);
+        emit sharpen->edited(60, true);
+        QCOMPARE(w.currentSettings().sharpenAmount, 60.0);
+        QTest::mouseDClick(sharpen->findChild<QSlider*>(), Qt::LeftButton);
+        QCOMPARE(w.currentSettings().sharpenAmount, 0.0);
+        emit slider(w, "exposure")->edited(0.5, true);
+        w.testResetSettings();
+        QCOMPARE(w.currentSettings(), DevelopSettings::defaults(true));
+    }
+
     void derivedPhotoKeepsSelection()
     {
         MainWindow w;

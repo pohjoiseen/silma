@@ -1,7 +1,11 @@
 #include "Importer.h"
 
+#include "Develop.h"
 #include "Metadata.h"
 #include "RawDecoder.h"
+#include "RenderedImage.h"
+
+#include <QColorSpace>
 
 #include <QBuffer>
 #include <QDirIterator>
@@ -43,7 +47,12 @@ QString uniqueDestination(const QDir& dir, const QString& fileName)
 
 } // namespace
 
-QStringList collectRawFiles(const QStringList& paths)
+bool isPhotoFileName(const QString& fileName)
+{
+    return isRawFileName(fileName) || isRenderedFileName(fileName);
+}
+
+QStringList collectPhotoFiles(const QStringList& paths)
 {
     QStringList out;
     for (const QString& p : paths) {
@@ -53,7 +62,7 @@ QStringList collectRawFiles(const QStringList& paths)
             QStringList found;
             while (it.hasNext()) {
                 QString f = it.next();
-                if (isRawFileName(f))
+                if (isPhotoFileName(f))
                     found << f;
             }
             found.sort();
@@ -67,9 +76,15 @@ QStringList collectRawFiles(const QStringList& paths)
 
 QByteArray thumbnailFromEmbeddedPreview(const QString& rawPath, int orientation, int maxSize)
 {
-    QByteArray jpeg = extractEmbeddedPreview(rawPath);
     QImage img;
-    if (jpeg.isEmpty() || !img.loadFromData(jpeg, "JPEG")) {
+    if (isRenderedFileName(rawPath)) {
+        img = loadRenderedImage(rawPath); // upright already
+        if (img.colorSpace().isValid())
+            img.convertToColorSpace(QColorSpace::SRgb);
+        orientation = 1;
+    }
+    QByteArray jpeg = img.isNull() ? extractEmbeddedPreview(rawPath) : QByteArray();
+    if (img.isNull() && (jpeg.isEmpty() || !img.loadFromData(jpeg, "JPEG"))) {
         // No usable preview: fall back to a fast half-size raw decode with a neutral look.
         RawImage r = decodeRaw(rawPath, {.halfSize = true});
         int f = std::max(1, std::max(r.image.width, r.image.height) / (maxSize * 2));
@@ -101,10 +116,25 @@ QByteArray thumbnailFromEmbeddedPreview(const QString& rawPath, int orientation,
 ImportResult importFiles(Batch& batch, const QStringList& files, const ImportOptions& opts, const ProgressFn& progress)
 {
     ImportResult res;
-    const int total = int(files.size());
+    // RAW+JPEG pairs: the JPEG/HEIC next to a raw of the same name is the camera's sidecar.
+    QSet<QString> rawBases;
+    for (const QString& f : files)
+        if (isRawFileName(f)) {
+            const QFileInfo fi(f);
+            rawBases.insert(fi.absolutePath() + '/' + fi.completeBaseName().toLower());
+        }
+    QStringList photos;
+    for (const QString& f : files) {
+        const QFileInfo fi(f);
+        if (isRenderedFileName(f) && rawBases.contains(fi.absolutePath() + '/' + fi.completeBaseName().toLower()))
+            res.sidecars << f;
+        else
+            photos << f;
+    }
+    const int total = int(photos.size());
 
     // Read metadata in parallel first: it decides the destination folders.
-    QList<Probe> probes = QtConcurrent::blockingMapped(files, [](const QString& f) {
+    QList<Probe> probes = QtConcurrent::blockingMapped(photos, [](const QString& f) {
         Probe p;
         p.source = f;
         QFileInfo fi(f);
@@ -113,8 +143,8 @@ ImportResult importFiles(Batch& batch, const QStringList& files, const ImportOpt
             p.error = QStringLiteral("not a file");
             return p;
         }
-        if (!isRawFileName(f)) {
-            p.error = QStringLiteral("not a supported raw file");
+        if (!isPhotoFileName(f)) {
+            p.error = QStringLiteral("not a supported photo file");
             return p;
         }
         try {
@@ -139,7 +169,7 @@ ImportResult importFiles(Batch& batch, const QStringList& files, const ImportOpt
         for (const auto& p : probes)
             if (p.error.isEmpty() && p.meta.captureTime.isValid() && (!earliest.isValid() || p.meta.captureTime < earliest))
                 earliest = p.meta.captureTime;
-        singleName = dateName(earliest, files.value(0));
+        singleName = dateName(earliest, photos.value(0));
     }
 
     std::map<QString, ImportInfo> importsByName;
@@ -219,12 +249,19 @@ ImportResult importFiles(Batch& batch, const QStringList& files, const ImportOpt
         p.width = pr.meta.width;
         p.height = pr.meta.height;
         p.orientation = pr.meta.orientation;
+        const bool rendered = isRenderedFileName(dest);
+        if (rendered) {
+            p.kind = PhotoKind::Rendered;
+            if (p.orientation >= 5 && p.orientation <= 8)
+                std::swap(p.width, p.height);
+            p.orientation = 1; // decoded upright
+        }
         p.iso = pr.meta.iso;
         p.exposureTime = pr.meta.exposureTime;
         p.fNumber = pr.meta.fNumber;
         p.focalLength = pr.meta.focalLength;
         try {
-            qint64 id = batch.addPhoto(p);
+            qint64 id = rendered ? batch.addPhoto(p, DevelopSettings::defaults(true).toJsonString()) : batch.addPhoto(p);
             res.added << id;
             existing.insert(k);
             pending.append({id, dest, p.orientation});

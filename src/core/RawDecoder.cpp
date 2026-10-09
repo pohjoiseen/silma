@@ -1,6 +1,7 @@
 #include "RawDecoder.h"
 
 #include "DngJxl.h"
+#include "RenderedImage.h"
 #include "TiffReader.h"
 
 #include <QFile>
@@ -212,6 +213,8 @@ QStringList rawFileNameFilters()
 
 RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts)
 {
+    if (isRenderedFileName(path))
+        return decodeRendered(path, opts.halfSize);
     LibRawPtr raw = openRaw(path);
     auto& P = raw->imgdata.params;
     auto& C = raw->imgdata.color;
@@ -350,6 +353,8 @@ RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts)
 
 BayerMosaic decodeBayerMosaic(const QString& path)
 {
+    if (isRenderedFileName(path))
+        return {};
     LibRawPtr raw = openRaw(path);
     const auto& I = raw->imgdata.idata;
     BayerMosaic out;

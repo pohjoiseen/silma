@@ -142,6 +142,44 @@ private slots:
         QVERIFY(healExtent(HealSpot{0.5, 0.5, 0.02, 0, {}}, W, H) < kMaxHealExtent);
     }
 
+    void renderedRoundTrip()
+    {
+        // A JPEG developed with its default settings comes out as it went in.
+        QTemporaryDir dir;
+        QImage src(360, 240, QImage::Format_RGB888);
+        for (int y = 0; y < src.height(); ++y)
+            for (int x = 0; x < src.width(); ++x) {
+                const int band = y / 60; // grey ramp, hue sweeps, saturated patches
+                QColor c = band == 0 ? QColor(x * 255 / 359, x * 255 / 359, x * 255 / 359)
+                         : band == 1 ? QColor::fromHsv(x, 120, 200)
+                         : band == 2 ? QColor::fromHsv(x, 255, 40 + x / 2)
+                                     : QColor::fromHsv((x / 40) * 40, 230, 230);
+                src.setPixelColor(x, y, c);
+            }
+        const QString path = dir.filePath("test.jpg");
+        QVERIFY(src.save(path, "JPEG", 100));
+        const QImage ref = QImage(path).convertToFormat(QImage::Format_RGB888);
+        DevelopEngine e(path);
+        const ImageF out = e.renderEncoded(DevelopSettings::defaults(true), {.width = src.width(), .height = src.height(), .highQuality = true});
+        double sum = 0, worst = 0;
+        for (int y = 0; y < ref.height(); ++y)
+            for (int x = 0; x < ref.width(); ++x)
+                for (int c = 0; c < 3; ++c) {
+                    const double d = std::abs(out.px(x, y)[c] * 255.0 - ref.constScanLine(y)[x * 3 + c]);
+                    sum += d;
+                    worst = std::max(worst, d);
+                }
+        const double mean = sum / (3.0 * ref.width() * ref.height());
+        qDebug() << "mean" << mean << "worst" << worst;
+        QVERIFY2(mean < 0.6 && worst < 4, qPrintable(QStringLiteral("mean %1, worst %2").arg(mean).arg(worst)));
+        // Controls still work: more exposure is brighter.
+        DevelopSettings s = DevelopSettings::defaults(true);
+        s.exposure = 1;
+        const ImageF brighter = e.renderEncoded(s, {.width = 36, .height = 24});
+        const ImageF normal = e.renderEncoded(DevelopSettings::defaults(true), {.width = 36, .height = 24});
+        QVERIFY(brighter.px(18, 3)[1] > normal.px(18, 3)[1] + 0.05f);
+    }
+
     void hotPixels()
     {
         // Synthetic RGGB mosaic with noise-free gradients: a hot red and a stuck green sample go,

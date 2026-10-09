@@ -18,7 +18,8 @@ struct ImportOptions {
 
 struct ImportResult {
     QList<qint64> added;
-    QStringList skipped; // duplicates
+    QStringList skipped;  // duplicates
+    QStringList sidecars; // JPEG/HEIC files of RAW+JPEG pairs (the raw is imported)
     QStringList errors;
     QStringList importNames;
 };
@@ -28,9 +29,12 @@ using ProgressFn = std::function<void(int done, int total, const QString& file)>
 ImportResult importFiles(Batch& batch, const QStringList& files, const ImportOptions& opts, const ProgressFn& progress = {});
 
 // Builds a thumbnail JPEG (long edge `maxSize`) from the embedded preview, oriented upright.
+// For JPEG/HEIC photos, from the image itself.
 QByteArray thumbnailFromEmbeddedPreview(const QString& rawPath, int orientation, int maxSize = 512);
 
-// Collects raw files from a list of files and/or directories (recursive).
-QStringList collectRawFiles(const QStringList& paths);
+// Raw, JPEG and HEIC files.
+bool isPhotoFileName(const QString& fileName);
+// Collects photo files from a list of files and/or directories (recursive).
+QStringList collectPhotoFiles(const QStringList& paths);
 
 } // namespace silma

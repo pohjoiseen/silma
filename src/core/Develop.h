@@ -91,6 +91,9 @@ struct DevelopSettings {
     static DevelopSettings fromJson(const QJsonObject& o);
     QString toJsonString() const;
     static DevelopSettings fromJsonString(const QString& s);
+    // Initial settings: for raws the plain defaults; for JPEG/HEIC photos (`rendered`) without
+    // sharpening, colour noise reduction and lens corrections, which the camera already did.
+    static DevelopSettings defaults(bool rendered);
 };
 
 // Generic description of every scalar slider, used by the CLI and to build GUI panels.

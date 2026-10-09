@@ -79,7 +79,7 @@ const char* kPhotoColumns =
 
 QString photoKindName(PhotoKind k)
 {
-    return k == PhotoKind::Raw ? QStringLiteral("raw") : QStringLiteral("derived-dng");
+    return k == PhotoKind::Raw ? QStringLiteral("raw") : k == PhotoKind::Rendered ? QStringLiteral("rendered") : QStringLiteral("derived-dng");
 }
 
 void Batch::create(const QString& file)
@@ -316,7 +316,7 @@ qint64 Batch::addPhoto(const PhotoInfo& p, const QString& initialSettings)
         .exec();
     qint64 id = m_db.lastInsertId();
     auto h = m_db.prepare("INSERT INTO history(photo_id, seq, label, settings, created_at) VALUES (?, 0, ?, ?, ?)");
-    h.bind(1, id).bind(2, p.kind == PhotoKind::Raw ? "Import" : "Created").bind(3, initialSettings).bind(4, nowIso()).exec();
+    h.bind(1, id).bind(2, p.kind == PhotoKind::DerivedDng ? "Created" : "Import").bind(3, initialSettings).bind(4, nowIso()).exec();
     tx.commit();
     return id;
 }

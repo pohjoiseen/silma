@@ -62,6 +62,8 @@ qint64 createAiDenoised(Batch& b, qint64 photoId, const QString& modelId, double
     auto src = b.photo(photoId);
     if (!src)
         throw std::runtime_error("No such photo");
+    if (src->kind == PhotoKind::Rendered)
+        throw std::runtime_error(("AI Denoise works on raw photos, not on " + src->fileName).toStdString());
     if (!aiModelInstalled(modelId)) {
         if (progress)
             progress(QStringLiteral("Downloading model"), 0, 0);

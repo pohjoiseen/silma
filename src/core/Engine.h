@@ -121,6 +121,10 @@ private:
 
 // Exposure added to every render so the default look roughly matches camera JPEGs.
 double defaultBaselineExposure(const RawImage& raw);
+// Inverse of what default settings do to raw data after the colour matrix (default exposure,
+// tone curve and base chroma): turns display-referred linear Rec.2020 (a decoded JPEG) into
+// data that default settings render back unchanged.
+void undoDefaultLook(ImageF& displayLinear);
 
 // Converts encoded float sRGB to an 8-bit QImage (RGB888) and fills a histogram.
 QImage toQImage(const ImageF& encoded, Histogram* hist = nullptr);

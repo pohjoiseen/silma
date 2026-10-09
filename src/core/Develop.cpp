@@ -155,6 +155,18 @@ std::optional<WbMode> wbModeFromName(const QString& s)
     return std::nullopt;
 }
 
+DevelopSettings DevelopSettings::defaults(bool rendered)
+{
+    DevelopSettings s;
+    if (rendered) {
+        s.sharpenAmount = 0;
+        s.nrColor = 0;
+        s.lensDistortion = 0;
+        s.lensVignetting = 0;
+    }
+    return s;
+}
+
 QJsonObject DevelopSettings::toJson() const
 {
     static const DevelopSettings def;

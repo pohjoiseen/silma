@@ -270,7 +270,7 @@ std::map<QString, Command> commands()
     m["import"] = {"import FILES|DIRS... [--into NAME] [--split-by-date] [--move]",
                    "Copy raw files into the batch (default import: capture date)",
                    {"into"}, {"split-by-date", "move"}, true, [](const Args& a, Batch* b, bool json) {
-        QStringList files = collectRawFiles(a.positional());
+        QStringList files = collectPhotoFiles(a.positional());
         if (files.isEmpty())
             fail("No raw files found");
         ImportOptions o;
@@ -292,9 +292,15 @@ std::map<QString, Command> commands()
                 errors.append(s);
             for (const auto& s : r.importNames)
                 names.append(s);
-            printJson(QJsonObject{{"added", added}, {"skipped", skipped}, {"errors", errors}, {"imports", names}});
+            QJsonArray sidecars;
+            for (const auto& s : r.sidecars)
+                sidecars.append(s);
+            printJson(QJsonObject{{"added", added}, {"skipped", skipped}, {"sidecars", sidecars}, {"errors", errors}, {"imports", names}});
         } else {
-            out() << "Imported " << r.added.size() << " photo(s) into " << r.importNames.join(", ") << "; " << r.skipped.size() << " duplicate(s) skipped\n";
+            out() << "Imported " << r.added.size() << " photo(s) into " << r.importNames.join(", ") << "; " << r.skipped.size() << " duplicate(s) skipped";
+            if (!r.sidecars.isEmpty())
+                out() << "; " << r.sidecars.size() << " JPEG(s) of RAW+JPEG pairs left out";
+            out() << '\n';
             for (const auto& e : r.errors)
                 out() << "error: " << e << '\n';
         }
@@ -544,7 +550,7 @@ std::map<QString, Command> commands()
     m["reset"] = {"reset PHOTO...", "Reset develop settings to defaults (adds a history step)", {"import"}, {}, true, [](const Args& a, Batch* b, bool json) {
         auto ps = resolvePhotos(*b, a.positional(), a.value("import"));
         for (const auto& p : ps)
-            b->pushHistory(p.id, "Reset", DevelopSettings().toJsonString());
+            b->pushHistory(p.id, "Reset", DevelopSettings::defaults(p.kind == PhotoKind::Rendered).toJsonString());
         if (json)
             printJson(QJsonObject{{"changed", int(ps.size())}});
         else
@@ -636,7 +642,7 @@ std::map<QString, Command> commands()
         if (a.positional().size() != 2)
             fail("render needs PHOTO and output file");
         auto ps = resolvePhotos(*b, {a.positional()[0]});
-        DevelopSettings s = a.has("before") ? DevelopSettings() : DevelopSettings::fromJsonString(b->settings(ps[0].id));
+        DevelopSettings s = a.has("before") ? DevelopSettings::defaults(ps[0].kind == PhotoKind::Rendered) : DevelopSettings::fromJsonString(b->settings(ps[0].id));
         QElapsedTimer t;
         t.start();
         DevelopEngine e(ps[0].path);

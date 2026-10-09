@@ -5,7 +5,7 @@ Develop module. See `SPEC.md` for the goals.
 
 ## Building
 
-Dependencies (Arch): `cmake ninja qt6-base libraw exiv2 lensfun libjpeg-turbo libtiff libjxl sqlite lcms2 opencv onnxruntime-cpu`.
+Dependencies (Arch): `cmake ninja qt6-base libraw exiv2 lensfun libjpeg-turbo libtiff libjxl libheif sqlite lcms2 opencv onnxruntime-cpu`.
 Optional: `kcolorscheme` (KDE color schemes: the app defaults to Breeze Dark and offers the installed schemes under View → Color Scheme; without it a built-in dark palette is used).
 
 For GPU-accelerated AI denoise install `onnxruntime-opt-rocm` (AMD) or `onnxruntime-cuda`
@@ -23,7 +23,7 @@ The binary is `build/src/app/silma`.
 
 - **Batch**: a `*.silma` file (sqlite) holding everything about one trip: imports, photos,
   develop settings, full edit history and UI state. Schema is versioned and migrated.
-- **Import**: a folder (by default `YYYY-MM-DD` next to the batch file) into which raw files are copied.
+- **Import**: a folder (by default `YYYY-MM-DD` next to the batch file) into which photos are copied.
 - Editing is non-destructive. Every change is a history step; undo/redo moves within it.
 
 ## GUI
@@ -64,6 +64,15 @@ The GUI picks up changes made through the CLI within a second.
 
 For automation, `SILMA_SCREENSHOT=out.png [SILMA_SCREENSHOT_DELAY=ms] silma` grabs the
 window and exits (works with `QT_QPA_PLATFORM=offscreen`).
+
+## JPEG and HEIC photos
+
+Besides raw files, JPEG and HEIC/HEIF photos (e.g. from phones) can be imported. They are
+decoded with their colour profile (Display P3 on iPhones) and with Silmä's default look
+undone, so default settings show them unchanged and every control works as on raws. They
+start without sharpening, colour noise reduction and lens corrections (the camera did those);
+AI Denoise works on raws only. The JPEG of a RAW+JPEG pair (same name, same folder, imported
+together) is left out: the raw is imported. HEIC HDR gain maps are ignored (the SDR image is used).
 
 ## Hot pixels
 

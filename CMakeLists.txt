@@ -28,6 +28,7 @@ pkg_check_modules(TIFF REQUIRED IMPORTED_TARGET libtiff-4)
 pkg_check_modules(SQLITE REQUIRED IMPORTED_TARGET sqlite3)
 pkg_check_modules(LCMS REQUIRED IMPORTED_TARGET lcms2)
 pkg_check_modules(JXL REQUIRED IMPORTED_TARGET libjxl libjxl_cms)
+pkg_check_modules(HEIF REQUIRED IMPORTED_TARGET libheif)
 
 set(CMAKE_AUTOMOC ON)
 

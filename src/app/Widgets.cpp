@@ -196,7 +196,7 @@ void makeSliderAbsolute(QSlider* s)
 }
 
 ParamSlider::ParamSlider(const ParamDef& def, QWidget* parent)
-    : QWidget(parent), m_def(def), m_value(def.def), m_mired(QLatin1String(def.key) == QLatin1String("temperature"))
+    : QWidget(parent), m_def(def), m_value(def.def), m_resetValue(def.def), m_mired(QLatin1String(def.key) == QLatin1String("temperature"))
 {
     // One row: label, slider, value (like Lightroom).
     auto* l = new QHBoxLayout(this);
@@ -312,13 +312,13 @@ bool ParamSlider::eventFilter(QObject* o, QEvent* e)
         updateActive();
     }
     if (o == m_label && e->type() == QEvent::MouseButtonDblClick) {
-        setValue(m_def.def);
-        emit edited(m_def.def, true);
+        setValue(m_resetValue);
+        emit edited(m_resetValue, true);
         return true;
     }
     if (o == m_slider && e->type() == QEvent::MouseButtonDblClick) {
-        setValue(m_def.def);
-        emit edited(m_def.def, true);
+        setValue(m_resetValue);
+        emit edited(m_resetValue, true);
         return true;
     }
     // Don't let the wheel change sliders while scrolling the panel unless focused.

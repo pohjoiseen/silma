@@ -55,6 +55,7 @@ public:
     void testPasteSettings(bool ask = true) { pasteSettings(ask); }
     void testSetViewMode(ViewMode m) { setViewMode(m); }
     void testPoll() { pollDatabase(); }
+    void testResetSettings() { resetSettings(); }
     void testRunDerivedJob(const QString& title, std::function<QList<qint64>(Batch&, const std::function<void(const QString&, int, int)>&, const std::atomic<bool>*)> job)
     {
         runDerivedJob(title, std::move(job));

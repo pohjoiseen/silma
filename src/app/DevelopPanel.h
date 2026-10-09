@@ -27,6 +27,8 @@ public:
 
     // Updates all controls (no signals emitted).
     void setSettings(const DevelopSettings& s);
+    // Values the controls reset to (they differ for JPEG/HEIC photos).
+    void setDefaults(const DevelopSettings& d);
     void setEffectiveWb(const WbValues& wb);
     void setLensInfo(const QString& text);
     void setHistogram(const Histogram& h);
