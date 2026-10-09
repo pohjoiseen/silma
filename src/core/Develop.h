@@ -69,6 +69,9 @@ struct DevelopSettings {
     double rotate = 0;          // degrees, -45..45
     double scale = 100;         // percent, 50..150
 
+    // Quarter turns clockwise (0..3) on top of the file's orientation
+    int quarterTurns = 0;
+
     // Crop, in normalized coordinates of the transformed canvas
     QRectF crop{0, 0, 1, 1};
     bool cropLockAspect = true;
@@ -128,5 +131,9 @@ std::optional<WbMode> wbModeFromName(const QString& s);
 // Parses "a=b" assignments (scalar params, wb=as-shot|auto|custom, crop=x,y,w,h,
 // curve=x:y,x:y,...) into settings; returns an error message or empty on success.
 QString applyAssignment(DevelopSettings& s, const QString& assignment);
+
+// The settings with the photo turned by `quarterTurnsCw` (negative: counter-clockwise),
+// with the crop and the perspective correction turned along.
+DevelopSettings turnedSettings(const DevelopSettings& s, int quarterTurnsCw);
 
 } // namespace silma

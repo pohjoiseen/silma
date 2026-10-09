@@ -28,6 +28,9 @@ struct GeometrySource {
     std::shared_ptr<const ValidMask> valid; // in sensor coordinates; null = all valid
 };
 
+// The EXIF orientation of the display turned by further clockwise quarter turns.
+int turnedOrientation(int orientation, int quarterTurnsCw);
+
 class Geometry {
 public:
     Geometry(const GeometrySource& src, const DevelopSettings& s, bool ignoreCrop = false);

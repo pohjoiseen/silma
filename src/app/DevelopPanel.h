@@ -44,6 +44,8 @@ signals:
     void edited(const DevelopSettings& s, const QString& label, bool final);
     void autoToneRequested();
     void autoUprightRequested(int mode); // 0 vertical, 1 horizontal, 2 both
+    void transformResetRequested();
+    void turnRequested(int quarterTurnsCw); // 1 clockwise, -1 counter-clockwise
     void autoCropRequested();
     void cropToolToggled(bool on);
     void aiDenoiseRequested();

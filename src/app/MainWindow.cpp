@@ -252,6 +252,8 @@ void MainWindow::createDocks()
     connect(m_panel, &DevelopPanel::autoToneRequested, this, &MainWindow::autoTone);
     connect(m_panel, &DevelopPanel::autoUprightRequested, this, &MainWindow::autoUpright);
     connect(m_panel, &DevelopPanel::autoCropRequested, this, &MainWindow::autoCrop);
+    connect(m_panel, &DevelopPanel::transformResetRequested, this, &MainWindow::resetTransform);
+    connect(m_panel, &DevelopPanel::turnRequested, this, &MainWindow::turnPhotos);
     connect(m_panel, &DevelopPanel::cropToolToggled, this, &MainWindow::setCropTool);
     connect(m_panel, &DevelopPanel::aiDenoiseRequested, this, &MainWindow::aiDenoise);
     connect(m_panel, &DevelopPanel::sliderActive, this, [this](const QString& key, bool active) {
@@ -353,6 +355,8 @@ void MainWindow::createActions()
             setWbPicker(false);
     });
     photo->addAction(tr("&Crop Tool"), QKeySequence(Qt::Key_R), this, [this] { setCropTool(!m_cropTool); });
+    QAction* actTurnCcw = photo->addAction(tr("Rotate &Left (90° CCW)"), QKeySequence(Qt::CTRL | Qt::Key_BracketLeft), this, [this] { turnPhotos(-1); });
+    QAction* actTurnCw = photo->addAction(tr("Rotate Ri&ght (90° CW)"), QKeySequence(Qt::CTRL | Qt::Key_BracketRight), this, [this] { turnPhotos(1); });
     photo->addAction(tr("AI &Heal Tool"), QKeySequence(Qt::Key_Q), this, [this] { setHealTool(!m_healTool); });
     photo->addSeparator();
     QAction* actDenoise = photo->addAction(tr("AI &Denoise..."), this, &MainWindow::aiDenoise);
@@ -443,6 +447,9 @@ void MainWindow::createActions()
             add(actPasteAgain)->setEnabled(m_clipboard.has_value());
             add(actReset, n > 1 ? tr("R&eset Settings of %n Photos", nullptr, n) : QString());
             menu.addSeparator();
+            add(actTurnCcw);
+            add(actTurnCw);
+            menu.addSeparator();
             add(actDenoise);
             if (n > 1) {
                 add(actHdr);
@@ -470,6 +477,7 @@ void MainWindow::createActions()
                                     "<tr><td><b>W</b></td><td>White balance picker (click a neutral point)</td></tr>"
                                     "<tr><td><b>Q</b></td><td>AI heal: click a spot or drag along something; Alt+click removes</td></tr>"
                                     "<tr><td><b>Ctrl+U</b></td><td>Auto tone</td></tr>"
+                                    "<tr><td><b>Ctrl+[ / Ctrl+]</b></td><td>Rotate 90° left / right (all selected)</td></tr>"
                                     "<tr><td><b>Ctrl+Z / Ctrl+Shift+Z</b></td><td>Undo / redo</td></tr>"
                                     "<tr><td><b>Ctrl+Shift+C / V</b></td><td>Copy / paste settings (to all selected)</td></tr>"
                                     "<tr><td><b>Ctrl+Alt+Shift+V</b></td><td>Paste the same settings as last time, without asking</td></tr>"
@@ -949,12 +957,47 @@ void MainWindow::resetSettings()
         if (m_photo && id == m_photo->id)
             continue;
         auto ph = m_batch.photo(id);
-        m_batch.pushHistory(id, tr("Reset"), DevelopSettings::defaults(ph && ph->kind == PhotoKind::Rendered).toJsonString());
+        DevelopSettings s = DevelopSettings::defaults(ph && ph->kind == PhotoKind::Rendered);
+        s.quarterTurns = DevelopSettings::fromJsonString(m_batch.settings(id)).quarterTurns; // a fix for the photo, not an edit
+        m_batch.pushHistory(id, tr("Reset"), s.toJsonString());
         historyChanged(id);
         m_model->invalidateThumbnail(id);
         renderThumbnail(id);
     }
-    commit(DevelopSettings::defaults(m_photo && m_photo->kind == PhotoKind::Rendered), tr("Reset"));
+    DevelopSettings s = DevelopSettings::defaults(m_photo && m_photo->kind == PhotoKind::Rendered);
+    s.quarterTurns = m_settings.quarterTurns;
+    commit(s, tr("Reset"));
+}
+
+void MainWindow::turnPhotos(int quarterTurnsCw)
+{
+    const QString label = quarterTurnsCw > 0 ? tr("Rotate Right") : tr("Rotate Left");
+    const QList<qint64> ids = selectedPhotoIds();
+    for (qint64 id : ids) {
+        if (m_photo && id == m_photo->id)
+            continue;
+        const DevelopSettings s = turnedSettings(DevelopSettings::fromJsonString(m_batch.settings(id)), quarterTurnsCw);
+        m_batch.pushHistory(id, label, s.toJsonString());
+        historyChanged(id);
+        m_model->invalidateThumbnail(id);
+        renderThumbnail(id);
+    }
+    if (m_photo && (ids.contains(m_photo->id) || ids.isEmpty()))
+        commit(turnedSettings(m_settings, quarterTurnsCw), label);
+}
+
+void MainWindow::resetTransform()
+{
+    if (!m_photo)
+        return;
+    DevelopSettings s = m_settings;
+    const DevelopSettings def;
+    s.perspVertical = def.perspVertical;
+    s.perspHorizontal = def.perspHorizontal;
+    s.rotate = def.rotate;
+    s.scale = def.scale;
+    s.crop = def.crop;
+    commit(s, tr("Reset Transform"));
 }
 
 void MainWindow::copySettings()
@@ -1723,7 +1766,9 @@ void MainWindow::updatePanes()
     }
     m_pane2->show();
     if (m_viewMode == ViewMode::BeforeAfter) {
-        m_pane2->setSettings(DevelopSettings::defaults(m_photo && m_photo->kind == PhotoKind::Rendered));
+        DevelopSettings before = DevelopSettings::defaults(m_photo && m_photo->kind == PhotoKind::Rendered);
+        before.quarterTurns = m_settings.quarterTurns;
+        m_pane2->setSettings(before);
         m_pane2->setEngine(m_pane->engine());
         m_pane2->setLabel(tr("Before"));
         m_pane->setLabel(tr("After"));

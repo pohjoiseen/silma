@@ -5,6 +5,7 @@
 #include "Heal.h"
 #include "RawDecoder.h"
 #include "Upright.h"
+#include "Geometry.h"
 
 #include <QDir>
 #include <QTemporaryDir>
@@ -414,6 +415,55 @@ private slots:
             QCOMPARE(r3.image.height(), 100);
             QVERIFY(!e.lensDescription().isEmpty());
         }
+    }
+
+    void quarterTurns()
+    {
+        // Orientation composition: four turns are the identity, and a turn of an unrotated
+        // photo is EXIF 6 (90 CW).
+        QCOMPARE(turnedOrientation(1, 1), 6);
+        QCOMPARE(turnedOrientation(1, -1), 8);
+        QCOMPARE(turnedOrientation(1, 2), 3);
+        for (int o = 1; o <= 8; ++o) {
+            QCOMPARE(turnedOrientation(o, 4), o);
+            QCOMPARE(turnedOrientation(turnedOrientation(o, 1), -1), o);
+        }
+        // A turned photo maps each point of its crop to the same sensor position as the
+        // unturned crop at the turned-back point: crop and perspective follow the turn.
+        GeometrySource src;
+        src.sensorWidth = 6000;
+        src.sensorHeight = 4000;
+        src.focalLength35 = 28;
+        DevelopSettings s;
+        s.crop = QRectF(0.1, 0.2, 0.5, 0.6);
+        s.rotate = 2;
+        for (int o : {1, 6, 8, 3})
+            for (auto [v, h] : {std::pair{30.0, 0.0}, std::pair{0.0, -20.0}}) {
+                src.orientation = o;
+                s.perspVertical = v;
+                s.perspHorizontal = h;
+                const Geometry g0(src, s);
+                for (int turns : {1, -1, 2}) {
+                    const DevelopSettings t = turnedSettings(s, turns);
+                    const Geometry g1(src, t);
+                    QCOMPARE(turns == 2 ? g1.canvasSize() : g1.canvasSize().transposed(), g0.canvasSize());
+                    for (double u : {0.1, 0.5, 0.9})
+                        for (double w : {0.2, 0.7}) {
+                            // (u, w) in the turned crop -> the point before turning.
+                            const QPointF p = turns == 1 ? QPointF(w, 1 - u) : turns == -1 ? QPointF(1 - w, u) : QPointF(1 - u, 1 - w);
+                            float a[6], b[6], ga[3], gb[3];
+                            g1.mapCrop(u, w, a, ga);
+                            g0.mapCrop(p.x(), p.y(), b, gb);
+                            QVERIFY2(std::abs(a[2] - b[2]) < 1e-5 && std::abs(a[3] - b[3]) < 1e-5,
+                                     qPrintable(QStringLiteral("o %1 v %2 h %3 turns %4: %5,%6 vs %7,%8").arg(o).arg(v).arg(h).arg(turns).arg(a[2]).arg(a[3]).arg(b[2]).arg(b[3])));
+                        }
+                }
+            }
+        // Settings round trip and the CLI assignment.
+        s.quarterTurns = 3;
+        QCOMPARE(DevelopSettings::fromJsonString(s.toJsonString()).quarterTurns, 3);
+        QVERIFY(applyAssignment(s, "quarter_turns=-1").isEmpty());
+        QCOMPARE(s.quarterTurns, 3);
     }
 
     void uprightVertical()

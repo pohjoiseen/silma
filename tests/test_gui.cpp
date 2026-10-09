@@ -664,6 +664,41 @@ private slots:
         QVERIFY(b.history(id).size() >= before);
     }
 
+    void turnAndResetTransform()
+    {
+        const QString file = freshBatch("turn");
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(w.openBatch(file));
+        QTRY_VERIFY_WITH_TIMEOUT(w.mainPane()->hasRender(), 15000);
+        const qint64 id = w.currentPhoto()->id;
+        DevelopSettings s = w.currentSettings();
+        s.perspVertical = 20;
+        s.rotate = 1.5;
+        s.crop = QRectF(0.1, 0.1, 0.5, 0.5);
+        w.testCommit(s, "Edit");
+        const QSizeF canvas = w.mainPane()->engine()->geometry(w.currentSettings(), true).canvasSize();
+        w.testTurn(1);
+        QCOMPARE(w.currentSettings().quarterTurns, 1);
+        QCOMPARE(w.currentSettings().perspHorizontal, -20.0);
+        QCOMPARE(w.mainPane()->engine()->geometry(w.currentSettings(), true).canvasSize(), canvas.transposed());
+        // Reset Transform clears the corrections and the crop, but keeps the turn.
+        w.testResetTransform();
+        QCOMPARE(w.currentSettings().perspVertical, 0.0);
+        QCOMPARE(w.currentSettings().perspHorizontal, 0.0);
+        QCOMPARE(w.currentSettings().rotate, 0.0);
+        QCOMPARE(w.currentSettings().crop, QRectF(0, 0, 1, 1));
+        QCOMPARE(w.currentSettings().quarterTurns, 1);
+        // So does Reset Settings; Rotate Left turns back. The batch holds the result.
+        w.testResetSettings();
+        QCOMPARE(w.currentSettings().quarterTurns, 1);
+        w.testTurn(-1);
+        Batch b;
+        b.open(file);
+        QCOMPARE(DevelopSettings::fromJsonString(b.settings(id)).quarterTurns, 0);
+    }
+
     void heal()
     {
         if (!aiModelInstalled("lama"))

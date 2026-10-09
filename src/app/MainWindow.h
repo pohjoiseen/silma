@@ -62,6 +62,9 @@ public:
     }
     QList<qint64> testSelectedIds() const { return selectedPhotoIds(); }
     void testAutoUpright(int mode) { autoUpright(mode); }
+    void testTurn(int quarterTurnsCw) { turnPhotos(quarterTurnsCw); }
+    void testResetTransform() { resetTransform(); }
+    void testCommit(const DevelopSettings& s, const QString& label) { commit(s, label); }
     void testCropTool(bool on) { setCropTool(on); }
     void testWbPicker(bool on) { setWbPicker(on); }
     void testHealTool(bool on) { setHealTool(on); }
@@ -115,6 +118,8 @@ private:
     void autoUpright(int mode);
     void autoCrop();
     void resetSettings();
+    void resetTransform();
+    void turnPhotos(int quarterTurnsCw);
     void copySettings();
     // `ask`: choose the settings to paste in a dialog, else paste the previous choice.
     void pasteSettings(bool ask = true);

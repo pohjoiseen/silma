@@ -189,6 +189,8 @@ QJsonObject DevelopSettings::toJson() const
     curve("curve_r", curveR);
     curve("curve_g", curveG);
     curve("curve_b", curveB);
+    if (quarterTurns != 0)
+        o["quarter_turns"] = quarterTurns;
     if (crop != def.crop)
         o["crop"] = QJsonArray{crop.x(), crop.y(), crop.width(), crop.height()};
     if (cropLockAspect != def.cropLockAspect)
@@ -223,6 +225,7 @@ DevelopSettings DevelopSettings::fromJson(const QJsonObject& o)
     s.curveR = curveFromJson(o.value("curve_r"));
     s.curveG = curveFromJson(o.value("curve_g"));
     s.curveB = curveFromJson(o.value("curve_b"));
+    s.quarterTurns = ((o.value("quarter_turns").toInt() % 4) + 4) % 4;
     auto c = o.value("crop").toArray();
     if (c.size() == 4)
         s.crop = QRectF(c[0].toDouble(), c[1].toDouble(), c[2].toDouble(), c[3].toDouble()).intersected(QRectF(0, 0, 1, 1));
@@ -282,6 +285,14 @@ QString applyAssignment(DevelopSettings& s, const QString& assignment)
         s.crop = r;
         return {};
     }
+    if (key == QLatin1String("quarter_turns")) {
+        bool ok = false;
+        int n = val.toInt(&ok);
+        if (!ok)
+            return QStringLiteral("quarter_turns must be an integer (clockwise turns)");
+        s.quarterTurns = ((n % 4) + 4) % 4;
+        return {};
+    }
     if (key == QLatin1String("crop_lock_aspect")) {
         s.cropLockAspect = val == QLatin1String("1") || val == QLatin1String("true") || val == QLatin1String("on");
         return {};
@@ -319,6 +330,23 @@ QString applyAssignment(DevelopSettings& s, const QString& assignment)
     if (p->field == &S::temperature || p->field == &S::tint)
         s.wbMode = WbMode::Custom;
     return {};
+}
+
+DevelopSettings turnedSettings(const DevelopSettings& in, int quarterTurnsCw)
+{
+    DevelopSettings s = in;
+    const int n = ((quarterTurnsCw % 4) + 4) % 4;
+    s.quarterTurns = (s.quarterTurns + n) % 4;
+    for (int i = 0; i < n; ++i) {
+        // The canvas turns clockwise: (u, v) -> (1 - v, u).
+        const QRectF c = s.crop;
+        s.crop = QRectF(1 - c.y() - c.height(), c.x(), c.height(), c.width());
+        // Pitch and yaw swap axes; the small rotation and the scale stay.
+        const double v = s.perspVertical, h = s.perspHorizontal;
+        s.perspVertical = h;
+        s.perspHorizontal = -v;
+    }
+    return s;
 }
 
 } // namespace silma

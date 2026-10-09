@@ -31,6 +31,25 @@ inline void unorient(int o, double x, double y, double& sx, double& sy)
 
 } // namespace
 
+int turnedOrientation(int orientation, int quarterTurnsCw)
+{
+    // Each orientation as the 2x2 map from display to sensor coordinates (see unorient).
+    static const int m[9][4] = {{1, 0, 0, 1},  {1, 0, 0, 1},   {-1, 0, 0, 1}, {-1, 0, 0, -1}, {1, 0, 0, -1},
+                                {0, 1, 1, 0},  {0, 1, -1, 0},  {0, -1, -1, 0}, {0, -1, 1, 0}};
+    int o = orientation >= 1 && orientation <= 8 ? orientation : 1;
+    for (int t = ((quarterTurnsCw % 4) + 4) % 4; t > 0; --t) {
+        // A clockwise turn of the display: old (x, y) = (y', -x'), i.e. M' = M * [[0, 1], [-1, 0]].
+        const int* a = m[o];
+        const int r[4] = {-a[1], a[0], -a[3], a[2]};
+        for (int k = 1; k <= 8; ++k)
+            if (std::equal(r, r + 4, m[k])) {
+                o = k;
+                break;
+            }
+    }
+    return o;
+}
+
 Mat3 perspectiveMatrix(double verticalDeg, double horizontalDeg, double rotateDeg, double f)
 {
     const double d2r = M_PI / 180.0;
@@ -50,7 +69,8 @@ Mat3 perspectiveMatrix(double verticalDeg, double horizontalDeg, double rotateDe
 
 Geometry::Geometry(const GeometrySource& src, const DevelopSettings& s, bool ignoreCrop) : m_src(src)
 {
-    bool swap = src.orientation >= 5 && src.orientation <= 8;
+    m_src.orientation = turnedOrientation(src.orientation, s.quarterTurns);
+    bool swap = m_src.orientation >= 5 && m_src.orientation <= 8;
     m_wo = swap ? src.sensorHeight : src.sensorWidth;
     m_ho = swap ? src.sensorWidth : src.sensorHeight;
     m_crop = ignoreCrop ? QRectF(0, 0, 1, 1) : s.crop;

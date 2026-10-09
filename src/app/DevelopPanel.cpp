@@ -155,7 +155,23 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
             connect(b, &QToolButton::clicked, this, [this, i] { emit autoUprightRequested(i); });
             row->addWidget(b);
         }
+        auto* reset = rowButton(tr("Reset"), transform);
+        reset->setToolTip(tr("Reset Vertical, Horizontal, Rotate, Scale and the crop"));
+        connect(reset, &QToolButton::clicked, this, &DevelopPanel::transformResetRequested);
+        row->addWidget(reset);
         transform->contentLayout()->addLayout(row);
+
+        auto* turns = new QHBoxLayout();
+        turns->addWidget(new QLabel(tr("Rotate 90°:"), transform));
+        auto* ccw = rowButton(tr("⟲ Left"), transform);
+        ccw->setToolTip(tr("Rotate 90° counter-clockwise (Ctrl+[)"));
+        connect(ccw, &QToolButton::clicked, this, [this] { emit turnRequested(-1); });
+        turns->addWidget(ccw);
+        auto* cw = rowButton(tr("⟳ Right"), transform);
+        cw->setToolTip(tr("Rotate 90° clockwise (Ctrl+])"));
+        connect(cw, &QToolButton::clicked, this, [this] { emit turnRequested(1); });
+        turns->addWidget(cw);
+        transform->contentLayout()->addLayout(turns);
     }
     addSliders(transform, "transform");
 

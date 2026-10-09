@@ -478,6 +478,8 @@ std::map<QString, Command> commands()
         curve("curve_r", s.curveR);
         curve("curve_g", s.curveG);
         curve("curve_b", s.curveB);
+        if (s.quarterTurns != 0)
+            out() << "  quarter_turns     " << s.quarterTurns << '\n';
         if (s.crop != QRectF(0, 0, 1, 1))
             out() << "  crop              " << s.crop.x() << ',' << s.crop.y() << ',' << s.crop.width() << ',' << s.crop.height() << '\n';
     }};
@@ -549,12 +551,39 @@ std::map<QString, Command> commands()
 
     m["reset"] = {"reset PHOTO...", "Reset develop settings to defaults (adds a history step)", {"import"}, {}, true, [](const Args& a, Batch* b, bool json) {
         auto ps = resolvePhotos(*b, a.positional(), a.value("import"));
-        for (const auto& p : ps)
-            b->pushHistory(p.id, "Reset", DevelopSettings::defaults(p.kind == PhotoKind::Rendered).toJsonString());
+        for (const auto& p : ps) {
+            DevelopSettings s = DevelopSettings::defaults(p.kind == PhotoKind::Rendered);
+            s.quarterTurns = DevelopSettings::fromJsonString(b->settings(p.id)).quarterTurns; // kept, like in the GUI
+            b->pushHistory(p.id, "Reset", s.toJsonString());
+        }
         if (json)
             printJson(QJsonObject{{"changed", int(ps.size())}});
         else
             out() << "Reset " << ps.size() << " photo(s)\n";
+    }};
+
+    m["turn"] = {"turn PHOTO... left|right|180", "Rotate photos by 90 degrees (crop and perspective follow; exports are rotated)", {"import"}, {}, true, [](const Args& a, Batch* b, bool json) {
+        QStringList pos = a.positional();
+        if (pos.isEmpty())
+            fail("turn needs a direction: left, right or 180");
+        const QString dir = pos.takeLast();
+        const int turns = dir == QLatin1String("right") || dir == QLatin1String("cw") ? 1
+                          : dir == QLatin1String("left") || dir == QLatin1String("ccw") ? -1
+                          : dir == QLatin1String("180") ? 2
+                                                         : 0;
+        if (turns == 0)
+            fail("direction must be left, right or 180");
+        auto ps = resolvePhotos(*b, pos, a.value("import"));
+        QJsonArray arr;
+        for (const auto& p : ps) {
+            const DevelopSettings s = turnedSettings(DevelopSettings::fromJsonString(b->settings(p.id)), turns);
+            b->pushHistory(p.id, turns == 2 ? "Rotate 180" : turns > 0 ? "Rotate Right" : "Rotate Left", s.toJsonString());
+            arr.append(QJsonObject{{"id", p.id}, {"quarter_turns", s.quarterTurns}});
+        }
+        if (json)
+            printJson(arr);
+        else
+            out() << "Rotated " << ps.size() << " photo(s)\n";
     }};
 
     m["sync"] = {"sync FROM TO... [--only KEYS]", "Copy develop settings from one photo to others", {"only", "import"}, {}, true, [](const Args& a, Batch* b, bool json) {
@@ -634,6 +663,7 @@ std::map<QString, Command> commands()
         out() << "wb                as-shot | auto | custom\n"
                  "crop              x,y,w,h (normalized, of the transformed image) | none\n"
                  "crop_lock_aspect  true | false\n"
+                 "quarter_turns     0..3 (clockwise 90 degree turns; see also: turn)\n"
                  "curve, curve_r, curve_g, curve_b   x:y,x:y,... (0..1, display-encoded) | linear\n";
     }};
 
@@ -642,7 +672,12 @@ std::map<QString, Command> commands()
         if (a.positional().size() != 2)
             fail("render needs PHOTO and output file");
         auto ps = resolvePhotos(*b, {a.positional()[0]});
-        DevelopSettings s = a.has("before") ? DevelopSettings::defaults(ps[0].kind == PhotoKind::Rendered) : DevelopSettings::fromJsonString(b->settings(ps[0].id));
+        DevelopSettings s = DevelopSettings::fromJsonString(b->settings(ps[0].id));
+        if (a.has("before")) {
+            const int turns = s.quarterTurns;
+            s = DevelopSettings::defaults(ps[0].kind == PhotoKind::Rendered);
+            s.quarterTurns = turns;
+        }
         QElapsedTimer t;
         t.start();
         DevelopEngine e(ps[0].path);

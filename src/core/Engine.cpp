@@ -80,8 +80,8 @@ private:
 
 QString geometryKey(const DevelopSettings& s, bool ignoreCrop)
 {
-    return QStringLiteral("%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12")
-        .arg(s.lensDistortion).arg(s.lensVignetting).arg(s.perspVertical).arg(s.perspHorizontal).arg(s.rotate).arg(s.scale)
+    return QStringLiteral("%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13")
+        .arg(s.quarterTurns).arg(s.lensDistortion).arg(s.lensVignetting).arg(s.perspVertical).arg(s.perspHorizontal).arg(s.rotate).arg(s.scale)
         .arg(ignoreCrop ? 0 : s.crop.x()).arg(ignoreCrop ? 0 : s.crop.y()).arg(ignoreCrop ? 1 : s.crop.width()).arg(ignoreCrop ? 1 : s.crop.height())
         .arg(ignoreCrop).arg(s.processVersion);
 }
