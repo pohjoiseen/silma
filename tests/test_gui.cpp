@@ -283,15 +283,16 @@ private slots:
         QTest::mouseClick(strip->viewport(), Qt::LeftButton, {}, strip->visualRect(second).center());
         const qint64 picked = second.data(PhotoListModel::IdRole).toLongLong();
         QTRY_COMPARE(w.currentPhoto()->id, picked);
-        // A derived photo job (its own connection) adds a photo in front of the picked one; the GUI polls.
+        // A derived photo job (its own connection) adds a photo right after the picked one; the GUI polls.
         { Batch b; b.open(file); createLinearCopy(b, picked); }
         w.testPoll();
         QCOMPARE(strip->model()->rowCount(), 4);
         // The derived photo is marked; the tooltip names its source.
-        const QModelIndex derived = strip->model()->index(1, 0);
+        QCOMPARE(strip->model()->index(1, 0).data(PhotoListModel::IdRole).toLongLong(), picked);
+        const QModelIndex derived = strip->model()->index(2, 0);
         QCOMPARE(derived.data(PhotoListModel::DerivedRole).toString(), QStringLiteral("DNG"));
-        QVERIFY(strip->model()->index(2, 0).data(PhotoListModel::DerivedRole).toString().isEmpty());
-        QVERIFY(derived.data(Qt::ToolTipRole).toString().endsWith(strip->model()->index(2, 0).data().toString()));
+        QVERIFY(strip->model()->index(1, 0).data(PhotoListModel::DerivedRole).toString().isEmpty());
+        QVERIFY(derived.data(Qt::ToolTipRole).toString().endsWith(strip->model()->index(1, 0).data().toString()));
         if (qEnvironmentVariableIsSet("SILMA_SHOT"))
             strip->grab().save(qEnvironmentVariable("SILMA_SHOT"));
         // Focus coming back to the strip (e.g. a dialog closes) must not move to another photo.

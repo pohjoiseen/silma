@@ -1,6 +1,9 @@
 #include "Batch.h"
 
 #include <QFileInfo>
+#include <algorithm>
+#include <limits>
+#include <tuple>
 
 namespace silma {
 
@@ -254,6 +257,13 @@ QList<PhotoInfo> Batch::photos(std::optional<qint64> importId)
         st.bind(1, *importId);
     while (st.step())
         out.append(readPhoto(st));
+    // By name without the extension, so a photo made from another ("DSC_0002-Denoise.dng")
+    // follows its source ("DSC_0002.NEF") rather than coming before it.
+    auto key = [](const PhotoInfo& p) {
+        return std::tuple(p.captureTime.isValid() ? p.captureTime.toMSecsSinceEpoch() : std::numeric_limits<qint64>::min(),
+                          QFileInfo(p.fileName).completeBaseName(), p.fileName, p.id);
+    };
+    std::stable_sort(out.begin(), out.end(), [&](const PhotoInfo& a, const PhotoInfo& b) { return key(a) < key(b); });
     return out;
 }
 
