@@ -238,6 +238,8 @@ RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts)
         check(raw->unpack(), "Cannot unpack raw data");
     // Full-resolution visible size (LibRaw shrinks sizes when decoding at half size).
     const int fullW = S.width, fullH = S.height;
+    // The file's orientation: dcraw_process() overwrites S.flip with user_flip.
+    const int flip = S.flip;
 
     out.color.asShotMul = asShotMultipliers(*raw);
     out.color.daylightMul = normalizeMul(C.pre_mul);
@@ -325,7 +327,7 @@ RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts)
     out.fullWidth = fullW;
     out.fullHeight = fullH;
     // EXIF-style orientation from LibRaw flip (0 none, 3 180, 5 90 CCW, 6 90 CW).
-    switch (S.flip) {
+    switch (flip) {
     case 3: out.orientation = 3; break;
     case 5: out.orientation = 8; break;
     case 6: out.orientation = 6; break;
