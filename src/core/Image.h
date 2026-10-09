@@ -61,6 +61,9 @@ struct PlaneF {
 ImageF downscale(const ImageF& src, int factor);
 // Area-averaging resize to an arbitrary smaller size (or bilinear if enlarging).
 ImageF resize(const ImageF& src, int width, int height);
+// Lanczos-3 downscale (sharper than area averaging; `resize` when enlarging). Values may
+// overshoot slightly at edges.
+ImageF resizeLanczos(const ImageF& src, int width, int height);
 // Applies an EXIF orientation (1..8) to the image.
 ImageF applyOrientation(const ImageF& src, int orientation);
 

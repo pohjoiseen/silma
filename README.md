@@ -65,6 +65,13 @@ The GUI picks up changes made through the CLI within a second.
 For automation, `SILMA_SCREENSHOT=out.png [SILMA_SCREENSHOT_DELAY=ms] silma` grabs the
 window and exits (works with `QT_QPA_PLATFORM=offscreen`).
 
+## Export
+
+Exports are rendered at full resolution (so Develop sharpening works at the scale it is set
+for), downscaled with a Lanczos filter in linear light and then given output sharpening for
+screens at the exported size, like Lightroom's: None, Low, Standard (default) or High
+(`export --sharpen`).
+
 ## Derived photos
 
 AI denoise, HDR and panorama results are written as linear (floating point) DNGs next to the

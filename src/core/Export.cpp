@@ -1,6 +1,7 @@
 #include "Export.h"
 
 #include "Engine.h"
+#include "Filters.h"
 #include "Heal.h"
 
 #include <QDir>
@@ -144,6 +145,30 @@ void writeJpeg(const QString& path, const ImageF& encoded, int quality, const QS
         copyMetadata(metadataSource, path, encoded.width, encoded.height, lens);
 }
 
+void outputSharpen(ImageF& img, OutputSharpening level)
+{
+    if (level == OutputSharpening::None || img.width < 3 || img.height < 3)
+        return;
+    // Unsharp mask on luminance with a small radius (pixel-level detail at the final size);
+    // large differences are damped against halos.
+    const float amount = level == OutputSharpening::Low ? 0.4f : level == OutputSharpening::Standard ? 0.75f : 1.2f;
+    constexpr float limit = 0.08f;
+    PlaneF L(img.width, img.height);
+    for (size_t i = 0; i < L.data.size(); ++i) {
+        const float* p = img.data.data() + i * 3;
+        L.data[i] = 0.2126f * p[0] + 0.7152f * p[1] + 0.0722f * p[2];
+    }
+    const PlaneF blur = gaussianBlur(L, 0.7f);
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < L.data.size(); ++i) {
+        float d = L.data[i] - blur.data[i];
+        d = amount * d / (1.0f + std::abs(d) / limit);
+        float* p = img.data.data() + i * 3;
+        for (int c = 0; c < 3; ++c)
+            p[c] = std::clamp(p[c] + d, 0.0f, 1.0f);
+    }
+}
+
 QString exportPhoto(const PhotoInfo& p, const DevelopSettings& s, const QString& importName, int seq, const ExportOptions& o,
                     const QMap<qint64, HealPatch>& patches)
 {
@@ -163,16 +188,23 @@ QString exportPhoto(const PhotoInfo& p, const DevelopSettings& s, const QString&
     if (w == full.width()) {
         img = engine.renderEncoded(s, {.width = w, .height = h, .highQuality = true});
     } else {
-        // Render at up to twice the target size, then area-downscale: avoids aliasing.
-        int w2 = std::min(full.width(), w * 2), h2 = std::min(full.height(), h * 2);
-        ImageF big = engine.renderEncoded(s, {.width = w2, .height = h2, .highQuality = true});
-        // Downscale in linear light.
-        for (float& v : big.data)
-            v = v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f);
-        img = resize(big, w, h);
-        for (float& v : img.data)
-            v = v <= 0.0031308f ? 12.92f * v : 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f;
+        // Render at full size (up to 4x the target), so the develop sharpening works at the
+        // scale it is set for, then Lanczos-downscale in linear light.
+        int w4 = std::min(full.width(), w * 4), h4 = std::min(full.height(), h * 4);
+        ImageF big = engine.renderEncoded(s, {.width = w4, .height = h4, .highQuality = true});
+#pragma omp parallel for schedule(static)
+        for (size_t i = 0; i < big.data.size(); ++i) {
+            const float v = big.data[i];
+            big.data[i] = v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f);
+        }
+        img = resizeLanczos(big, w, h);
+#pragma omp parallel for schedule(static)
+        for (size_t i = 0; i < img.data.size(); ++i) {
+            const float v = std::clamp(img.data[i], 0.0f, 1.0f); // Lanczos overshoot
+            img.data[i] = v <= 0.0031308f ? 12.92f * v : 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f;
+        }
     }
+    outputSharpen(img, o.sharpening);
 
     QDir().mkpath(o.folder);
     QString base = expandExportPattern(o.pattern, p, importName, seq);

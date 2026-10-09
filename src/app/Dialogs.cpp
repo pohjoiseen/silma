@@ -241,6 +241,11 @@ ExportDialog::ExportDialog(int selected, int inImport, int inBatch, QWidget* par
     auto sync = [this] { m_size->setEnabled(m_sizeMode->currentIndex() != 0); };
     connect(m_sizeMode, &QComboBox::currentIndexChanged, this, sync);
     sync();
+    m_sharpening = new QComboBox(fg);
+    m_sharpening->addItems({tr("None"), tr("Low"), tr("Standard"), tr("High")});
+    m_sharpening->setCurrentIndex(s.value("export/sharpening", int(OutputSharpening::Standard)).toInt());
+    m_sharpening->setToolTip(tr("Sharpening for screens, applied at the exported size (on top of the Develop sharpening)"));
+    fl->addRow(tr("Output sharpening:"), m_sharpening);
     l->addWidget(fg);
 
     auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
@@ -252,6 +257,7 @@ ExportDialog::ExportDialog(int selected, int inImport, int inBatch, QWidget* par
         s.setValue("export/quality", m_quality->value());
         s.setValue("export/size_mode", m_sizeMode->currentIndex());
         s.setValue("export/size", m_size->value());
+        s.setValue("export/sharpening", m_sharpening->currentIndex());
         accept();
     });
     connect(bb, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -267,6 +273,7 @@ ExportOptions ExportDialog::options() const
     o.quality = m_quality->value();
     o.sizeMode = ExportSizeMode(m_sizeMode->currentIndex());
     o.size = m_size->value();
+    o.sharpening = OutputSharpening(m_sharpening->currentIndex());
     return o;
 }
 

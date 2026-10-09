@@ -67,6 +67,7 @@ private:
     QLineEdit* m_pattern;
     QSpinBox* m_quality;
     QComboBox* m_sizeMode;
+    QComboBox* m_sharpening;
     QSpinBox* m_size;
     QCheckBox* m_rejected;
 };

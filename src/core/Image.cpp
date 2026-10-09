@@ -82,6 +82,84 @@ ImageF resize(const ImageF& src, int width, int height)
     return dst;
 }
 
+namespace {
+
+// Lanczos-3 weights of the source samples for each destination index along one axis.
+struct Taps {
+    std::vector<int> first, count;
+    std::vector<float> weights; // count[i] weights from offset[i]
+    std::vector<size_t> offset;
+};
+
+Taps lanczosTaps(int srcLen, int dstLen)
+{
+    auto sinc = [](double x) { return std::abs(x) < 1e-9 ? 1.0 : std::sin(M_PI * x) / (M_PI * x); };
+    const double scale = double(srcLen) / dstLen; // >= 1: the kernel widens with the factor
+    const double support = 3.0 * scale;
+    Taps t;
+    t.first.resize(dstLen);
+    t.count.resize(dstLen);
+    t.offset.resize(dstLen);
+    for (int i = 0; i < dstLen; ++i) {
+        const double center = (i + 0.5) * scale - 0.5;
+        const int lo = int(std::floor(center - support)) + 1, hi = int(std::ceil(center + support)) - 1;
+        t.first[i] = lo;
+        t.count[i] = hi - lo + 1;
+        t.offset[i] = t.weights.size();
+        double sum = 0;
+        for (int j = lo; j <= hi; ++j) {
+            const double d = (j - center) / scale;
+            const double w = std::abs(d) < 3.0 ? sinc(d) * sinc(d / 3.0) : 0.0;
+            t.weights.push_back(float(w));
+            sum += w;
+        }
+        for (int k = 0; k < t.count[i]; ++k)
+            t.weights[t.offset[i] + k] /= float(sum);
+    }
+    return t;
+}
+
+} // namespace
+
+ImageF resizeLanczos(const ImageF& src, int width, int height)
+{
+    if (width > src.width || height > src.height)
+        return resize(src, width, height);
+    if (width == src.width && height == src.height)
+        return src;
+    const Taps tx = lanczosTaps(src.width, width), ty = lanczosTaps(src.height, height);
+    // Horizontal pass, then vertical; edges clamp.
+    ImageF mid(width, src.height);
+#pragma omp parallel for schedule(static)
+    for (int y = 0; y < src.height; ++y)
+        for (int x = 0; x < width; ++x) {
+            float acc[3] = {0, 0, 0};
+            for (int k = 0; k < tx.count[x]; ++k) {
+                const float w = tx.weights[tx.offset[x] + k];
+                const float* p = src.px(std::clamp(tx.first[x] + k, 0, src.width - 1), y);
+                acc[0] += w * p[0];
+                acc[1] += w * p[1];
+                acc[2] += w * p[2];
+            }
+            std::copy_n(acc, 3, mid.px(x, y));
+        }
+    ImageF dst(width, height);
+#pragma omp parallel for schedule(static)
+    for (int y = 0; y < height; ++y)
+        for (int x = 0; x < width; ++x) {
+            float acc[3] = {0, 0, 0};
+            for (int k = 0; k < ty.count[y]; ++k) {
+                const float w = ty.weights[ty.offset[y] + k];
+                const float* p = mid.px(x, std::clamp(ty.first[y] + k, 0, src.height - 1));
+                acc[0] += w * p[0];
+                acc[1] += w * p[1];
+                acc[2] += w * p[2];
+            }
+            std::copy_n(acc, 3, dst.px(x, y));
+        }
+    return dst;
+}
+
 ImageF applyOrientation(const ImageF& src, int orientation)
 {
     if (orientation <= 1 || orientation > 8)

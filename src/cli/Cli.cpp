@@ -667,8 +667,8 @@ std::map<QString, Command> commands()
             out() << "Wrote " << a.positional()[1] << " (" << img.width << "x" << img.height << ", decode " << decodeMs << " ms, render " << renderMs << " ms)\n";
     }};
 
-    m["export"] = {"export PHOTO...|--import NAME|--all --to DIR [--pattern P] [--quality Q] [--long-edge N|--short-edge N] [--include-rejected] [--overwrite]",
-                   "Export JPEGs (default pattern {date}-{name})", {"to", "pattern", "quality", "long-edge", "short-edge", "import", "jobs"}, {"all", "include-rejected", "overwrite"}, true,
+    m["export"] = {"export PHOTO...|--import NAME|--all --to DIR [--pattern P] [--quality Q] [--long-edge N|--short-edge N] [--sharpen none|low|standard|high] [--include-rejected] [--overwrite]",
+                   "Export JPEGs (default pattern {date}-{name})", {"to", "pattern", "quality", "long-edge", "short-edge", "sharpen", "import", "jobs"}, {"all", "include-rejected", "overwrite"}, true,
                    [](const Args& a, Batch* b, bool json) {
         if (!a.has("to"))
             fail("export needs --to DIR");
@@ -699,6 +699,11 @@ std::map<QString, Command> commands()
             o.sizeMode = ExportSizeMode::ShortEdge;
             o.size = a.value("short-edge").toInt();
         }
+        static const QStringList levels = {"none", "low", "standard", "high"};
+        const int level = levels.indexOf(a.value("sharpen", "standard").toLower());
+        if (level < 0)
+            fail("--sharpen must be none, low, standard or high");
+        o.sharpening = OutputSharpening(level);
         QHash<qint64, QString> importNames;
         for (const auto& im : b->imports())
             importNames[im.id] = im.name;

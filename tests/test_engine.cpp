@@ -223,6 +223,53 @@ private slots:
         qunsetenv("SILMA_AI_FORCE_LINEAR");
     }
 
+    void lanczosAndOutputSharpening()
+    {
+        // A flat image stays flat; a step edge stays sharp (area averaging blurs it more).
+        ImageF flat(300, 200);
+        std::fill(flat.data.begin(), flat.data.end(), 0.4f);
+        const ImageF small = resizeLanczos(flat, 100, 67);
+        QCOMPARE(small.width, 100);
+        QCOMPARE(small.height, 67);
+        for (float v : small.data)
+            QVERIFY(std::abs(v - 0.4f) < 1e-4f);
+        ImageF step(300, 30);
+        for (int y = 0; y < step.height; ++y)
+            for (int x = 0; x < step.width; ++x)
+                std::fill_n(step.px(x, y), 3, x < 151 ? 0.2f : 0.8f);
+        auto slope = [](const ImageF& img) { // steepest neighbour difference along the middle row
+            float m = 0;
+            for (int x = 1; x < img.width; ++x)
+                m = std::max(m, img.px(x, img.height / 2)[0] - img.px(x - 1, img.height / 2)[0]);
+            return m;
+        };
+        QVERIFY(slope(resizeLanczos(step, 100, 10)) > slope(resize(step, 100, 10)) + 0.02f);
+
+        // Output sharpening: none changes nothing; more sharpening raises local contrast in steps.
+        ImageF tex(64, 64);
+        for (int y = 0; y < 64; ++y)
+            for (int x = 0; x < 64; ++x)
+                std::fill_n(tex.px(x, y), 3, 0.5f + 0.1f * float(((x / 2) + (y / 3)) % 2));
+        auto contrast = [](const ImageF& img) {
+            double s = 0;
+            for (int y = 8; y < 56; ++y)
+                for (int x = 9; x < 56; ++x)
+                    s += std::abs(img.px(x, y)[1] - img.px(x - 1, y)[1]);
+            return s;
+        };
+        double last = contrast(tex);
+        ImageF none = tex;
+        outputSharpen(none, OutputSharpening::None);
+        QVERIFY(none.data == tex.data);
+        for (OutputSharpening l : {OutputSharpening::Low, OutputSharpening::Standard, OutputSharpening::High}) {
+            ImageF t = tex;
+            outputSharpen(t, l);
+            const double c = contrast(t);
+            QVERIFY(c > last * 1.05);
+            last = c;
+        }
+    }
+
     void aiModels()
     {
         // RawNIND is the denoise model (NAFNet and SCUNet were dropped: they wiped out fine texture).
