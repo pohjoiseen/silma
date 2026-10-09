@@ -2,3 +2,5 @@ example-raws
 build/
 build-*/
 .cache/
+packaging/arch/*
+!packaging/arch/PKGBUILD

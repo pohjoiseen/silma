@@ -6,6 +6,8 @@ target_link_libraries(silmaapp PUBLIC silmacore Qt6::Widgets Qt6::DBus)
 
 add_executable(silma main.cpp)
 target_link_libraries(silma PRIVATE silmaapp)
+# The application icon, built in for the window icon when it is not installed.
+qt_add_resources(silma "icon" PREFIX "/" BASE ../../data FILES ../../data/silma.svg)
 install(TARGETS silma)
 
 # KDE color schemes (optional): lets the app default to Breeze Dark and offer the

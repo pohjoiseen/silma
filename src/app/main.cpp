@@ -28,7 +28,8 @@ int main(int argc, char** argv)
     QApplication::setApplicationName(QStringLiteral("silma"));
     QApplication::setApplicationDisplayName(QStringLiteral("Silmä"));
     QApplication::setDesktopFileName(QStringLiteral("silma"));
-    QApplication::setWindowIcon(QIcon::fromTheme(QStringLiteral("camera-photo")));
+    // The installed icon (themes may restyle it), else the built-in one.
+    QApplication::setWindowIcon(QIcon::fromTheme(QStringLiteral("silma"), QIcon(QStringLiteral(":/silma.svg"))));
 
     silma::applyColorScheme();
 

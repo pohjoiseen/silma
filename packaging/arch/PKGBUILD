@@ -1,0 +1,43 @@
+# Maintainer: Alexander Ulyanov <procyonar@gmail.com>
+pkgname=silma-git
+_pkgname=silma
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Raw photo developer modelled on Lightroom Classic's Develop module (AI denoise and heal, HDR and panorama merges)"
+arch=('x86_64')
+url="https://github.com/pohjoiseen/silma"
+license=('GPL-3.0-or-later')
+depends=('qt6-base' 'qt6-svg' 'libraw' 'exiv2' 'lensfun' 'libjpeg-turbo' 'libtiff' 'libjxl' 'libheif'
+         'sqlite' 'lcms2' 'opencv' 'onnxruntime' 'libgomp' 'glibc' 'gcc-libs' 'hicolor-icon-theme')
+makedepends=('git' 'cmake' 'ninja')
+optdepends=('kcolorscheme: KDE colour schemes (Breeze Dark by default) instead of a built-in dark palette'
+            'onnxruntime-opt-rocm: AI denoise and heal on AMD GPUs (instead of onnxruntime-cpu)'
+            'onnxruntime-cuda: AI denoise and heal on NVIDIA GPUs (instead of onnxruntime-cpu)')
+provides=("$_pkgname")
+conflicts=("$_pkgname")
+source=("$_pkgname::git+https://github.com/pohjoiseen/silma.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "$_pkgname"
+  printf "0.1.0.r%s.g%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+}
+
+build() {
+  # The project's own optimization (-O3, x86-64-v3); warnings are not errors for packaging,
+  # in case of a newer compiler.
+  cmake -S "$_pkgname" -B build -G Ninja \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_COMPILE_WARNING_AS_ERROR=OFF
+  cmake --build build
+}
+
+check() {
+  # Most tests need sample raws that are not in the repository and skip without them.
+  QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+}

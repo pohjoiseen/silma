@@ -3,6 +3,7 @@
   <mime-type type="application/x-silma-batch">
     <comment>Silmä batch</comment>
     <glob pattern="*.silma"/>
+    <icon name="silma"/>
     <sub-class-of type="application/vnd.sqlite3"/>
   </mime-type>
 </mime-info>
