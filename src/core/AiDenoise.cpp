@@ -30,20 +30,11 @@ QList<AiModelInfo> aiDenoiseModels()
     static const QList<AiModelInfo> models = {
         // Joint demosaicing and denoising on the raw mosaic; trained on real camera noise.
         {"rawnind", "RawNIND (raw, demosaics too)", "GPL-3.0", "rawdenoise-nind/model_bayer.onnx", {},
-         "https://github.com/darktable-org/darktable-ai/releases/download/release-5.6.0/rawdenoise-nind.dtmodel", 512, 512,
+         "https://github.com/darktable-org/darktable-ai/releases/download/release-5.6.0/rawdenoise-nind.dtmodel", 512,
          "<a href=\"https://github.com/trougnouf/rawnind_jddc\">trougnouf/rawnind_jddc</a> UtNet2 (Brummer &amp; De Vleeschouwer, "
          "<a href=\"https://arxiv.org/abs/2501.08924\">arXiv:2501.08924</a>); ONNX: "
          "<a href=\"https://github.com/darktable-org/darktable-ai\">darktable-ai</a> release-5.6.0",
-         false, false, true, "rawdenoise-nind/model_linear.onnx"},
-        // Made by `cmake --build <dir> --target ai-models` (tools/prepare_ai_models.py) from the
-        // official weights: no ready-made ONNX export is published.
-        {"nafnet-sidd-w32", "NAFNet (SIDD, width 32)", "MIT", "nafnet_w32.onnx", {}, {}, 256, 8,
-         "<a href=\"https://github.com/megvii-research/NAFNet\">megvii-research/NAFNet</a> NAFNet-SIDD-width32; ONNX export made locally", true},
-        {"nafnet-sidd-w32-int8", "NAFNet (SIDD, width 32, fast 8-bit)", "MIT", "nafnet_w32_int8.onnx", {}, {}, 256, 8,
-         "<a href=\"https://github.com/megvii-research/NAFNet\">megvii-research/NAFNet</a> NAFNet-SIDD-width32; 8-bit quantized locally", true, true},
-        {"nafnet-sidd-w64", "NAFNet (SIDD, width 64)", "MIT", "nafnet_denoise-onnx-float/nafnet_denoise.onnx", {},
-         "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/nafnet_denoise/releases/v0.64.0/nafnet_denoise-onnx-float.zip", 256, 8,
-         "<a href=\"https://github.com/megvii-research/NAFNet\">megvii-research/NAFNet</a>; ONNX: Qualcomm AI Hub nafnet_denoise v0.64.0"},
+         "rawdenoise-nind/model_linear.onnx"},
     };
     return models;
 }
@@ -51,7 +42,7 @@ QList<AiModelInfo> aiDenoiseModels()
 AiModelInfo aiInpaintModel()
 {
     return {"lama", "LaMa (big-lama)", "Apache-2.0", "lama_fp32.onnx",
-            {{"lama_fp32.onnx", "https://huggingface.co/Carve/LaMa-ONNX/resolve/c3c0c9e468934d62e79c329e35d82dd09ff8c444/lama_fp32.onnx", 208044816}}, {}, 512, 512,
+            {{"lama_fp32.onnx", "https://huggingface.co/Carve/LaMa-ONNX/resolve/c3c0c9e468934d62e79c329e35d82dd09ff8c444/lama_fp32.onnx", 208044816}}, {}, 512,
             "<a href=\"https://github.com/advimman/lama\">advimman/lama</a> (big-lama); ONNX: <a href=\"https://huggingface.co/Carve/LaMa-ONNX\">Carve/LaMa-ONNX</a> @c3c0c9e"};
 }
 
@@ -66,7 +57,6 @@ const AiModelInfo* findAiModel(const QString& id)
 
 QString defaultAiDenoiseModel()
 {
-    // Much better detail than NAFNet (trained on real camera raws, not phone JPEGs), and faster.
     return QStringLiteral("rawnind");
 }
 
@@ -139,9 +129,6 @@ void downloadAiModel(const QString& id, const DownloadProgress& progress, const 
     const AiModelInfo* m = findAiModel(id);
     if (!m)
         throw std::runtime_error(("Unknown model " + id).toStdString());
-    if (m->prepared)
-        throw std::runtime_error(("The " + m->name + " model is not downloaded but prepared from the original weights: "
-                                  "run `cmake --build <build dir> --target ai-models`").toStdString());
     QString dir = aiModelDir(id);
     QDir().mkpath(dir);
     if (!m->archive.isEmpty()) {
@@ -196,14 +183,13 @@ int aiThreadCount()
 
 namespace {
 
-// ORT_ENABLE_ALL includes the blocked (NCHWc) layout transform, EXTENDED does not; see
-// AiModelInfo::blockedLayout. SILMA_AI_LAYOUT=0/1 overrides (for measuring).
-GraphOptimizationLevel aiGraphOptimization(bool blockedLayout)
+// ORT_ENABLE_ALL includes the blocked (NCHWc) layout transform, EXTENDED does not. Its layout
+// conversions cost more than they save for our models, up to 4x on some machines (strided
+// memory traffic that can be dramatically slow natively). SILMA_AI_LAYOUT=1 enables it (for measuring).
+GraphOptimizationLevel aiGraphOptimization()
 {
-    const QString env = qEnvironmentVariable("SILMA_AI_LAYOUT");
-    if (!env.isEmpty())
-        blockedLayout = env != QLatin1String("0");
-    return blockedLayout ? GraphOptimizationLevel::ORT_ENABLE_ALL : GraphOptimizationLevel::ORT_ENABLE_EXTENDED;
+    return qEnvironmentVariable("SILMA_AI_LAYOUT") == QLatin1String("1") ? GraphOptimizationLevel::ORT_ENABLE_ALL
+                                                                          : GraphOptimizationLevel::ORT_ENABLE_EXTENDED;
 }
 
 Ort::Env& ortEnv()
@@ -252,10 +238,10 @@ QStringList aiExecutionProviders()
 
 namespace {
 
-std::unique_ptr<Ort::Session> makeSession(const QString& modelPath, bool blockedLayout, QString* providerUsed)
+std::unique_ptr<Ort::Session> makeSession(const QString& modelPath, QString* providerUsed)
 {
     Ort::SessionOptions so;
-    so.SetGraphOptimizationLevel(aiGraphOptimization(blockedLayout));
+    so.SetGraphOptimizationLevel(aiGraphOptimization());
     so.SetIntraOpNumThreads(aiThreadCount());
     // Debug: per-operator timings (ONNX Runtime's JSON profile, written when the run ends).
     if (qEnvironmentVariableIsSet("SILMA_AI_PROFILE"))
@@ -378,13 +364,6 @@ ImageF fromPlanar(const std::vector<float>& planes, int w, int h)
 
 } // namespace
 
-ImageF runAiDenoise(const QString& modelPath, const ImageF& in, int tile, bool blockedLayout, const AiProgress& progress, const std::atomic<bool>* cancel,
-                    QString* providerUsed)
-{
-    auto session = makeSession(modelPath, blockedLayout, providerUsed);
-    return fromPlanar(runTiled(*session, toPlanar(in), 3, in.width, in.height, tile, 3, 1, progress, cancel), in.width, in.height);
-}
-
 ImageF runAiInpaint(const ImageF& img, const PlaneF& mask, QString* providerUsed)
 {
     const AiModelInfo m = aiInpaintModel();
@@ -394,7 +373,7 @@ ImageF runAiInpaint(const ImageF& img, const PlaneF& mask, QString* providerUsed
     if (img.width != S || img.height != S || mask.width != S || mask.height != S)
         throw std::runtime_error("Inpainting input must be 512x512");
     Ort::SessionOptions so;
-    so.SetGraphOptimizationLevel(aiGraphOptimization(m.blockedLayout));
+    so.SetGraphOptimizationLevel(aiGraphOptimization());
     so.SetIntraOpNumThreads(aiThreadCount());
     QString provider = configureAiProviders(so);
     if (providerUsed)
@@ -429,57 +408,6 @@ ImageF runAiInpaint(const ImageF& img, const PlaneF& mask, QString* providerUsed
     for (int c = 0; c < 3; ++c)
         for (int i = 0; i < S * S; ++i)
             out.data[size_t(i) * 3 + c] = std::clamp(o[size_t(c) * S * S + i] * scale, 0.0f, 1.0f);
-    return out;
-}
-
-ImageF aiDenoiseEncode(const ImageF& linear, float* kOut, float* normOut)
-{
-    // Invertible encoding e = log1p(k x) / log1p(k), with k chosen so the median maps to ~0.45.
-    std::vector<float> lum;
-    lum.reserve(linear.pixelCount() / 16 + 1);
-    for (size_t i = 0; i < linear.pixelCount(); i += 16) {
-        const float* p = linear.data.data() + i * 3;
-        lum.push_back(0.25f * p[0] + 0.5f * p[1] + 0.25f * p[2]);
-    }
-    std::nth_element(lum.begin(), lum.begin() + lum.size() / 2, lum.end());
-    double med = std::max(1e-4, double(lum[lum.size() / 2]));
-    // Solve log1p(k med) / log1p(k) = 0.45 for k by bisection in log space.
-    double lo = 1e-3, hi = 1e6;
-    for (int j = 0; j < 80; ++j) {
-        double mid = std::sqrt(lo * hi);
-        (std::log1p(mid * med) / std::log1p(mid) < 0.45 ? lo : hi) = mid;
-    }
-    const double k = std::sqrt(lo * hi);
-    const float fk = float(k), norm = float(1.0 / std::log1p(k));
-    ImageF enc(linear.width, linear.height);
-#pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < linear.data.size(); ++i)
-        enc.data[i] = std::log1p(fk * std::clamp(linear.data[i], 0.0f, 1.0f)) * norm;
-    if (kOut)
-        *kOut = fk;
-    if (normOut)
-        *normOut = norm;
-    return enc;
-}
-
-ImageF aiDenoiseLinear(const QString& modelId, const ImageF& linear, double strength, const AiProgress& progress, const std::atomic<bool>* cancel,
-                       QString* providerUsed)
-{
-    const AiModelInfo* m = findAiModel(modelId);
-    if (!m)
-        throw std::runtime_error(("Unknown model " + modelId).toStdString());
-    if (!aiModelInstalled(modelId))
-        throw std::runtime_error("Model not installed");
-    float fk = 1, norm = 1;
-    const ImageF enc = aiDenoiseEncode(linear, &fk, &norm);
-    ImageF den = runAiDenoise(aiModelDir(modelId) + "/" + m->onnxFile, enc, m->tileSize, m->blockedLayout, progress, cancel, providerUsed);
-    const float s = float(std::clamp(strength, 0.0, 1.0));
-    ImageF out(linear.width, linear.height);
-#pragma omp parallel for schedule(static)
-    for (size_t i = 0; i < out.data.size(); ++i) {
-        float e = std::clamp(enc.data[i] + s * (den.data[i] - enc.data[i]), 0.0f, 1.0f);
-        out.data[i] = std::expm1(e / norm) / fk;
-    }
     return out;
 }
 
@@ -558,14 +486,14 @@ ImageF aiDenoiseRaw(const QString& modelId, const QString& path, const RawImage&
                     const std::atomic<bool>* cancel, QString* providerUsed)
 {
     const AiModelInfo* m = findAiModel(modelId);
-    if (!m || !m->rawInput)
-        throw std::runtime_error(("Not a raw denoise model: " + modelId).toStdString());
+    if (!m || m->linearOnnxFile.isEmpty())
+        throw std::runtime_error(("Not a denoise model: " + modelId).toStdString());
     if (!aiModelInstalled(modelId))
         throw std::runtime_error("Model not installed");
     const float mul[3] = {float(raw.color.appliedMul[0]), float(raw.color.appliedMul[1]), float(raw.color.appliedMul[2])};
     ImageF den;
     if (!raw.halfSize && !qEnvironmentVariableIsSet("SILMA_AI_FORCE_LINEAR")) {
-        auto session = makeSession(aiModelDir(modelId) + "/" + m->onnxFile, m->blockedLayout, providerUsed);
+        auto session = makeSession(aiModelDir(modelId) + "/" + m->onnxFile, providerUsed);
         den = denoiseBayer(*session, path, raw, m->tileSize, progress, cancel);
         // White balance and clip like the decoder does.
 #pragma omp parallel for schedule(static)
@@ -575,7 +503,7 @@ ImageF aiDenoiseRaw(const QString& modelId, const QString& path, const RawImage&
     }
     if (den.empty()) {
         // Other sensors: the linear variant on the demosaiced image in linear Rec.2020.
-        auto session = makeSession(aiModelDir(modelId) + "/" + m->linearOnnxFile, m->blockedLayout, providerUsed);
+        auto session = makeSession(aiModelDir(modelId) + "/" + m->linearOnnxFile, providerUsed);
         const Mat3 toRec = CameraColor(raw.color).camToRec2020(Vec3{raw.color.asShotMul[0], raw.color.asShotMul[1], raw.color.asShotMul[2]});
         const Mat3 fromRec = matInverse(toRec);
         ImageF rec(raw.image.width, raw.image.height);

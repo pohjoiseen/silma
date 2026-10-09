@@ -87,23 +87,11 @@ come out black, and Auto Crop finds the largest fully covered rectangle (any asp
 unless the crop already has a locked one). JPEG XL compressed mosaic (CFA) DNGs are not supported yet.
 
 
-### NAFNet denoise models
-
-The older NAFNet models (trained on smartphone photos) remain available; they keep less fine
-detail than RawNIND. NAFNet width 32 denoises as well as width 64 in about half the time, but no
-ready-made ONNX export of it exists, so it is made locally from the official weights (needs
-Python 3 and the network; PyTorch is installed into a venv in the build dir):
-
-    cmake --build build --target ai-models
-
-For a 24 MP photo on a Ryzen 5 8600G: width 64 takes 225 s, width 32 73 s. It also makes an 8-bit
-version, calibrated on the raw files in `example-raws/` (set `SILMA_CALIBRATION_RAWS` to use
-another folder): a little faster (67 s), denoising a little less. Any Python 3.10+ works; the
-target prints the versions it used.
+### Measuring AI performance
 
 For measuring: `SILMA_AI_THREADS` sets the inference threads (default: one per physical core),
-`SILMA_AI_LAYOUT=0/1` switches ONNX Runtime's blocked layout transform (on only for the 8-bit
-model: elsewhere its layout conversions cost more than they save) and `SILMA_AI_PROFILE=PREFIX`
+`SILMA_AI_LAYOUT=1` enables ONNX Runtime's blocked layout transform (off: its layout
+conversions cost more than they save) and `SILMA_AI_PROFILE=PREFIX`
 writes ONNX Runtime's per-operator profile.
 
 ## License
@@ -112,4 +100,4 @@ Silmä is free software: you can redistribute it and/or modify it under the term
 General Public License as published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version (GPL-3.0-or-later). See [LICENSE](LICENSE).
 
-The AI models it downloads have their own licenses (MIT and Apache-2.0; see Help › About).
+The AI models it downloads have their own licenses (RawNIND: GPL-3.0, LaMa: Apache-2.0; see Help › About).

@@ -15,7 +15,6 @@
 #include "Color.h"
 
 #include <QDir>
-#include <random>
 #include <QElapsedTimer>
 #include <QtConcurrent>
 #include <atomic>
@@ -797,7 +796,7 @@ std::map<QString, Command> commands()
             printJson(arr);
     }};
 
-    m["ai-bench"] = {"ai-bench MODEL RAWFILE OUT.jpg [--roi x,y,w,h]", "Debug: AI-denoise a raw crop and write a before/after JPEG", {"roi"}, {}, false, [](const Args& a, Batch*, bool) {
+    m["ai-bench"] = {"ai-bench MODEL RAWFILE OUT.jpg [--roi x,y,w,h] [--strength 0..100]", "Debug: AI-denoise a raw file and write a before/after JPEG of a crop", {"roi", "strength"}, {}, false, [](const Args& a, Batch*, bool) {
         if (a.positional().size() != 3)
             fail("ai-bench MODEL RAWFILE OUT.jpg");
         QString model = a.positional()[0];
@@ -819,10 +818,9 @@ std::map<QString, Command> commands()
         QElapsedTimer t;
         t.start();
         QString prov;
-        // Raw models need the whole file: denoise it all, time per megapixel of that.
-        const bool rawModel = findAiModel(model) && findAiModel(model)->rawInput;
-        ImageF den = rawModel ? cropOf(aiDenoiseRaw(model, a.positional()[1], raw, 1.0, {}, nullptr, &prov)) : aiDenoiseLinear(model, crop, 1.0, {}, nullptr, &prov);
-        double mpix = rawModel ? double(raw.image.pixelCount()) / 1e6 : double(cw) * ch / 1e6;
+        const double strength = a.value("strength", "100").toDouble() / 100.0;
+        ImageF den = cropOf(aiDenoiseRaw(model, a.positional()[1], raw, strength, {}, nullptr, &prov));
+        double mpix = double(raw.image.pixelCount()) / 1e6;
         out() << QStringLiteral("%1: %2x%3 in %4 ms on %5 (%6 s per 24 MP)\n").arg(model).arg(cw).arg(ch).arg(t.elapsed()).arg(prov).arg(t.elapsed() / 1000.0 / mpix * 24, 0, 'f', 1);
         // Quick look: simple gain + sRGB gamma, original left, denoised right.
         float gain = 0.25f / std::max(1e-4f, [&] { double s = 0; for (float v : crop.data) s += v; return float(s / crop.data.size()); }());
@@ -836,45 +834,12 @@ std::map<QString, Command> commands()
         writeJpeg(a.positional()[2], both, 92, QString());
     }};
 
-    m["ai-calibration-tiles"] = {"ai-calibration-tiles RAWFILE... --out DIR [--per-image N]", "Debug: write denoise model input tiles (for quantizing models)", {"out", "per-image"}, {}, false, [](const Args& a, Batch*, bool) {
-        // Tiles exactly as the denoiser feeds them to a model: float32, 1x3x256x256 (NCHW).
-        const QString dir = a.value("out");
-        if (dir.isEmpty() || a.positional().isEmpty())
-            fail("ai-calibration-tiles RAWFILE... --out DIR");
-        QDir().mkpath(dir);
-        const int perImage = std::max(1, a.value("per-image", "6").toInt());
-        constexpr int T = 256;
-        int written = 0;
-        for (const QString& f : a.positional()) {
-            RawImage raw = decodeRaw(f);
-            const ImageF enc = aiDenoiseEncode(raw.image);
-            if (enc.width < T || enc.height < T)
-                continue;
-            std::mt19937 rng(uint32_t(qHash(QFileInfo(f).fileName()))); // repeatable
-            std::vector<float> tile(size_t(3) * T * T);
-            for (int n = 0; n < perImage; ++n) {
-                const int x0 = std::uniform_int_distribution<int>(0, enc.width - T)(rng);
-                const int y0 = std::uniform_int_distribution<int>(0, enc.height - T)(rng);
-                for (int c = 0; c < 3; ++c)
-                    for (int y = 0; y < T; ++y)
-                        for (int x = 0; x < T; ++x)
-                            tile[(size_t(c) * T + y) * T + x] = enc.px(x0 + x, y0 + y)[c];
-                QFile out(QStringLiteral("%1/%2_%3.f32").arg(dir, QFileInfo(f).completeBaseName()).arg(n));
-                if (!out.open(QIODevice::WriteOnly))
-                    fail("Cannot write " + out.fileName());
-                out.write(reinterpret_cast<const char*>(tile.data()), qint64(tile.size() * sizeof(float)));
-                ++written;
-            }
-        }
-        out() << "Wrote " << written << " tiles to " << dir << '\n';
-    }};
-
-    m["ai-denoise"] = {"ai-denoise PHOTO... [--model ID] [--strength 0..100]", "AI noise reduction into a new DNG photo", {"model", "strength", "import"}, {}, true, [](const Args& a, Batch* b, bool json) {
+    m["ai-denoise"] = {"ai-denoise PHOTO... [--model ID] [--strength 0..100, default 75]", "AI noise reduction into a new DNG photo", {"model", "strength", "import"}, {}, true, [](const Args& a, Batch* b, bool json) {
         auto ps = resolvePhotos(*b, a.positional(), a.value("import"));
         QString model = a.value("model", defaultAiDenoiseModel());
         if (!findAiModel(model))
             fail("Unknown model " + model);
-        double strength = a.value("strength", "100").toDouble() / 100.0;
+        double strength = a.value("strength", "75").toDouble() / 100.0;
         QJsonArray arr;
         for (const auto& p : ps) {
             QElapsedTimer t;

@@ -79,9 +79,7 @@ qint64 createAiDenoised(Batch& b, qint64 photoId, const QString& modelId, double
         if (progress)
             progress(QStringLiteral("Denoising"), d, t);
     };
-    const AiModelInfo* model = findAiModel(modelId);
-    ImageF den = model && model->rawInput ? aiDenoiseRaw(modelId, src->path, raw, strength, denoiseProgress, cancel, providerUsed)
-                                          : aiDenoiseLinear(modelId, raw.image, strength, denoiseProgress, cancel, providerUsed);
+    ImageF den = aiDenoiseRaw(modelId, src->path, raw, strength, denoiseProgress, cancel, providerUsed);
     if (progress)
         progress(QStringLiteral("Writing DNG"), 0, 0);
     LinearDngInfo info = dngInfoFromRaw(raw, src->path, src->lens);

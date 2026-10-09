@@ -223,31 +223,15 @@ private slots:
         qunsetenv("SILMA_AI_FORCE_LINEAR");
     }
 
-    void preparedAiModels()
+    void aiModels()
     {
-        // The NAFNet width-32 models are made locally (ai-models target), never downloaded.
-        QTemporaryDir dir;
-        const QByteArray before = qgetenv("SILMA_MODEL_DIR");
-        qputenv("SILMA_MODEL_DIR", dir.path().toUtf8());
-        const AiModelInfo* w32 = findAiModel("nafnet-sidd-w32");
-        QVERIFY(w32 && w32->prepared && findAiModel("nafnet-sidd-w32-int8")->prepared);
-        // Only the 8-bit model uses the blocked layout (its conversions cost more elsewhere).
-        QVERIFY(findAiModel("nafnet-sidd-w32-int8")->blockedLayout);
-        QVERIFY(!w32->blockedLayout && !findAiModel("nafnet-sidd-w64")->blockedLayout && !aiInpaintModel().blockedLayout);
-        QVERIFY(!findAiModel("scunet-real-psnr")); // dropped: it wiped out fine texture
-        // The default is the raw model (downloaded, not prepared), installed or not.
+        // RawNIND is the denoise model (NAFNet and SCUNet were dropped: they wiped out fine texture).
         QCOMPARE(defaultAiDenoiseModel(), QStringLiteral("rawnind"));
-        QVERIFY(findAiModel("rawnind")->rawInput && !findAiModel("rawnind")->prepared && !w32->rawInput);
-        try {
-            downloadAiModel("nafnet-sidd-w32");
-            QFAIL("prepared models cannot be downloaded");
-        } catch (const std::runtime_error& e) {
-            QVERIFY(QString::fromUtf8(e.what()).contains("--target ai-models"));
-        }
-        if (before.isNull())
-            qunsetenv("SILMA_MODEL_DIR");
-        else
-            qputenv("SILMA_MODEL_DIR", before);
+        QCOMPARE(aiDenoiseModels().size(), 1);
+        const AiModelInfo* m = findAiModel("rawnind");
+        QVERIFY(m && !m->archive.isEmpty() && !m->linearOnnxFile.isEmpty());
+        QVERIFY(!findAiModel("nafnet-sidd-w64") && !findAiModel("scunet-real-psnr"));
+        QVERIFY(findAiModel(aiInpaintModel().id));
     }
 
     void settingsJsonRoundTrip()

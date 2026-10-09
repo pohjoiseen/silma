@@ -50,7 +50,6 @@
 #include <QShortcut>
 #include <QSplitter>
 #include <QStandardPaths>
-#include <QStandardItemModel>
 #include <QStatusBar>
 #include <QTabWidget>
 #include <QThreadPool>
@@ -1360,35 +1359,19 @@ void MainWindow::aiDenoise()
     QDialog dlg(this);
     dlg.setWindowTitle(tr("AI Denoise"));
     auto* l = new QFormLayout(&dlg);
-    auto* model = new QComboBox(&dlg);
-    for (const auto& m : aiDenoiseModels()) {
-        const bool installed = aiModelInstalled(m.id);
-        QString note = installed ? QString() : m.prepared ? tr(" (not prepared)") : tr(" (will be downloaded)");
-        model->addItem(QStringLiteral("%1 — %2%3").arg(m.name, m.license, note), m.id);
-        if (!installed && m.prepared) {
-            // Made from the original weights by a build step; cannot be downloaded.
-            auto* item = qobject_cast<QStandardItemModel*>(model->model())->item(model->count() - 1);
-            item->setEnabled(false);
-            item->setToolTip(tr("Prepare it from the original weights with: cmake --build <build dir> --target ai-models"));
-        }
-    }
-    // The last used model, unless it is a prepared one that is not there (any more).
-    const QString last = QSettings().value("ai/model", defaultAiDenoiseModel()).toString();
-    const AiModelInfo* lastInfo = findAiModel(last);
-    int current = model->findData(last);
-    if (current < 0 || (lastInfo && lastInfo->prepared && !aiModelInstalled(last)))
-        current = model->findData(defaultAiDenoiseModel());
-    model->setCurrentIndex(current);
-    l->addRow(tr("Model:"), model);
+    const QString modelId = defaultAiDenoiseModel();
+    const AiModelInfo* m = findAiModel(modelId);
+    l->addRow(tr("Model:"), new QLabel(QStringLiteral("%1 — %2%3").arg(m->name, m->license, aiModelInstalled(modelId) ? QString() : tr(" (will be downloaded)")), &dlg));
     auto* strength = new QSpinBox(&dlg);
     strength->setRange(0, 100);
     strength->setSuffix(QStringLiteral(" %"));
-    strength->setValue(QSettings().value("ai/strength", 100).toInt());
+    // At full strength the finest detail starts to go.
+    strength->setValue(QSettings().value("ai/strength", 75).toInt());
     l->addRow(tr("Strength:"), strength);
     QStringList prov = aiExecutionProviders();
     bool gpu = prov.contains("MIGraphX") || prov.contains("ROCM") || prov.contains("CUDA");
     auto* info = new QLabel(gpu ? tr("Runs on the GPU (%1).").arg(prov.join(", "))
-                                : tr("Runs on the CPU: RawNIND takes about 10 s per 24 MP photo, NAFNet over a minute. Install onnxruntime-rocm (AMD) or onnxruntime-cuda for GPU acceleration."),
+                                : tr("Runs on the CPU: about 10 s per 24 MP photo. Install onnxruntime-rocm (AMD) or onnxruntime-cuda for GPU acceleration."),
                             &dlg);
     info->setWordWrap(true);
     l->addRow(info);
@@ -1399,9 +1382,7 @@ void MainWindow::aiDenoise()
     l->addRow(bb);
     if (dlg.exec() != QDialog::Accepted)
         return;
-    QString modelId = model->currentData().toString();
     double s = strength->value() / 100.0;
-    QSettings().setValue("ai/model", modelId);
     QSettings().setValue("ai/strength", strength->value());
     runDerivedJob(tr("AI Denoise"), [ids, modelId, s](Batch& b, const auto& progress, const std::atomic<bool>* cancel) {
         QList<qint64> out;
