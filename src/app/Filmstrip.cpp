@@ -1,6 +1,9 @@
 #include "Filmstrip.h"
 
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QPainter>
+#include <QRegularExpression>
 #include <QScrollBar>
 #include <QMouseEvent>
 #include <QWheelEvent>
@@ -83,6 +86,20 @@ int PhotoListModel::rowOf(qint64 id) const
     return -1;
 }
 
+namespace {
+
+// What made a derived photo, from the suffix addDerivedPhoto() gives its file name.
+QString derivedBadge(const PhotoInfo& p)
+{
+    if (p.kind != PhotoKind::DerivedDng)
+        return {};
+    static const QRegularExpression re(QStringLiteral("-(Denoise|HDR|Pano)(-\\d+)?\\.dng$"), QRegularExpression::CaseInsensitiveOption);
+    const QString what = re.match(p.fileName).captured(1).toLower();
+    return what == "denoise" ? QStringLiteral("AI") : what == "hdr" ? QStringLiteral("HDR") : what == "pano" ? QStringLiteral("Pano") : QStringLiteral("DNG");
+}
+
+} // namespace
+
 QVariant PhotoListModel::data(const QModelIndex& idx, int role) const
 {
     if (!idx.isValid() || idx.row() >= m_photos.size())
@@ -90,8 +107,19 @@ QVariant PhotoListModel::data(const QModelIndex& idx, int role) const
     const PhotoInfo& p = m_photos[idx.row()];
     switch (role) {
     case Qt::DisplayRole: return p.fileName;
-    case Qt::ToolTipRole:
-        return QStringLiteral("%1\n%2\nISO %3, f/%4, %5 mm").arg(p.fileName, p.captureTime.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))).arg(p.iso).arg(p.fNumber).arg(p.focalLength);
+    case Qt::ToolTipRole: {
+        QString tip = QStringLiteral("%1\n%2\nISO %3, f/%4, %5 mm").arg(p.fileName, p.captureTime.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))).arg(p.iso).arg(p.fNumber).arg(p.focalLength);
+        if (p.kind == PhotoKind::DerivedDng && m_batch) {
+            QStringList names;
+            for (const QJsonValue v : QJsonDocument::fromJson(p.derivedFrom.toUtf8()).array())
+                if (auto src = m_batch->photo(v.toInteger()))
+                    names << src->fileName;
+            const QString badge = derivedBadge(p);
+            const QString what = badge == "AI" ? tr("AI denoised") : badge == "HDR" ? tr("HDR merge") : badge == "Pano" ? tr("Panorama") : tr("Made");
+            tip += '\n' + (names.isEmpty() ? what : tr("%1 from %2").arg(what, names.join(", ")));
+        }
+        return tip;
+    }
     case Qt::DecorationRole: {
         if (QPixmap* px = m_thumbs.object(p.id))
             return *px;
@@ -110,6 +138,7 @@ QVariant PhotoListModel::data(const QModelIndex& idx, int role) const
     case RejectedRole: return p.rejected;
     case EditedRole: return m_edited.contains(p.id);
     case PathRole: return p.path;
+    case DerivedRole: return derivedBadge(p);
     default: return {};
     }
 }
@@ -154,6 +183,21 @@ void FilmstripDelegate::paint(QPainter* p, const QStyleOptionViewItem& opt, cons
         p->setPen(QPen(QColor(255, 90, 80), 2.5));
         p->drawLine(b.topLeft(), b.bottomRight());
         p->drawLine(b.topRight(), b.bottomLeft());
+    }
+    if (const QString badge = idx.data(PhotoListModel::DerivedRole).toString(); !badge.isEmpty()) {
+        // Photos made by Silmä from others: a small label in the top right corner.
+        QFont f = p->font();
+        f.setPixelSize(10);
+        f.setBold(true);
+        p->setFont(f);
+        const QFontMetrics fm(f);
+        QRect b(0, 0, fm.horizontalAdvance(badge) + 8, fm.height() + 2);
+        b.moveTopRight(QPoint(r.right() - 5, r.top() + 5));
+        p->setPen(Qt::NoPen);
+        p->setBrush(QColor(20, 20, 20, 190));
+        p->drawRoundedRect(b, 3, 3);
+        p->setPen(QColor(235, 235, 235));
+        p->drawText(b, Qt::AlignCenter, badge);
     }
     if (idx.data(PhotoListModel::EditedRole).toBool()) {
         // Small "edited" marker in the bottom right corner.

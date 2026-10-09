@@ -287,6 +287,13 @@ private slots:
         { Batch b; b.open(file); createLinearCopy(b, picked); }
         w.testPoll();
         QCOMPARE(strip->model()->rowCount(), 4);
+        // The derived photo is marked; the tooltip names its source.
+        const QModelIndex derived = strip->model()->index(1, 0);
+        QCOMPARE(derived.data(PhotoListModel::DerivedRole).toString(), QStringLiteral("DNG"));
+        QVERIFY(strip->model()->index(2, 0).data(PhotoListModel::DerivedRole).toString().isEmpty());
+        QVERIFY(derived.data(Qt::ToolTipRole).toString().endsWith(strip->model()->index(2, 0).data().toString()));
+        if (qEnvironmentVariableIsSet("SILMA_SHOT"))
+            strip->grab().save(qEnvironmentVariable("SILMA_SHOT"));
         // Focus coming back to the strip (e.g. a dialog closes) must not move to another photo.
         w.developPanel()->setFocus();
         strip->setFocus(Qt::ActiveWindowFocusReason);

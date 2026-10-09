@@ -13,7 +13,13 @@ namespace silma {
 class PhotoListModel : public QAbstractListModel {
     Q_OBJECT
 public:
-    enum Roles { IdRole = Qt::UserRole + 1, RejectedRole, EditedRole, PathRole };
+    enum Roles {
+        IdRole = Qt::UserRole + 1,
+        RejectedRole,
+        EditedRole,
+        PathRole,
+        DerivedRole, // badge text for photos Silmä made from others ("AI", "HDR", "Pano"), else empty
+    };
 
     explicit PhotoListModel(QObject* parent = nullptr);
     void setBatch(Batch* b) { m_batch = b; }
