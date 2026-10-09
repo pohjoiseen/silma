@@ -11,6 +11,7 @@
 #include <QRadioButton>
 #include "CropTool.h"
 #include "AiDenoise.h"
+#include "Derived.h"
 
 #include <QApplication>
 #include <QDir>
@@ -267,6 +268,31 @@ private slots:
         // Shift+click still selects a range.
         QTest::mouseClick(strip->viewport(), Qt::LeftButton, Qt::ShiftModifier, b);
         QCOMPARE(strip->selectionModel()->selectedIndexes().size(), 3);
+    }
+
+    void derivedPhotoKeepsSelection()
+    {
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        const QString file = freshBatch("derivedPhotoKeepsSelection");
+        QVERIFY(w.openBatch(file));
+        auto* strip = w.findChild<Filmstrip*>();
+        const QModelIndex second = strip->model()->index(1, 0);
+        QTest::mouseClick(strip->viewport(), Qt::LeftButton, {}, strip->visualRect(second).center());
+        const qint64 picked = second.data(PhotoListModel::IdRole).toLongLong();
+        QTRY_COMPARE(w.currentPhoto()->id, picked);
+        // A derived photo job (its own connection) adds a photo in front of the picked one; the GUI polls.
+        { Batch b; b.open(file); createLinearCopy(b, picked); }
+        w.testPoll();
+        QCOMPARE(strip->model()->rowCount(), 4);
+        // Focus coming back to the strip (e.g. a dialog closes) must not move to another photo.
+        w.developPanel()->setFocus();
+        strip->setFocus(Qt::ActiveWindowFocusReason);
+        QCOMPARE(strip->currentIndex().data(PhotoListModel::IdRole).toLongLong(), picked);
+        QCOMPARE(w.currentPhoto()->id, picked);
+        QCOMPARE(w.testSelectedIds(), QList<qint64>{picked});
     }
 
     void pasteSettingsDialog()

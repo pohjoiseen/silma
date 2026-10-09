@@ -185,6 +185,33 @@ Filmstrip::Filmstrip(QWidget* parent) : QListView(parent)
     setMinimumHeight(60);
 }
 
+void Filmstrip::setModel(QAbstractItemModel* model)
+{
+    QListView::setModel(model);
+    // A reset (photos added or removed, e.g. by a derived photo job) would clear the
+    // selection and current photo; Qt then makes the first visible photo current when the
+    // strip gets focus, so actions would silently apply to a photo next to the shown one.
+    connect(model, &QAbstractItemModel::modelAboutToBeReset, this, [this] {
+        m_keptSelection.clear();
+        for (const QModelIndex& i : selectionModel()->selectedIndexes())
+            m_keptSelection << i.data(PhotoListModel::IdRole).toLongLong();
+        m_keptCurrent = currentIndex().data(PhotoListModel::IdRole).toLongLong();
+    });
+    connect(model, &QAbstractItemModel::modelReset, this, [this] {
+        auto* m = qobject_cast<PhotoListModel*>(this->model());
+        if (!m)
+            return;
+        QItemSelection sel;
+        for (qint64 id : std::as_const(m_keptSelection))
+            if (int r = m->rowOf(id); r >= 0)
+                sel.select(m->index(r), m->index(r));
+        const int cur = m->rowOf(m_keptCurrent);
+        if (cur >= 0)
+            selectionModel()->setCurrentIndex(m->index(cur), QItemSelectionModel::NoUpdate);
+        selectionModel()->select(sel, QItemSelectionModel::ClearAndSelect);
+    });
+}
+
 void Filmstrip::setThumbHeight(int h)
 {
     if (h == m_delegate->thumbHeight)

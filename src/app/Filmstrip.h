@@ -55,6 +55,7 @@ class Filmstrip : public QListView {
 public:
     explicit Filmstrip(QWidget* parent = nullptr);
     void setThumbHeight(int h);
+    void setModel(QAbstractItemModel* model) override;
 
 protected:
     void wheelEvent(QWheelEvent* e) override;
@@ -64,6 +65,9 @@ protected:
 
 private:
     FilmstripDelegate* m_delegate;
+    // Selection and current photo by id, kept across model resets.
+    QList<qint64> m_keptSelection;
+    qint64 m_keptCurrent = 0;
 };
 
 } // namespace silma

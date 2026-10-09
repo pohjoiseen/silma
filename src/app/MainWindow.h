@@ -55,6 +55,7 @@ public:
     void testPasteSettings(bool ask = true) { pasteSettings(ask); }
     void testSetViewMode(ViewMode m) { setViewMode(m); }
     void testPoll() { pollDatabase(); }
+    QList<qint64> testSelectedIds() const { return selectedPhotoIds(); }
     void testAutoUpright(int mode) { autoUpright(mode); }
     void testCropTool(bool on) { setCropTool(on); }
     void testWbPicker(bool on) { setWbPicker(on); }
