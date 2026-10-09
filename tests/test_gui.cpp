@@ -10,6 +10,7 @@
 #include <QThread>
 #include "HealTool.h"
 #include "Dialogs.h"
+#include "DenoiseDialog.h"
 #include <QLineEdit>
 #include <QRadioButton>
 #include <QScrollBar>
@@ -412,6 +413,64 @@ private slots:
         Batch b;
         b.open(file);
         QCOMPARE(b.photos().size(), 2);
+    }
+
+    void denoisePreview()
+    {
+        if (!aiModelInstalled("rawnind"))
+            QSKIP("RawNIND model not installed (set SILMA_MODEL_DIR)");
+        Batch b;
+        b.open(m_batchFile);
+        const PhotoInfo p = b.photos().first();
+        const DevelopSettings s = DevelopSettings::fromJsonString(b.settings(p.id));
+        DenoiseDialog dlg("rawnind", p.path, s, {}, 2, 1);
+        dlg.show();
+        // Pixel-level variation of an image (difference to the right neighbour).
+        auto detail = [](const QImage& img) {
+            const QImage g = img.convertToFormat(QImage::Format_Grayscale8);
+            double d = 0;
+            for (int y = 0; y < g.height(); ++y) {
+                const uchar* l = g.constScanLine(y);
+                for (int x = 0; x + 1 < g.width(); ++x)
+                    d += std::abs(int(l[x + 1]) - int(l[x]));
+            }
+            return d / (double(g.width()) * g.height());
+        };
+        dlg.setStrength(100);
+        QTRY_VERIFY_WITH_TIMEOUT(dlg.previewReady(), 60000);
+        const QImage before = dlg.originalImage(), full = dlg.previewImage();
+        QVERIFY(!before.isNull());
+        QCOMPARE(full.size(), before.size());
+        QVERIFY2(detail(full) < 0.8 * detail(before), qPrintable(QStringLiteral("%1 vs %2").arg(detail(full)).arg(detail(before))));
+        // Weaker: in between (no new model run, only blending).
+        dlg.setStrength(30);
+        QTRY_VERIFY_WITH_TIMEOUT(dlg.previewReady(), 20000);
+        const double mid = detail(dlg.previewImage());
+        QVERIFY(mid > detail(full) && mid < detail(before) * 1.05);
+        // Another region: a new original and denoised image there.
+        const QPointF c = dlg.regionCenter();
+        dlg.setRegionCenter(QPointF(0.15, 0.85));
+        QVERIFY(dlg.regionCenter() != c);
+        QVERIFY(!dlg.previewReady());
+        QTRY_VERIFY_WITH_TIMEOUT(dlg.previewReady(), 60000);
+        QVERIFY(dlg.originalImage() != before);
+        QVERIFY(detail(dlg.previewImage()) < detail(dlg.originalImage()));
+        QCOMPARE(dlg.strength(), 30);
+        // Dragging the preview to the left looks further right; a click without moving
+        // keeps the region.
+        auto* view = dlg.findChild<QWidget*>("preview");
+        QVERIFY(view);
+        const QPointF c2 = dlg.regionCenter();
+        QTest::mousePress(view, Qt::LeftButton, {}, QPoint(300, 200));
+        QTest::mouseMove(view, QPoint(200, 200));
+        QTest::mouseRelease(view, Qt::LeftButton, {}, QPoint(200, 200));
+        QVERIFY(dlg.regionCenter().x() > c2.x());
+        QCOMPARE(dlg.regionCenter().y(), c2.y());
+        QTRY_VERIFY_WITH_TIMEOUT(dlg.previewReady(), 60000);
+        const QPointF c3 = dlg.regionCenter();
+        QTest::mouseClick(view, Qt::LeftButton, {}, QPoint(100, 100));
+        QCOMPARE(dlg.regionCenter(), c3);
+        QVERIFY(dlg.previewReady());
     }
 
     void progressStaysOpenAndShowsInTaskbar()

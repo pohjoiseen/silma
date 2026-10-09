@@ -103,6 +103,9 @@ noise; ONNX export from darktable). On Bayer sensors it works on the raw mosaic 
 the same time (about 8 s per 24 MP photo on a Ryzen 5 8600G); on others (X-Trans, Foveon, linear
 DNGs) a second variant denoises the demosaiced image in linear Rec.2020 (about 25 s).
 `SILMA_AI_FORCE_LINEAR=1` uses that variant on Bayer sensors too (for comparing).
+The AI Denoise dialog previews a 1:1 square of the current photo with its settings (drag it, or
+click the overview, to look elsewhere; press and hold to see the original); the strength slider
+updates it right away.
 AI Heal (Q) fills a clicked spot or a dragged brush stroke; its fills are stored in the batch, so
 heals are ordinary undoable edits. LaMa works at 512×512, so a heal may span at most a fifth of the
 photo's long edge, and larger ones come out softer.

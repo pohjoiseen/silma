@@ -288,8 +288,29 @@ private slots:
             }
         };
         int steps = 0;
-        check(aiDenoiseRaw("rawnind", f, raw, 1.0, [&](int, int) { ++steps; }));
+        const ImageF full = aiDenoiseRaw("rawnind", f, raw, 1.0, [&](int, int) { ++steps; });
+        check(full);
         QVERIFY(steps > 1);
+        // A region (the preview) comes out like the same area of the whole photo, apart from
+        // its edges; odd offsets on purpose (the mosaic pattern).
+        {
+            AiDenoiser denoiser("rawnind", f, raw);
+            const QRect r(1001, 777, 501, 403);
+            const ImageF part = denoiser.denoise(r);
+            QCOMPARE(part.width, r.width());
+            QCOMPARE(part.height, r.height());
+            double diff = 0, sum = 0;
+            for (int y = 48; y < r.height() - 48; ++y)
+                for (int x = 48; x < r.width() - 48; ++x)
+                    for (int c = 0; c < 3; ++c) {
+                        diff += std::abs(part.px(x, y)[c] - full.px(r.x() + x, r.y() + y)[c]);
+                        sum += full.px(r.x() + x, r.y() + y)[c];
+                    }
+            QVERIFY2(diff / sum < 0.01, qPrintable(QStringLiteral("relative difference %1").arg(diff / sum)));
+            ImageF blended = part;
+            blendDenoised(blended, raw.image, r, 0.0);
+            QCOMPARE(blended.px(10, 10)[1], raw.image.px(r.x() + 10, r.y() + 10)[1]);
+        }
         // Strength 0 is the input unchanged.
         const ImageF none = aiDenoiseRaw("rawnind", f, raw, 0.0);
         QVERIFY(none.data == raw.image.data);

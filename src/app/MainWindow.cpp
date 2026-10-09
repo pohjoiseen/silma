@@ -15,6 +15,7 @@
 #include "TaskbarProgress.h"
 #include "RenderedImage.h"
 #include "Merge.h"
+#include "DenoiseDialog.h"
 #include "Dialogs.h"
 #include "Filmstrip.h"
 #include "Importer.h"
@@ -1525,36 +1526,20 @@ void MainWindow::aiDenoise()
             QMessageBox::information(this, tr("AI Denoise"), tr("AI Denoise works on raw photos: JPEG and HEIC photos are already denoised by the camera."));
         return;
     }
-    QDialog dlg(this);
-    dlg.setWindowTitle(tr("AI Denoise"));
-    auto* l = new QFormLayout(&dlg);
     const QString modelId = defaultAiDenoiseModel();
-    const AiModelInfo* m = findAiModel(modelId);
-    l->addRow(tr("Model:"), new QLabel(QStringLiteral("%1 — %2%3").arg(m->name, m->license, aiModelInstalled(modelId) ? QString() : tr(" (will be downloaded)")), &dlg));
-    auto* strength = new QSpinBox(&dlg);
-    strength->setRange(0, 100);
-    strength->setSuffix(QStringLiteral(" %"));
-    // At full strength the finest detail starts to go.
-    strength->setValue(QSettings().value("ai/strength", 75).toInt());
-    l->addRow(tr("Strength:"), strength);
-    QStringList prov = aiExecutionProviders();
-    bool gpu = prov.contains("MIGraphX") || prov.contains("ROCM") || prov.contains("CUDA");
-    auto* info = new QLabel(gpu ? tr("Runs on the GPU (%1).").arg(prov.join(", "))
-                                : tr("Runs on the CPU: about 10 s per 24 MP photo. Install onnxruntime-rocm (AMD) or onnxruntime-cuda for GPU acceleration."),
-                            &dlg);
-    info->setWordWrap(true);
-    l->addRow(info);
-    l->addRow(new QLabel(tr("%n photo(s) will be denoised into new DNG files.", nullptr, int(ids.size())), &dlg));
-    if (rendered)
-        l->addRow(new QLabel(tr("%n JPEG/HEIC photo(s) left out (AI Denoise works on raw photos).", nullptr, rendered), &dlg));
-    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
-    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
-    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-    l->addRow(bb);
+    // The preview needs the model: download it first.
+    if (!ensureAiModel(modelId))
+        return;
+    // Preview the current photo if it is one of them, else the first.
+    const qint64 previewId = m_photo && ids.contains(m_photo->id) ? m_photo->id : ids.first();
+    auto pp = m_batch.photo(previewId);
+    if (!pp)
+        return;
+    const DevelopSettings ps = previewId == (m_photo ? m_photo->id : 0) ? m_settings : DevelopSettings::fromJsonString(m_batch.settings(previewId));
+    DenoiseDialog dlg(modelId, pp->path, ps, loadHealPatches(m_batch, ps), int(ids.size()), rendered, this);
     if (dlg.exec() != QDialog::Accepted)
         return;
-    double s = strength->value() / 100.0;
-    QSettings().setValue("ai/strength", strength->value());
+    const double s = dlg.strength() / 100.0;
     runDerivedJob(tr("AI Denoise"), [ids, modelId, s](Batch& b, const auto& progress, const std::atomic<bool>* cancel) {
         QList<qint64> out;
         for (int i = 0; i < ids.size(); ++i) {

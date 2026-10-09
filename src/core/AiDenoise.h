@@ -4,10 +4,12 @@
 
 #include "Image.h"
 
+#include <QRect>
 #include <QString>
 #include <QStringList>
 #include <atomic>
 #include <functional>
+#include <memory>
 
 namespace silma {
 
@@ -56,6 +58,26 @@ using AiProgress = std::function<void(int done, int total)>;
 ImageF runAiInpaint(const ImageF& img, const PlaneF& mask, QString* providerUsed = nullptr);
 
 struct RawImage;
+
+// The denoise model loaded for one raw file, denoising regions on demand (the whole photo, or
+// a preview). `raw` is the file's full-resolution decodeRaw() result and must outlive this.
+// Throws when the model is not installed or cannot be loaded.
+class AiDenoiser {
+public:
+    AiDenoiser(const QString& modelId, const QString& path, const RawImage& raw);
+    ~AiDenoiser();
+    // Fully denoised region of raw.image (white-balanced camera RGB, clipped like the decoder),
+    // rect-sized. Bayer sensors are denoised on the mosaic, the others on raw.image.
+    ImageF denoise(const QRect& rect, const AiProgress& progress = {}, const std::atomic<bool>* cancel = nullptr);
+    QString provider() const;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> d;
+};
+
+// Blends a denoised region with `original` (covering the whole frame) at `strength` 0..1.
+void blendDenoised(ImageF& denoised, const ImageF& original, const QRect& rect, double strength);
 
 // Denoises a raw file. `raw` is its decodeRaw() result; returns the same kind of image
 // (white-balanced camera RGB, 1 = clip). Bayer sensors are denoised on the mosaic, the others

@@ -88,6 +88,9 @@ public:
     // Heal patches must be added before rendering settings that reference them.
     void addHealPatch(qint64 id, const HealPatch& patch);
     bool hasHealPatch(qint64 id) const;
+    // Replaces a region of the decoded image (full-resolution decode only) in every following
+    // render, before heals: previews of processing such as AI denoise. Null removes it.
+    void setSensorOverlay(std::shared_ptr<const HealPatch> overlay);
 
     // Automatic tone: returns settings with exposure/contrast/highlights/shadows/whites/blacks set.
     DevelopSettings autoTone(const DevelopSettings& s) const;
@@ -111,6 +114,8 @@ private:
     mutable std::vector<std::shared_ptr<ImageF>> m_pyramid;
     mutable std::map<qint64, std::shared_ptr<HealPatch>> m_patches;
     mutable QString m_healKey;
+    std::shared_ptr<const HealPatch> m_overlay;
+    quint64 m_overlayGeneration = 0;
     mutable std::optional<WbValues> m_autoWb;
     struct WarpCache {
         QString key;

@@ -3,6 +3,7 @@
 // import folder of the (first) source photo and added to the batch.
 
 #include "Batch.h"
+#include "Develop.h"
 #include "DngWriter.h"
 
 #include <QString>
@@ -19,6 +20,8 @@ qint64 addDerivedPhoto(Batch& b, const PhotoInfo& source, const QList<qint64>& s
                        const ImageF& cameraLinear, const LinearDngInfo& info, const QString& label,
                        const QString& settingsJson, bool floatingPoint = false);
 
+// Develop settings of an AI-denoised copy, from those of its source.
+DevelopSettings aiDenoisedSettings(const DevelopSettings& source);
 // AI denoise: returns the new photo id. Throws on failure / cancel.
 qint64 createAiDenoised(Batch& b, qint64 photoId, const QString& modelId, double strength, const StepProgress& progress = {},
                         const std::atomic<bool>* cancel = nullptr, QString* providerUsed = nullptr);

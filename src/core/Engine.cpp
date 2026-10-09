@@ -167,9 +167,21 @@ bool DevelopEngine::hasHealPatch(qint64 id) const
     return m_patches.count(id) > 0;
 }
 
+void DevelopEngine::setSensorOverlay(std::shared_ptr<const HealPatch> overlay)
+{
+    std::lock_guard lock(m_mutex);
+    m_overlay = std::move(overlay);
+    ++m_overlayGeneration;
+}
+
 void DevelopEngine::applyHeals(const DevelopSettings& s) const
 {
     QString key;
+    {
+        std::lock_guard lock(m_mutex);
+        if (m_overlay)
+            key = QStringLiteral("overlay %1;").arg(m_overlayGeneration);
+    }
     for (const auto& h : s.heals) {
         key += QStringLiteral("%1,%2,%3,%4").arg(h.x).arg(h.y).arg(h.radius).arg(h.patchId);
         for (const QPointF& p : h.path)
@@ -185,6 +197,11 @@ void DevelopEngine::applyHeals(const DevelopSettings& s) const
         base = std::shared_ptr<ImageF>(m_raw, &m_raw->image);
     } else {
         base = std::make_shared<ImageF>(m_raw->image);
+        if (m_overlay && !m_raw->halfSize) {
+            const QRect r = m_overlay->rect.intersected(QRect(0, 0, base->width, base->height));
+            for (int y = r.top(); y <= r.bottom(); ++y)
+                std::copy_n(m_overlay->data.px(r.left() - m_overlay->rect.left(), y - m_overlay->rect.top()), size_t(r.width()) * 3, base->px(r.left(), y));
+        }
         double scale = m_raw->halfSize ? double(m_raw->image.width) / m_raw->fullWidth : 1.0;
         for (const auto& h : s.heals) {
             auto it = m_patches.find(h.patchId);

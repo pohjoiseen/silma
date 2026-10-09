@@ -56,6 +56,15 @@ qint64 addDerivedPhoto(Batch& b, const PhotoInfo& src, const QList<qint64>& sour
     return id;
 }
 
+DevelopSettings aiDenoisedSettings(const DevelopSettings& source)
+{
+    // Inherit the source's develop settings; the AI result needs little classic NR.
+    DevelopSettings s = source;
+    s.nrLuminance = 0;
+    s.nrColor = std::min(s.nrColor, 10.0);
+    return s;
+}
+
 qint64 createAiDenoised(Batch& b, qint64 photoId, const QString& modelId, double strength, const StepProgress& progress,
                         const std::atomic<bool>* cancel, QString* providerUsed)
 {
@@ -85,10 +94,7 @@ qint64 createAiDenoised(Batch& b, qint64 photoId, const QString& modelId, double
     if (progress)
         progress(QStringLiteral("Writing DNG"), 0, 0);
     LinearDngInfo info = dngInfoFromRaw(raw, src->path, src->lens);
-    // Inherit the source's develop settings; the AI result needs little classic NR.
-    DevelopSettings s = DevelopSettings::fromJsonString(b.settings(photoId));
-    s.nrLuminance = 0;
-    s.nrColor = std::min(s.nrColor, 10.0);
+    const DevelopSettings s = aiDenoisedSettings(DevelopSettings::fromJsonString(b.settings(photoId)));
     return addDerivedPhoto(b, *src, {photoId}, "Denoise", unWhiteBalance(den, raw.color), info,
                            QStringLiteral("AI Denoise (%1)").arg(modelId), s.toJsonString());
 }
