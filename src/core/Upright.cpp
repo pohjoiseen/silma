@@ -138,7 +138,7 @@ UprightResult autoUpright(const DevelopEngine& engine, const DevelopSettings& in
     s.sharpenAmount = 0;
     Geometry geo = engine.geometry(s, true);
     QSizeF frame = geo.canvasSize();
-    double k = 1200.0 / std::max(frame.width(), frame.height());
+    double k = 2000.0 / std::max(frame.width(), frame.height());
     int w = int(frame.width() * k), h = int(frame.height() * k);
     ImageF img = engine.renderEncoded(s, {.width = w, .height = h, .ignoreCrop = true});
     PlaneF gray(w, h);
@@ -146,7 +146,19 @@ UprightResult autoUpright(const DevelopEngine& engine, const DevelopSettings& in
         const float* p = img.data.data() + i * 3;
         gray.data[i] = 0.3f * p[0] + 0.55f * p[1] + 0.15f * p[2];
     }
-    auto segs = detectLineSegments(gray, std::hypot(w, h) * 0.035);
+    // Stretch the contrast so that dim and flat (overcast) photos give as many lines as
+    // bright ones: the detector's gradient floor is absolute.
+    {
+        std::vector<float> v(gray.data);
+        auto lo = v.begin() + v.size() / 100, hi = v.begin() + v.size() * 995 / 1000;
+        std::nth_element(v.begin(), lo, v.end());
+        const float l = *lo;
+        std::nth_element(v.begin(), hi, v.end());
+        const float scale = 1.0f / std::max(*hi - l, 0.05f);
+        for (float& g : gray.data)
+            g = std::clamp((g - l) * scale, 0.0f, 1.0f);
+    }
+    auto segs = detectLineSegments(gray, std::hypot(w, h) * 0.02);
 
     // Segments in centred full-resolution frame pixels (as used by the homography).
     std::vector<Seg> vs;
@@ -160,88 +172,126 @@ UprightResult autoUpright(const DevelopEngine& engine, const DevelopSettings& in
     const double f = geo.focalPx();
     const double kMax = 25.0; // must match Geometry's slider mapping
     const bool useV = mode != UprightMode::Horizontal, useH = mode != UprightMode::Vertical;
-    const double capRad = 10.0 * M_PI / 180;
+    const double d2r = M_PI / 180;
 
-    auto cost = [&](double pitch, double yaw, double roll, int* used) {
+    // Each line is either a true vertical (or horizontal) whose angle after correction is
+    // off by measurement noise only, or an outlier with a uniformly distributed angle.
+    // The noise grows for short lines (endpoint error over the analysis-resolution length).
+    // Minimizing the negative log-likelihood plus a mild prior on the angles lets many good
+    // lines decide alone, while a few stray ones can't push the correction far.
+    const double kModelSigma = 0.25 * d2r, kEndpointPx = 0.7, kOutlier = 0.3;
+    const double kPitchSigma = 10, kYawSigma = 5, kRollSigma = 3; // degrees
+    const double toAnalysis = double(w) / frame.width();
+    std::vector<double> sigma(vs.size());
+    for (size_t i = 0; i < vs.size(); ++i)
+        sigma[i] = std::hypot(kModelSigma, kEndpointPx / (vs[i].w * toAnalysis));
+    // Only lines already within kCandidate of vertical (horizontal) can become verticals
+    // (horizontals): a receding edge or a diagonal would otherwise get "straightened" by an
+    // extreme correction.
+    const double kCandidate = 15 * d2r;
+    enum Kind : uint8_t { Other, Vertical, Horizontal };
+    std::vector<Kind> kind(vs.size(), Other);
+    for (size_t i = 0; i < vs.size(); ++i) {
+        double a = std::atan2(vs[i].by - vs[i].ay, vs[i].bx - vs[i].ax);
+        if (useV && std::abs(std::remainder(a - M_PI / 2, M_PI)) < kCandidate)
+            kind[i] = Vertical;
+        else if (useH && std::abs(std::remainder(a, M_PI)) < kCandidate)
+            kind[i] = Horizontal;
+    }
+
+    auto deviations = [&](double pitch, double yaw, double roll, std::vector<double>& dev) {
         Mat3 H = perspectiveMatrix(pitch, yaw, roll, f);
-        double c = 0, wsum = 0;
-        int n = 0;
-        for (const auto& sg : vs) {
+        dev.resize(vs.size());
+        for (size_t i = 0; i < vs.size(); ++i) {
+            if (kind[i] == Other) {
+                dev[i] = M_PI;
+                continue;
+            }
+            const Seg& sg = vs[i];
             double ax, ay, bx, by;
             applyH(H, sg.ax, sg.ay, ax, ay);
             applyH(H, sg.bx, sg.by, bx, by);
-            double a = std::atan2(by - ay, bx - ax); // -pi..pi
-            // Deviation from vertical / horizontal.
-            double dv = std::abs(std::remainder(a - M_PI / 2, M_PI));
-            double dh = std::abs(std::remainder(a, M_PI));
-            double d;
-            if (useV && dv < capRad * 2.5 && (!useH || dv <= dh))
-                d = dv;
-            else if (useH && dh < capRad * 2.5)
-                d = dh;
-            else
-                continue;
-            ++n;
-            // Robust (truncated quadratic) loss.
-            c += sg.w * std::min(d * d, capRad * capRad);
-            wsum += sg.w;
+            double a = std::atan2(by - ay, bx - ax);
+            dev[i] = std::abs(std::remainder(kind[i] == Vertical ? a - M_PI / 2 : a, M_PI));
         }
-        if (used)
-            *used = n;
-        if (wsum <= 0)
-            return 1e9;
-        // Lines that are not near-vertical/horizontal count as "capped" so the search
-        // doesn't win by pushing everything out of the windows; small regularization too.
-        double totalW = 0;
-        for (const auto& sg : vs)
-            totalW += sg.w;
-        c += (totalW - wsum) * capRad * capRad;
-        return c / totalW + 1e-5 * (pitch * pitch + yaw * yaw + roll * roll);
+    };
+    std::vector<double> dev;
+    auto cost = [&](double pitch, double yaw, double roll) {
+        deviations(pitch, yaw, roll, dev);
+        const double outlierDensity = kOutlier / (M_PI / 2);
+        double c = 0;
+        for (size_t i = 0; i < vs.size(); ++i) {
+            double z = dev[i] / sigma[i];
+            c -= std::log((1 - kOutlier) * std::sqrt(2 / M_PI) / sigma[i] * std::exp(-0.5 * z * z) + outlierDensity);
+        }
+        return c + 0.5 * pitch * pitch / (kPitchSigma * kPitchSigma) + 0.5 * yaw * yaw / (kYawSigma * kYawSigma) + 0.5 * roll * roll / (kRollSigma * kRollSigma);
+    };
+    auto inliers = [&](double pitch, double yaw, double roll) {
+        deviations(pitch, yaw, roll, dev);
+        return int(std::count_if(dev.begin(), dev.end(), [&](double d) { return d < 1.0 * d2r; }));
     };
 
-    double best = 1e18, bp = 0, by = 0, br = 0;
-    for (double p = useV ? -kMax : 0; p <= (useV ? kMax : 0) + 1e-9; p += 2.5)
-        for (double y = useH ? -kMax : 0; y <= (useH ? kMax : 0) + 1e-9; y += 2.5)
-            for (double r = -10; r <= 10 + 1e-9; r += 1.0) {
-                double c = cost(p, y, r, nullptr);
-                if (c < best) {
-                    best = c;
-                    bp = p;
-                    by = y;
-                    br = r;
-                }
-            }
-    // Coordinate descent refinement.
-    for (double step : {1.0, 0.5, 0.25, 0.1, 0.05}) {
-        for (int it = 0; it < 20; ++it) {
-            bool improved = false;
-            for (int axis = 0; axis < 3; ++axis) {
-                if ((axis == 0 && !useV) || (axis == 1 && !useH))
-                    continue;
-                for (double dir : {-1.0, 1.0}) {
-                    double p = bp + (axis == 0) * dir * step, y = by + (axis == 1) * dir * step, r = br + (axis == 2) * dir * step;
-                    if (std::abs(p) > kMax || std::abs(y) > kMax || std::abs(r) > 15)
-                        continue;
-                    double c = cost(p, y, r, nullptr);
+    // Grid search, then coordinate descent; perspective axes optional (roll-only fallback).
+    auto solve = [&](bool fitV, bool fitH, double& bp, double& by, double& br, double& best) {
+        best = 1e300;
+        const double ps = fitV && fitH ? 1.0 : 0.5;
+        for (double p = fitV ? -kMax : 0; p <= (fitV ? kMax : 0) + 1e-9; p += ps)
+            for (double y = fitH ? -kMax : 0; y <= (fitH ? kMax : 0) + 1e-9; y += ps)
+                for (double r = -10; r <= 10 + 1e-9; r += 0.5) {
+                    double c = cost(p, y, r);
                     if (c < best) {
                         best = c;
                         bp = p;
                         by = y;
                         br = r;
-                        improved = true;
                     }
                 }
+        for (double step : {0.25, 0.1, 0.05, 0.02, 0.01}) {
+            for (int it = 0; it < 30; ++it) {
+                bool improved = false;
+                for (int axis = 0; axis < 3; ++axis) {
+                    if ((axis == 0 && !fitV) || (axis == 1 && !fitH))
+                        continue;
+                    for (double dir : {-1.0, 1.0}) {
+                        double p = bp + (axis == 0) * dir * step, y = by + (axis == 1) * dir * step, r = br + (axis == 2) * dir * step;
+                        if (std::abs(p) > kMax || std::abs(y) > kMax || std::abs(r) > 15)
+                            continue;
+                        double c = cost(p, y, r);
+                        if (c < best) {
+                            best = c;
+                            bp = p;
+                            by = y;
+                            br = r;
+                            improved = true;
+                        }
+                    }
+                }
+                if (!improved)
+                    break;
             }
-            if (!improved)
-                break;
         }
+        return inliers(bp, by, br);
+    };
+    // Two parameters can always align two lines and often a few more by chance, and short
+    // segments along one textured surface are not independent: a perspective correction must
+    // be backed by several lines and explain them clearly better than straightening alone.
+    const int kMinPerspectiveLines = 8, kMinRollLines = 6;
+    const double kMinGain = 8; // negative log-likelihood units
+    double bp = 0, by = 0, br = 0, rp = 0, ry = 0, rr = 0;
+    double full = 0, rollOnly = 0;
+    res.segmentsUsed = solve(useV, useH, bp, by, br, full);
+    const int rollLines = solve(false, false, rp, ry, rr, rollOnly);
+    if (res.segmentsUsed < kMinPerspectiveLines || rollOnly - full < kMinGain) {
+        bp = rp;
+        by = ry;
+        br = rr;
+        res.segmentsUsed = rollLines;
     }
-    cost(bp, by, br, &res.segmentsUsed);
     // Geometry maps slider v -> pitch = -v/100*kMax and h -> yaw = h/100*kMax.
     res.vertical = std::round(-bp / kMax * 100);
     res.horizontal = std::round(by / kMax * 100);
     res.rotate = std::round(br * 10) / 10;
-    res.ok = res.segmentsUsed >= 2;
+    res.ok = res.segmentsUsed >= kMinRollLines;
     return res;
 }
 

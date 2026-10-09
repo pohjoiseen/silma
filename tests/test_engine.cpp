@@ -4,6 +4,7 @@
 #include "AiDenoise.h"
 #include "Heal.h"
 #include "RawDecoder.h"
+#include "Upright.h"
 
 #include <QDir>
 #include <QTemporaryDir>
@@ -413,6 +414,31 @@ private slots:
             QCOMPARE(r3.image.height(), 100);
             QVERIFY(!e.lensDescription().isEmpty());
         }
+    }
+
+    void uprightVertical()
+    {
+        // Walls with many verticals: the hand-tuned correction is vertical 14, rotate -0.9
+        // (a fixed penalty on the correction used to stop at 10).
+        const QString dir = QString(SILMA_SAMPLES) + "/2026-09-01/";
+        if (!QFileInfo::exists(dir + "DSC_0160.NEF"))
+            QSKIP("samples not available");
+        auto upright = [&](const char* name) {
+            DevelopEngine e(dir + name, {.halfSize = true});
+            return autoUpright(e, DevelopSettings{}, UprightMode::Vertical);
+        };
+        UprightResult r = upright("DSC_0160.NEF");
+        QVERIFY(r.ok);
+        QVERIFY2(r.vertical >= 13 && r.vertical <= 16, qPrintable(QString::number(r.vertical)));
+        QVERIFY2(std::abs(r.rotate + 0.85) <= 0.15, qPrintable(QString::number(r.rotate)));
+        // Harbour with few building lines and a mast: a level horizon, not a 3 degree roll.
+        r = upright("DSC_0164.NEF");
+        QVERIFY(r.ok);
+        QVERIFY2(std::abs(r.rotate) < 1.5, qPrintable(QString::number(r.rotate)));
+        // Lighthouse shot looking up: a strong, well-supported correction.
+        r = upright("DSC_0154.NEF");
+        QVERIFY(r.ok);
+        QVERIFY2(r.vertical <= -45, qPrintable(QString::number(r.vertical)));
     }
 
     void textureAndDehaze()
