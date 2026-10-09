@@ -256,6 +256,21 @@ void Filmstrip::setModel(QAbstractItemModel* model)
     });
 }
 
+void Filmstrip::dataChanged(const QModelIndex& topLeft, const QModelIndex& bottomRight, const QList<int>& roles)
+{
+    QListView::dataChanged(topLeft, bottomRight, roles);
+    // A new thumbnail can have another aspect ratio (a photo turned by 90 degrees): the item
+    // takes its new width, but the items after it keep their positions from the last layout.
+    const int last = std::min(bottomRight.row(), model()->rowCount() - 2);
+    for (int r = topLeft.row(); r <= last; ++r) {
+        const QRect item = visualRect(model()->index(r, 0)), next = visualRect(model()->index(r + 1, 0));
+        if (next.left() != item.right() + 1 + spacing()) {
+            scheduleDelayedItemsLayout();
+            return;
+        }
+    }
+}
+
 void Filmstrip::setThumbHeight(int h)
 {
     if (h == m_delegate->thumbHeight)

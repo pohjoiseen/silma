@@ -304,6 +304,37 @@ private slots:
         QCOMPARE(bar->value(), at);
     }
 
+    void filmstripFollowsTurnedThumbnail()
+    {
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QVERIFY(w.openBatch(freshBatch("filmstripFollowsTurnedThumbnail")));
+        QTRY_VERIFY_WITH_TIMEOUT(w.mainPane()->hasRender(), 15000);
+        auto* strip = w.findChild<Filmstrip*>();
+        const int row = strip->currentIndex().row();
+        QVERIFY(row + 1 < strip->model()->rowCount());
+        const QModelIndex idx = strip->model()->index(row, 0), next = strip->model()->index(row + 1, 0);
+        auto thumb = [&] { return idx.data(Qt::DecorationRole).value<QPixmap>().size(); };
+        // The photo after the turned one follows right after its slot, whatever its width.
+        auto gap = [&] { return strip->visualRect(next).left() - strip->visualRect(idx).right() - 1; };
+        QTRY_VERIFY(thumb().width() > thumb().height());
+        const int gap0 = gap();
+        QVERIFY(strip->visualRect(idx).width() > strip->visualRect(idx).height());
+        // Turned to portrait: the slot narrows and the strip closes up right away (not only
+        // after the next database poll happens to lay it out).
+        w.testTurn(1);
+        QTRY_VERIFY_WITH_TIMEOUT(thumb().width() < thumb().height(), 15000);
+        QTest::qWait(100);
+        QVERIFY(strip->visualRect(idx).width() < strip->visualRect(idx).height());
+        QCOMPARE(gap(), gap0);
+        w.testTurn(-1);
+        QTRY_VERIFY_WITH_TIMEOUT(thumb().width() > thumb().height(), 15000);
+        QTest::qWait(100);
+        QCOMPARE(gap(), gap0);
+    }
+
     void progressStaysOpenAndShowsInTaskbar()
     {
         MainWindow w;

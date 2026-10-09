@@ -68,6 +68,7 @@ protected:
     void mouseMoveEvent(QMouseEvent* e) override;
     void resizeEvent(QResizeEvent* e) override;
     void selectionChanged(const QItemSelection& selected, const QItemSelection& deselected) override;
+    void dataChanged(const QModelIndex& topLeft, const QModelIndex& bottomRight, const QList<int>& roles = {}) override;
 
 private:
     FilmstripDelegate* m_delegate;
