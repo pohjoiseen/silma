@@ -175,7 +175,7 @@ namespace {
 // removeHotPixels on the visible area of an unpacked Bayer raw.
 int removeHotPixels(LibRaw& raw, const std::array<double, 3>& mul)
 {
-    if (!isUnpackedBayer(raw))
+    if (!isUnpackedBayer(raw) || qEnvironmentVariableIsSet("SILMA_KEEP_HOT_PIXELS")) // for comparing
         return 0;
     const auto& S = raw.imgdata.sizes;
     const auto& C = raw.imgdata.color;

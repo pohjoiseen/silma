@@ -65,6 +65,13 @@ The GUI picks up changes made through the CLI within a second.
 For automation, `SILMA_SCREENSHOT=out.png [SILMA_SCREENSHOT_DELAY=ms] silma` grabs the
 window and exits (works with `QT_QPA_PLATFORM=offscreen`).
 
+## Hot pixels
+
+Hot and stuck sensor pixels are removed from the raw mosaic of every photo before
+demosaicing (and before AI denoise): a sample far above all of its 16 nearest samples is
+replaced with the median of its own colour's neighbours. `silma probe` reports how many;
+`SILMA_KEEP_HOT_PIXELS=1` keeps them (for comparing).
+
 ## Export
 
 Exports are rendered at full resolution (so Develop sharpening works at the scale it is set
