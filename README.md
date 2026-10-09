@@ -1,8 +1,37 @@
 # Silmä
 
-A streamlined raw photo developer for Linux (Qt 6), modelled on Lightroom Classic's
+This is a streamlined raw photo developer for Linux (C++/Qt 6), modelled on Lightroom Classic's
 Develop module: cull, develop and export the photos of a trip, with lens profiles, AI denoise
 and heal, HDR and panorama merges. (*Silmä* is Finnish for "eye".)
+
+This is a vibecoded project, with the initial version done by Claude Opus 5.5 medium in three
+days.  I haven't even really looked at the code yet; I'm not well familiar with modern C++, even
+less so with Qt, and I have pretty much zero idea about the mathematics involved.  But such
+an application would be extremely useful for me; I use Lightroom a lot to process photos for
+my blog from my field trips, but there are way too many annoying things about it: the subscription fee,
+sluggishness, lack of Linux version; I had to keep around a Windows installation for Lightroom
+alone.  There are of course Linux analogues, and I did try to use Darktable at some point, but
+the UI seemed too annoying and alien to be honest; I've been using Lightroom for something like
+15 years, and even though I mostly only ever use a small subset of its features, muscle memory is
+just too strong.  So the point here is to keep UI as Lightroom-like as possible, but do a clean
+greenfield Linux reimplementation with only the features I actually use.  And it seems to be
+working pretty nicely, and it's really much faster than Lightroom.
+
+I do not expect this project to be particularly useful or interesting to anyone other than myself
+(as of October 2026, various vibecoded replacements of Adobe suite seem to be springing up around
+anyway, although of course most of them will probably have too many features to be properly
+polished, and will be abandoned almost immediately anyway).  Honestly at this point if you want to
+have something like that, you might as well grab a Claude Max subscription yourself and make your
+own version over a few evenings.
+
+The initial release is about 17 kLOC of C++.  Claude was smart enough to pull various relevant
+dependencies (libraw, exiv2, lensfun, lcms2, opencv and onnxruntime most importantly) without
+reinventing the wheel where not necessary; also two third-party open source AI models are used,
+for heal and denoise tools.  Only the Arch Linux PKGBUILD is included, since this is what I use.
+
+The rest of this README is Claude-written.
+
+(c) 2026 Alexander Ulyanov
 
 ## Building
 
