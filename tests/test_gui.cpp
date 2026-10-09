@@ -9,6 +9,7 @@
 #include "Dialogs.h"
 #include <QLineEdit>
 #include <QRadioButton>
+#include <QScrollBar>
 #include "CropTool.h"
 #include "AiDenoise.h"
 #include "Derived.h"
@@ -45,11 +46,11 @@ class TestGui : public QObject {
     }
 
     // A new batch with three sample photos, for tests that must not see other tests' edits.
-    QString freshBatch(const QString& name)
+    QString freshBatch(const QString& name, int count = 3)
     {
         QDir d(QString(SILMA_SAMPLES) + "/2026-08-08");
-        auto files = d.entryList(QDir::Files, QDir::Name).mid(0, 3);
-        if (files.size() < 3)
+        auto files = d.entryList(QDir::Files, QDir::Name).mid(0, count);
+        if (files.size() < count)
             return {};
         QStringList paths;
         for (const auto& f : files)
@@ -58,7 +59,7 @@ class TestGui : public QObject {
         QString file = m_tmp.filePath(name + "/" + name + ".silma");
         Batch b;
         b.create(file);
-        return importFiles(b, paths, {}).added.size() == 3 ? file : QString();
+        return importFiles(b, paths, {}).added.size() == count ? file : QString();
     }
 
 private slots:
@@ -268,6 +269,36 @@ private slots:
         // Shift+click still selects a range.
         QTest::mouseClick(strip->viewport(), Qt::LeftButton, Qt::ShiftModifier, b);
         QCOMPARE(strip->selectionModel()->selectedIndexes().size(), 3);
+    }
+
+    void filmstripDoesNotJumpOnClick()
+    {
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QVERIFY(w.openBatch(freshBatch("filmstripDoesNotJumpOnClick", 10)));
+        auto* strip = w.findChild<Filmstrip*>();
+        auto* bar = strip->horizontalScrollBar();
+        QTRY_VERIFY(bar->maximum() > 0);
+        bar->setValue(bar->maximum() / 2);
+        const int at = bar->value();
+        // Click and Ctrl+click visible photos at the ends: no scrolling to centre them.
+        auto visibleRows = [&] {
+            QList<int> rows;
+            for (int r = 0; r < strip->model()->rowCount(); ++r)
+                if (strip->viewport()->rect().contains(strip->visualRect(strip->model()->index(r, 0))))
+                    rows << r;
+            return rows;
+        };
+        const QList<int> rows = visibleRows();
+        QVERIFY(rows.size() >= 3);
+        QVERIFY(!rows.isEmpty());
+        QTest::mouseClick(strip->viewport(), Qt::LeftButton, {}, strip->visualRect(strip->model()->index(rows.first(), 0)).center());
+        QTRY_COMPARE(w.currentPhoto()->id, strip->model()->index(rows.first(), 0).data(PhotoListModel::IdRole).toLongLong());
+        QCOMPARE(bar->value(), at);
+        QTest::mouseClick(strip->viewport(), Qt::LeftButton, Qt::ControlModifier, strip->visualRect(strip->model()->index(rows.last(), 0)).center());
+        QCOMPARE(bar->value(), at);
     }
 
     void derivedPhotoKeepsSelection()

@@ -687,8 +687,9 @@ void MainWindow::selectPhoto(qint64 id)
         m_filmstrip->setCurrentIndex(m_model->index(row));
         m_restoring = false;
     }
+    // Scroll only as far as needed (centring would make the strip jump on every click).
     if (row >= 0)
-        m_filmstrip->scrollTo(m_model->index(row), QAbstractItemView::PositionAtCenter);
+        m_filmstrip->scrollTo(m_model->index(row), QAbstractItemView::EnsureVisible);
     m_batch.setState("ui.photo", QString::number(id));
     if (m_cropTool)
         setCropTool(false);
