@@ -5,6 +5,9 @@
 #include "Importer.h"
 #include "MainWindow.h"
 #include "Widgets.h"
+#include "TaskbarProgress.h"
+#include <QProgressDialog>
+#include <QThread>
 #include "HealTool.h"
 #include "Dialogs.h"
 #include <QLineEdit>
@@ -299,6 +302,42 @@ private slots:
         QCOMPARE(bar->value(), at);
         QTest::mouseClick(strip->viewport(), Qt::LeftButton, Qt::ControlModifier, strip->visualRect(strip->model()->index(rows.last(), 0)).center());
         QCOMPARE(bar->value(), at);
+    }
+
+    void progressStaysOpenAndShowsInTaskbar()
+    {
+        MainWindow w;
+        w.resize(1000, 700);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QVERIFY(w.openBatch(freshBatch("progressStaysOpen")));
+        // A job with a step that completes, then a busy step: the dialog stays up throughout.
+        std::atomic<int> stage = 0;
+        w.testRunDerivedJob("Test job", [&stage](Batch&, const auto& progress, const std::atomic<bool>*) {
+            progress("Step one", 4, 4);
+            stage = 1;
+            QThread::msleep(600);
+            progress("Writing", 0, 0);
+            QThread::msleep(600);
+            stage = 2;
+            return QList<qint64>{};
+        });
+        QPointer<QProgressDialog> pd;
+        QTRY_VERIFY((pd = w.findChild<QProgressDialog*>()) && stage == 1);
+        QTRY_VERIFY(pd && pd->value() == 4);
+        // The taskbar entry follows the dialog (polled).
+        QTRY_VERIFY(std::abs(TaskbarProgress::instance().shownProgress() - 1.0) < 1e-6);
+        QTest::qWait(300);
+        QVERIFY(pd && pd->isVisible());
+        QTRY_COMPARE(stage.load(), 2);
+        QTRY_VERIFY(!w.findChild<QProgressDialog*>());
+        QTRY_VERIFY(TaskbarProgress::instance().shownProgress() < 0);
+
+        // Background jobs as a count on the entry.
+        TaskbarProgress::instance().setCount(2);
+        QCOMPARE(TaskbarProgress::instance().shownCount(), 2);
+        TaskbarProgress::instance().setCount(0);
+        QCOMPARE(TaskbarProgress::instance().shownCount(), 0);
     }
 
     void derivedPhotoKeepsSelection()

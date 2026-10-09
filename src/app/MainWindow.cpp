@@ -12,6 +12,7 @@
 #include "Versions.h"
 #include "AiDenoise.h"
 #include "Derived.h"
+#include "TaskbarProgress.h"
 #include "Merge.h"
 #include "Dialogs.h"
 #include "Filmstrip.h"
@@ -1099,6 +1100,7 @@ void MainWindow::importPhotos()
     progress->setWindowModality(Qt::WindowModal);
     progress->setMinimumDuration(0);
     progress->setValue(0);
+    TaskbarProgress::instance().follow(progress);
     QString batchFile = m_batch.file();
     QPointer<MainWindow> self(this);
     QPointer<QProgressDialog> pd(progress);
@@ -1187,6 +1189,7 @@ void MainWindow::exportPhotos()
     auto* progress = new QProgressDialog(tr("Exporting..."), tr("Cancel"), 0, int(jobs.size()), this);
     progress->setWindowModality(Qt::WindowModal);
     progress->setMinimumDuration(0);
+    TaskbarProgress::instance().follow(progress);
     auto cancelled = std::make_shared<std::atomic<bool>>(false);
     connect(progress, &QProgressDialog::canceled, this, [cancelled] { *cancelled = true; });
     QPointer<QProgressDialog> pd(progress);
@@ -1285,6 +1288,10 @@ void MainWindow::runDerivedJob(const QString& title,
     progress->setWindowModality(Qt::WindowModal);
     progress->setMinimumDuration(0);
     progress->setMinimumWidth(420);
+    // Stay open between steps (by default the dialog closes when a step reaches its maximum).
+    progress->setAutoClose(false);
+    progress->setAutoReset(false);
+    TaskbarProgress::instance().follow(progress);
     auto cancel = std::make_shared<std::atomic<bool>>(false);
     connect(progress, &QProgressDialog::canceled, this, [cancel] { *cancel = true; });
     QPointer<QProgressDialog> pd(progress);
@@ -1465,6 +1472,7 @@ bool MainWindow::ensureAiModel(const QString& id)
     pd.setAutoClose(false);
     pd.setAutoReset(false);
     pd.setValue(0);
+    TaskbarProgress::instance().follow(&pd);
     std::atomic<bool> cancel = false;
     connect(&pd, &QProgressDialog::canceled, this, [&cancel] { cancel = true; });
     try {
@@ -1566,6 +1574,7 @@ void MainWindow::updateHealBusy()
 {
     const bool busy = m_healJobs > 0;
     m_healProgress->setVisible(busy);
+    TaskbarProgress::instance().setCount(m_healJobs);
     if (busy && !m_healAnim.isActive())
         m_healAnim.start();
     else if (!busy)

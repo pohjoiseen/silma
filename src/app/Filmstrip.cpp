@@ -267,8 +267,10 @@ void Filmstrip::setThumbHeight(int h)
 
 void Filmstrip::resizeEvent(QResizeEvent* e)
 {
-    int sb = horizontalScrollBar()->isVisible() ? horizontalScrollBar()->height() : 0;
-    setThumbHeight(std::max(40, viewport()->height() - 12 + (sb ? 0 : 0)));
+    // Room for the scroll bar is always left: sizing the thumbnails by the viewport could loop
+    // (smaller thumbnails fit without the scroll bar, which makes them bigger again, ...).
+    const int sb = horizontalScrollBar()->sizeHint().height();
+    setThumbHeight(std::max(40, contentsRect().height() - sb - 12));
     QListView::resizeEvent(e);
 }
 
