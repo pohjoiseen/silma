@@ -984,12 +984,20 @@ std::map<QString, Command> commands()
                 if (!json)
                     err() << "\r" << step << (total > 0 ? QStringLiteral(" %1/%2").arg(d).arg(total) : QString()) << "          " << Qt::flush;
             };
-            if (!hdr && a.has("preview")) {
-                PanoramaPreview preview(panoramaSources(*b, ids), progress);
-                QImage img = preview.render(!a.has("no-tone"), 1600);
-                const QRectF c = preview.autoCrop();
-                if (!a.has("no-crop"))
-                    img = img.copy(QRectF(c.x() * img.width(), c.y() * img.height(), c.width() * img.width(), c.height() * img.height()).toRect());
+            if (a.has("preview")) {
+                QImage img;
+                if (hdr) {
+                    HdrOptions o;
+                    o.align = !a.has("no-align");
+                    o.deghost = !a.has("no-deghost");
+                    img = HdrPreview(mergeSources(*b, ids), o, progress).render(!a.has("no-tone"), 1600);
+                } else {
+                    PanoramaPreview preview(mergeSources(*b, ids), progress);
+                    img = preview.render(!a.has("no-tone"), 1600);
+                    const QRectF c = preview.autoCrop();
+                    if (!a.has("no-crop"))
+                        img = img.copy(QRectF(c.x() * img.width(), c.y() * img.height(), c.width() * img.width(), c.height() * img.height()).toRect());
+                }
                 if (!img.save(a.value("preview")))
                     fail("Cannot write " + a.value("preview"));
                 if (json)
@@ -1016,7 +1024,8 @@ std::map<QString, Command> commands()
                 out() << "\n" << np->fileName << " (id " << id << ", " << np->width << "x" << np->height << ", " << t.elapsed() / 1000 << " s)\n";
         };
     };
-    m["hdr"] = {"hdr PHOTO PHOTO... [--no-align] [--no-deghost]", "Merge bracketed exposures into an HDR DNG", {"import"}, {"no-align", "no-deghost"}, true, mergeCmd(true)};
+    m["hdr"] = {"hdr PHOTO PHOTO... [--no-align] [--no-deghost] [--preview OUT.jpg [--no-tone]]", "Merge bracketed exposures into an HDR DNG (or only a quick preview image)",
+                {"import", "preview"}, {"no-align", "no-deghost", "no-tone"}, true, mergeCmd(true)};
     m["pano"] = {"pano PHOTO PHOTO... [--no-crop] [--preview OUT.jpg [--no-tone]]", "Stitch a cylindrical panorama DNG (or only a quick preview image)", {"import", "preview"},
                  {"no-crop", "no-tone"}, true, mergeCmd(false)};
 

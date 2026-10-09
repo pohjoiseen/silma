@@ -82,17 +82,37 @@ DevelopSettings settingsWithAutoTone(const QString& path, bool autoTone)
 
 } // namespace
 
+QList<MergeSource> mergeSources(Batch& b, const QList<qint64>& ids)
+{
+    QList<MergeSource> out;
+    for (qint64 id : ids)
+        if (auto p = b.photo(id))
+            out << MergeSource{*p, DevelopSettings::fromJsonString(b.settings(id)).quarterTurns};
+    return out;
+}
+
 // ---- HDR --------------------------------------------------------------------------
 
-qint64 createHdrMerge(Batch& b, const QList<qint64>& idsIn, const HdrOptions& o, const StepProgress& progress, const std::atomic<bool>* cancel)
+namespace {
+
+// A merged HDR image, before it becomes a DNG.
+struct HdrMerged {
+    ImageF out; // camera-native linear, normalized by info.whiteScale
+    LinearDngInfo info;
+    QList<MergeSource> sources; // by exposure
+    int ref = 0;
+};
+
+// Merges bracketed exposures at full resolution, or (`preview`) at about 1000 pixels from
+// fast half-size decodes (the ghost masks then work at about the same scale as the merge's).
+HdrMerged mergeHdr(QList<MergeSource> sources, const HdrOptions& o, bool preview, const StepProgress& progress, const std::atomic<bool>* cancel)
 {
-    QList<PhotoInfo> photos;
-    for (qint64 id : idsIn)
-        if (auto p = b.photo(id))
-            photos << *p;
-    if (photos.size() < 2)
+    if (sources.size() < 2)
         throw std::runtime_error("HDR merge needs at least two photos");
-    std::sort(photos.begin(), photos.end(), [](const PhotoInfo& a, const PhotoInfo& c) { return exposureValue(a) < exposureValue(c); });
+    std::sort(sources.begin(), sources.end(), [](const MergeSource& a, const MergeSource& c) { return exposureValue(a.photo) < exposureValue(c.photo); });
+    QList<PhotoInfo> photos;
+    for (const auto& src : sources)
+        photos << src.photo;
     const int n = int(photos.size());
     const int ref = n / 2;
 
@@ -100,7 +120,11 @@ qint64 createHdrMerge(Batch& b, const QList<qint64>& idsIn, const HdrOptions& o,
     for (int i = 0; i < n; ++i) {
         report(progress, QStringLiteral("Decoding"), i, n);
         checkCancel(cancel);
-        raws[i] = decodeRaw(photos[i].path);
+        raws[i] = decodeRaw(photos[i].path, {.halfSize = preview});
+        if (preview) {
+            const int f = std::max(1, int(std::lround(std::max(raws[i].image.width, raws[i].image.height) / 1000.0)));
+            raws[i].image = downscale(raws[i].image, f);
+        }
         if (raws[i].image.width != raws[0].image.width || raws[i].image.height != raws[0].image.height)
             throw std::runtime_error("HDR merge needs photos of the same size");
     }
@@ -302,22 +326,65 @@ qint64 createHdrMerge(Batch& b, const QList<qint64>& idsIn, const HdrOptions& o,
         double nativeClip = 1.0 / std::max({rc.appliedMul[0], rc.appliedMul[1], rc.appliedMul[2]});
         scale = float(std::max(1.0, mx / nativeClip));
     }
-    LinearDngInfo info = dngInfoFromRaw(raws[ref], photos[ref].path, photos[ref].lens);
-    info.whiteScale = scale;
-    info.baselineExposure += std::log2(scale);
+    HdrMerged m;
+    m.info = dngInfoFromRaw(raws[ref], photos[ref].path, photos[ref].lens);
+    m.info.whiteScale = scale;
+    m.info.baselineExposure += std::log2(scale);
+    m.out = std::move(out);
+    m.sources = sources;
+    m.ref = ref;
+    return m;
+}
+
+} // namespace
+
+qint64 createHdrMerge(Batch& b, const QList<qint64>& ids, const HdrOptions& o, const StepProgress& progress, const std::atomic<bool>* cancel)
+{
+    HdrMerged m = mergeHdr(mergeSources(b, ids), o, false, progress, cancel);
     report(progress, QStringLiteral("Writing DNG"));
-    raws.clear();
     // Write first, then compute auto settings from the result.
-    QList<qint64> ids;
-    for (const auto& p : photos)
-        ids << p.id;
-    qint64 id = addDerivedPhoto(b, photos[ref], ids, "HDR", out, info, QString(), DevelopSettings().toJsonString(), true);
+    QList<qint64> sourceIds;
+    for (const auto& src : m.sources)
+        sourceIds << src.photo.id;
+    qint64 id = addDerivedPhoto(b, m.sources[m.ref].photo, sourceIds, "HDR", m.out, m.info, QString(), DevelopSettings().toJsonString(), true);
     auto np = b.photo(id);
     DevelopSettings s = settingsWithAutoTone(np->path, o.autoTone);
     // The merge keeps the sensor's orientation: a 90 degree turn of the photos carries over.
-    s.quarterTurns = DevelopSettings::fromJsonString(b.settings(photos[ref].id)).quarterTurns;
-    b.pushHistory(id, QStringLiteral("HDR Merge (%1 photos)").arg(n), s.toJsonString());
+    s.quarterTurns = m.sources[m.ref].quarterTurns;
+    b.pushHistory(id, QStringLiteral("HDR Merge (%1 photos)").arg(m.sources.size()), s.toJsonString());
     return id;
+}
+
+struct HdrPreview::Impl {
+    QTemporaryDir dir;
+    std::unique_ptr<DevelopEngine> engine;
+    int quarterTurns = 0;
+};
+
+HdrPreview::HdrPreview(const QList<MergeSource>& sources, const HdrOptions& o, const StepProgress& progress, const std::atomic<bool>* cancel)
+    : d(std::make_unique<Impl>())
+{
+    HdrMerged m = mergeHdr(sources, o, true, progress, cancel);
+    if (!d->dir.isValid())
+        throw std::runtime_error("No temporary directory for the preview");
+    // Through a DNG like the real result, so the preview renders the same way.
+    const QString path = d->dir.filePath("preview.dng");
+    writeLinearDng(path, m.out, m.info, true);
+    d->engine = std::make_unique<DevelopEngine>(path);
+    d->quarterTurns = m.sources[m.ref].quarterTurns;
+}
+
+HdrPreview::~HdrPreview() = default;
+
+QImage HdrPreview::render(bool autoTone, int longEdge) const
+{
+    DevelopSettings s;
+    s.quarterTurns = d->quarterTurns;
+    if (autoTone)
+        s = d->engine->autoTone(s);
+    const QSize out = d->engine->outputSize(s);
+    const double k = std::min(1.0, double(longEdge) / std::max(out.width(), out.height()));
+    return d->engine->render(s, {.width = std::max(1, int(out.width() * k)), .height = std::max(1, int(out.height() * k))}).image;
 }
 
 // ---- Panorama -----------------------------------------------------------------------
@@ -366,12 +433,12 @@ struct Stitched {
 
 // Registers the photos at a small working size and stitches them, at full resolution or
 // (`preview`) at the working size from fast half-size decodes.
-Stitched stitchPanorama(QList<PanoramaSource> sources, bool preview, bool autoCrop, const StepProgress& progress, const std::atomic<bool>* cancel)
+Stitched stitchPanorama(QList<MergeSource> sources, bool preview, bool autoCrop, const StepProgress& progress, const std::atomic<bool>* cancel)
 {
     namespace cd = cv::detail;
     if (sources.size() < 2)
         throw std::runtime_error("A panorama needs at least two photos");
-    std::sort(sources.begin(), sources.end(), [](const PanoramaSource& a, const PanoramaSource& c) { return a.photo.captureTime < c.photo.captureTime; });
+    std::sort(sources.begin(), sources.end(), [](const MergeSource& a, const MergeSource& c) { return a.photo.captureTime < c.photo.captureTime; });
     QList<PhotoInfo> photos;
     for (const auto& src : sources)
         photos << src.photo;
@@ -636,18 +703,10 @@ LinearDngInfo panoramaDngInfo(const Stitched& st)
 
 } // namespace
 
-QList<PanoramaSource> panoramaSources(Batch& b, const QList<qint64>& ids)
-{
-    QList<PanoramaSource> out;
-    for (qint64 id : ids)
-        if (auto p = b.photo(id))
-            out << PanoramaSource{*p, DevelopSettings::fromJsonString(b.settings(id)).quarterTurns};
-    return out;
-}
 
 qint64 createPanorama(Batch& b, const QList<qint64>& ids, const PanoOptions& o, const StepProgress& progress, const std::atomic<bool>* cancel)
 {
-    const Stitched st = stitchPanorama(panoramaSources(b, ids), false, o.autoCrop, progress, cancel);
+    const Stitched st = stitchPanorama(mergeSources(b, ids), false, o.autoCrop, progress, cancel);
     report(progress, QStringLiteral("Writing DNG"));
     const LinearDngInfo info = panoramaDngInfo(st);
     QList<qint64> sourceIds;
@@ -670,7 +729,7 @@ struct PanoramaPreview::Impl {
     int photoCount = 0;
 };
 
-PanoramaPreview::PanoramaPreview(const QList<PanoramaSource>& sources, const StepProgress& progress, const std::atomic<bool>* cancel)
+PanoramaPreview::PanoramaPreview(const QList<MergeSource>& sources, const StepProgress& progress, const std::atomic<bool>* cancel)
     : d(std::make_unique<Impl>())
 {
     Stitched st = stitchPanorama(sources, true, true, progress, cancel);

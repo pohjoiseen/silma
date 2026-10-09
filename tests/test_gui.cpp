@@ -11,7 +11,7 @@
 #include "HealTool.h"
 #include "Dialogs.h"
 #include "DenoiseDialog.h"
-#include "PanoramaDialog.h"
+#include "MergeDialog.h"
 #include <QLineEdit>
 #include <QRadioButton>
 #include <QScrollBar>
@@ -475,7 +475,7 @@ private slots:
         QVERIFY(dlg.previewReady());
     }
 
-    void panoramaPreview()
+    void mergePreviews()
     {
         // DSC_0010..0012 of 2026-08-08 are a handheld sequence.
         QDir d(QString(SILMA_SAMPLES) + "/2026-08-08");
@@ -484,9 +484,9 @@ private slots:
         QDir(m_tmp.path()).mkpath("pano");
         Batch b;
         b.create(m_tmp.filePath("pano/pano.silma"));
-        const QList<PanoramaSource> photos = panoramaSources(b, importFiles(b, {d.filePath("DSC_0010.NEF"), d.filePath("DSC_0011.NEF"), d.filePath("DSC_0012.NEF")}, {}).added);
+        const QList<MergeSource> photos = mergeSources(b, importFiles(b, {d.filePath("DSC_0010.NEF"), d.filePath("DSC_0011.NEF"), d.filePath("DSC_0012.NEF")}, {}).added);
         QCOMPARE(photos.size(), 3);
-        PanoramaDialog dlg(photos);
+        MergeDialog dlg(MergeDialog::Panorama, photos);
         dlg.show();
         QVERIFY(!dlg.previewDone());
         QTRY_VERIFY_WITH_TIMEOUT(dlg.previewDone(), 60000);
@@ -496,11 +496,24 @@ private slots:
         const QRectF crop = dlg.previewCrop();
         QVERIFY(crop.width() > 0.7 && crop.width() < 1 && crop.height() > 0.6);
         // Options: auto tone switches the preview's rendering; both go to the merge.
-        auto* tone = dlg.findChildren<QCheckBox*>().last();
-        QCOMPARE(tone->text(), tr("Auto tone"));
-        tone->setChecked(false);
+        dlg.option(tr("Auto tone"))->setChecked(false);
+        QVERIFY(dlg.previewDone());
         QVERIFY(dlg.previewImage() != toned);
-        QVERIFY(!dlg.options().autoTone && dlg.options().autoCrop);
+        QVERIFY(!dlg.panoOptions().autoTone && dlg.panoOptions().autoCrop);
+
+        // HDR: a preview the size of a photo; turning alignment off merges again.
+        MergeDialog hdr(MergeDialog::Hdr, photos.mid(0, 2));
+        hdr.show();
+        QTRY_VERIFY_WITH_TIMEOUT(hdr.previewDone(), 60000);
+        QVERIFY2(hdr.previewError().isEmpty(), qPrintable(hdr.previewError()));
+        const QImage aligned = hdr.previewImage();
+        QVERIFY(aligned.width() > aligned.height() && std::abs(double(aligned.width()) / aligned.height() - 1.5) < 0.02);
+        QVERIFY(!hdr.option(tr("Auto crop")));
+        hdr.option(tr("Align photos"))->setChecked(false);
+        QVERIFY(!hdr.previewDone());
+        QTRY_VERIFY_WITH_TIMEOUT(hdr.previewDone(), 60000);
+        QVERIFY(hdr.previewImage() != aligned);
+        QVERIFY(!hdr.hdrOptions().align && hdr.hdrOptions().deghost && hdr.hdrOptions().autoTone);
     }
 
     void progressStaysOpenAndShowsInTaskbar()

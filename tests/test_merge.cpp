@@ -65,7 +65,7 @@ private slots:
 
     void panoramaPreview()
     {
-        const QList<PanoramaSource> photos = panoramaSources(m_batch, m_ids);
+        const QList<MergeSource> photos = mergeSources(m_batch, m_ids);
         QElapsedTimer t;
         t.start();
         PanoramaPreview preview(photos);
@@ -87,7 +87,7 @@ private slots:
         qInfo() << "preview of" << photos.size() << "photos in" << ms << "ms," << preview.size();
         // Photos turned by hand (develop setting) are stitched turned: the sideways pan of
         // these becomes an upright strip.
-        QList<PanoramaSource> turned = photos;
+        QList<MergeSource> turned = photos;
         for (auto& src : turned)
             src.quarterTurns = 1;
         const QSize ts = PanoramaPreview(turned).size();
@@ -97,9 +97,26 @@ private slots:
         if (d.exists("DSC_0153.NEF") && d.exists("DSC_0160.NEF")) {
             Batch b2;
             b2.create(m_tmp.filePath("apart.silma"));
-            const QList<PanoramaSource> apart = panoramaSources(b2, importFiles(b2, {d.filePath("DSC_0153.NEF"), d.filePath("DSC_0160.NEF")}, {}).added);
+            const QList<MergeSource> apart = mergeSources(b2, importFiles(b2, {d.filePath("DSC_0153.NEF"), d.filePath("DSC_0160.NEF")}, {}).added);
             QVERIFY_THROWS_EXCEPTION(std::runtime_error, PanoramaPreview{apart});
         }
+    }
+
+    void hdrPreview()
+    {
+        QList<MergeSource> sources = mergeSources(m_batch, m_ids.mid(0, 2));
+        QElapsedTimer t;
+        t.start();
+        const QImage img = HdrPreview(sources, {}).render(true, 800);
+        qInfo() << "HDR preview in" << t.elapsed() << "ms";
+        QCOMPARE(img.width(), 800);
+        QVERIFY(std::abs(img.height() - 533) <= 1);
+        // Turned like its photos.
+        for (auto& src : sources)
+            src.quarterTurns = 1;
+        const QSize turned = HdrPreview(sources, {.align = false, .deghost = false}).render(false, 800).size();
+        QCOMPARE(turned.height(), 800);
+        QVERIFY(std::abs(turned.width() - 533) <= 1);
     }
 
     void hdr()
