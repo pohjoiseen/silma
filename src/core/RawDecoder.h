@@ -47,6 +47,7 @@ struct RawImage {
     int fullWidth = 0, fullHeight = 0; // dimensions of the full-resolution decode
     bool halfSize = false;
     bool isDng = false;
+    int hotPixels = 0; // hot/stuck sensor pixels found and removed
     // DNG DefaultCrop in full-resolution pixel coordinates (or whole image).
     int cropX = 0, cropY = 0, cropW = 0, cropH = 0;
     // Parts of the image holding data (panorama coverage); null = all of it.
@@ -69,6 +70,11 @@ RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts = {});
 // The Bayer mosaic of a raw file; empty (width 0) when the sensor is not a 2x2 RGB Bayer
 // one (X-Trans, Foveon, monochrome, linear DNGs, ...). Throws on decoding errors.
 BayerMosaic decodeBayerMosaic(const QString& path);
+// Replaces hot and stuck pixels in a Bayer mosaic (raw sample values, `pitch` samples per
+// row) with the median of their own colour's neighbours. `color`: 0 red, 1 green, 2 blue at
+// (y % 2, x % 2); `mul`: white balance multipliers. Returns how many were replaced.
+int removeHotPixels(quint16* data, int width, int height, int pitch, const int color[2][2], const float black[2][2], float white,
+                    const std::array<double, 3>& mul);
 // Largest embedded JPEG preview, or empty if none.
 QByteArray extractEmbeddedPreview(const QString& path);
 // True for file extensions we consider importable raw files.

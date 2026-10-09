@@ -105,6 +105,96 @@ std::shared_ptr<const ValidMask> readTransparencyMask(const QString& path, const
     return nullptr;
 }
 
+// True for a single-plane 2x2 RGB Bayer raw that LibRaw has unpacked.
+bool isUnpackedBayer(LibRaw& raw)
+{
+    const auto& I = raw.imgdata.idata;
+    return I.colors == 3 && I.filters >= 1000 && raw.imgdata.rawdata.raw_image && raw.imgdata.sizes.pixel_aspect == 1.0 && !raw.is_fuji_rotated();
+}
+
+// As-shot white balance multipliers (green = 1).
+std::array<double, 3> asShotMultipliers(const LibRaw& raw)
+{
+    const auto& C = raw.imgdata.color;
+    if (raw.imgdata.idata.dng_version != 0 && C.dng_levels.asshotneutral[0] > 0 && C.dng_levels.asshotneutral[1] > 0) {
+        const float* n = C.dng_levels.asshotneutral;
+        return {n[1] / n[0], 1.0, n[1] / n[2]};
+    }
+    return normalizeMul(C.cam_mul[0] > 0 ? C.cam_mul : C.pre_mul);
+}
+
+} // namespace
+
+int removeHotPixels(quint16* data, int width, int height, int pitch, const int color[2][2], const float black[2][2], float white,
+                    const std::array<double, 3>& mul)
+{
+    // A hot (or stuck) pixel is one sample far above everything around it: the 8 adjacent
+    // samples and the 8 nearest of its own colour (compared white-balanced, so colours are
+    // comparable). Real detail, even a point light, also reaches the neighbours through the
+    // lens. Such samples become the median of their own colour's neighbours.
+    constexpr float kRatio = 2.5f, kFloor = 0.005f; // floor: in white-balanced units, 1 = white
+    float scale[2][2];
+    for (int y = 0; y < 2; ++y)
+        for (int x = 0; x < 2; ++x)
+            scale[y][x] = float(mul[color[y][x]]) / std::max(1.0f, white - black[y][x]);
+    auto value = [&](int x, int y) { return (float(data[size_t(y) * pitch + x]) - black[y & 1][x & 1]) * scale[y & 1][x & 1]; };
+    std::vector<std::vector<std::pair<int, quint16>>> fixes(height);
+#pragma omp parallel for schedule(dynamic, 64)
+    for (int y = 2; y < height - 2; ++y)
+        for (int x = 2; x < width - 2; ++x) {
+            const float v = value(x, y);
+            if (v < kFloor)
+                continue;
+            float mx = 0;
+            for (int dy = -2; dy <= 2; ++dy)
+                for (int dx = -2; dx <= 2; ++dx)
+                    if ((dx || dy) && (std::max(std::abs(dx), std::abs(dy)) == 1 || (dx % 2 == 0 && dy % 2 == 0)))
+                        mx = std::max(mx, value(x + dx, y + dy));
+            if (v > kRatio * mx && v - mx > kFloor) {
+                std::array<quint16, 8> same;
+                int n = 0;
+                for (int dy = -2; dy <= 2; dy += 2)
+                    for (int dx = -2; dx <= 2; dx += 2)
+                        if (dx || dy)
+                            same[n++] = data[size_t(y + dy) * pitch + x + dx];
+                std::sort(same.begin(), same.end());
+                fixes[y].push_back({x, quint16((same[3] + same[4] + 1) / 2)});
+            }
+        }
+    int count = 0;
+    for (int y = 0; y < height; ++y)
+        for (auto [x, v] : fixes[y]) {
+            data[size_t(y) * pitch + x] = v;
+            ++count;
+        }
+    return count;
+}
+
+namespace {
+
+// removeHotPixels on the visible area of an unpacked Bayer raw.
+int removeHotPixels(LibRaw& raw, const std::array<double, 3>& mul)
+{
+    if (!isUnpackedBayer(raw))
+        return 0;
+    const auto& S = raw.imgdata.sizes;
+    const auto& C = raw.imgdata.color;
+    int color[2][2];
+    float black[2][2];
+    for (int y = 0; y < 2; ++y)
+        for (int x = 0; x < 2; ++x) {
+            const int c = raw.COLOR(y, x);
+            color[y][x] = c == 3 ? 1 : std::clamp(c, 0, 2);
+            float b = float(C.black + C.cblack[std::clamp(c, 0, 3)]);
+            if (C.cblack[4] && C.cblack[5]) // pattern black levels (the visible origin's phase)
+                b += float(C.cblack[6 + ((y + S.top_margin) % C.cblack[4]) * C.cblack[5] + (x + S.left_margin) % C.cblack[5]]);
+            black[y][x] = b;
+        }
+    const int pitch = int(S.raw_pitch / 2);
+    quint16* origin = raw.imgdata.rawdata.raw_image + size_t(S.top_margin) * pitch + S.left_margin;
+    return silma::removeHotPixels(origin, S.width, S.height, pitch, color, black, float(C.maximum), mul);
+}
+
 } // namespace
 
 bool isRawFileName(const QString& fileName)
@@ -146,14 +236,8 @@ RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts)
     // Full-resolution visible size (LibRaw shrinks sizes when decoding at half size).
     const int fullW = S.width, fullH = S.height;
 
-    out.color.asShotMul = normalizeMul(C.cam_mul);
+    out.color.asShotMul = asShotMultipliers(*raw);
     out.color.daylightMul = normalizeMul(C.pre_mul);
-    if (out.isDng && C.dng_levels.asshotneutral[0] > 0 && C.dng_levels.asshotneutral[1] > 0) {
-        const float* n = C.dng_levels.asshotneutral;
-        out.color.asShotMul = {n[1] / n[0], 1.0, n[1] / n[2]};
-    }
-    if (C.cam_mul[0] <= 0)
-        out.color.asShotMul = out.color.daylightMul;
     for (int r = 0; r < 3; ++r)
         for (int c = 0; c < 3; ++c)
             out.color.xyzToCam[r][c] = C.cam_xyz[r][c];
@@ -197,6 +281,7 @@ RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts)
                     out.image.data[(size_t(y) * out.image.width + x) * 3 + c] = std::min(1.0f, sum * norm * mul[c]);
                 }
     } else {
+        out.hotPixels = removeHotPixels(*raw, out.color.asShotMul);
         // White-balance for demosaicing with as-shot multipliers; the pipeline re-balances later.
         for (int c = 0; c < 3; ++c)
             P.user_mul[c] = float(out.color.asShotMul[c]);
@@ -277,8 +362,9 @@ BayerMosaic decodeBayerMosaic(const QString& path)
             return out; // decoded ourselves into RGB
     }
     check(raw->unpack(), "Cannot unpack raw data");
-    if (!raw->imgdata.rawdata.raw_image)
+    if (!isUnpackedBayer(*raw))
         return out; // not single-plane CFA data
+    removeHotPixels(*raw, asShotMultipliers(*raw));
     // Visible area into image[][4], black level subtracted (per channel and pattern).
     check(raw->raw2image_ex(1), "Cannot extract raw data");
     const auto& S = raw->imgdata.sizes;

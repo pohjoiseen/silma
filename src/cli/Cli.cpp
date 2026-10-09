@@ -996,7 +996,7 @@ std::map<QString, Command> commands()
         QJsonObject o{{"make", r.make}, {"model", r.model}, {"lens", r.lens}, {"width", r.image.width}, {"height", r.image.height},
                       {"full_width", r.fullWidth}, {"full_height", r.fullHeight}, {"orientation", r.orientation}, {"decode_ms", ms},
                       {"as_shot_mul", arr3(r.color.asShotMul)}, {"daylight_mul", arr3(r.color.daylightMul)}, {"applied_mul", arr3(r.color.appliedMul)},
-                      {"baseline_exposure", r.color.baselineExposure}, {"crop", QJsonArray{r.cropX, r.cropY, r.cropW, r.cropH}},
+                      {"baseline_exposure", r.color.baselineExposure}, {"crop", QJsonArray{r.cropX, r.cropY, r.cropW, r.cropH}}, {"hot_pixels", r.hotPixels},
                       {"opcodes", QJsonArray{r.opcodes.list1.size(), r.opcodes.list2.size(), r.opcodes.list3.size()}}};
         double sum = 0, mx = 0;
         for (float v : r.image.data) {

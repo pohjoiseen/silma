@@ -142,6 +142,42 @@ private slots:
         QVERIFY(healExtent(HealSpot{0.5, 0.5, 0.02, 0, {}}, W, H) < kMaxHealExtent);
     }
 
+    void hotPixels()
+    {
+        // Synthetic RGGB mosaic with noise-free gradients: a hot red and a stuck green sample go,
+        // a bright 3x3 spot (real detail reaches the neighbours) stays.
+        const int W = 40, H = 30;
+        std::vector<quint16> d(size_t(W) * H);
+        for (int y = 0; y < H; ++y)
+            for (int x = 0; x < W; ++x)
+                d[size_t(y) * W + x] = quint16(600 + 10 * x + 5 * y);
+        const int color[2][2] = {{0, 1}, {1, 2}};
+        const float black[2][2] = {{512, 512}, {512, 512}};
+        const std::array<double, 3> mul{2.0, 1.0, 1.5};
+        const quint16 before = d[10 * W + 10];
+        d[10 * W + 10] = 4000;          // red (even row, even column)
+        d[20 * W + 21] = 16383;         // stuck green
+        for (int y = 14; y <= 16; ++y)  // spot
+            for (int x = 30; x <= 32; ++x)
+                d[size_t(y) * W + x] = 9000;
+        QCOMPARE(removeHotPixels(d.data(), W, H, W, color, black, 16383, mul), 2);
+        QVERIFY(std::abs(int(d[10 * W + 10]) - int(before)) < 40);
+        QVERIFY(d[20 * W + 21] < 2000);
+        QCOMPARE(d[15 * W + 31], quint16(9000));
+
+        // The stuck red pixel of the denoise test photo (if available); a daylight photo has
+        // almost none.
+        const QString nef = QString(SILMA_SAMPLES) + "/denoise/DSC_0036.NEF";
+        if (QFile::exists(nef)) {
+            const BayerMosaic m = decodeBayerMosaic(nef);
+            QVERIFY(m.data[size_t(3936) * m.width + 2412] < 0.2f); // was at white level
+            QVERIFY(decodeRaw(nef).hotPixels > 20);
+        }
+        const QString day = sample("2026-05-17");
+        if (!day.isEmpty())
+            QVERIFY(decodeRaw(day).hotPixels <= 2);
+    }
+
     void bayerMosaic()
     {
         // The mosaic matches LibRaw's demosaiced image per colour (without white balance).
