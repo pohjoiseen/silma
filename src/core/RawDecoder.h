@@ -53,12 +53,22 @@ struct RawImage {
     std::shared_ptr<const ValidMask> valid;
 };
 
+// The undemosaiced data of a Bayer sensor (visible area), for models that demosaic themselves.
+struct BayerMosaic {
+    int width = 0, height = 0;
+    std::vector<float> data; // 0 = black level, 1 = white level (not white-balanced, not clipped below 1)
+    int color[2][2] = {};    // colour at (y % 2, x % 2): 0 red, 1 green, 2 blue
+};
+
 struct RawDecodeOptions {
     bool halfSize = false; // fast 2x downscaled decode without demosaicing
 };
 
 // Throws std::runtime_error on failure.
 RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts = {});
+// The Bayer mosaic of a raw file; empty (width 0) when the sensor is not a 2x2 RGB Bayer
+// one (X-Trans, Foveon, monochrome, linear DNGs, ...). Throws on decoding errors.
+BayerMosaic decodeBayerMosaic(const QString& path);
 // Largest embedded JPEG preview, or empty if none.
 QByteArray extractEmbeddedPreview(const QString& path);
 // True for file extensions we consider importable raw files.

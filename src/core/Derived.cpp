@@ -75,10 +75,13 @@ qint64 createAiDenoised(Batch& b, qint64 photoId, const QString& modelId, double
     RawImage raw = decodeRaw(src->path);
     if (cancel && *cancel)
         throw std::runtime_error("Cancelled");
-    ImageF den = aiDenoiseLinear(modelId, raw.image, strength, [&](int d, int t) {
+    auto denoiseProgress = [&](int d, int t) {
         if (progress)
             progress(QStringLiteral("Denoising"), d, t);
-    }, cancel, providerUsed);
+    };
+    const AiModelInfo* model = findAiModel(modelId);
+    ImageF den = model && model->rawInput ? aiDenoiseRaw(modelId, src->path, raw, strength, denoiseProgress, cancel, providerUsed)
+                                          : aiDenoiseLinear(modelId, raw.image, strength, denoiseProgress, cancel, providerUsed);
     if (progress)
         progress(QStringLiteral("Writing DNG"), 0, 0);
     LinearDngInfo info = dngInfoFromRaw(raw, src->path, src->lens);

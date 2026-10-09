@@ -1,5 +1,8 @@
 #include "AiDenoise.h"
 
+#include "Color.h"
+#include "RawDecoder.h"
+
 #include <QCoreApplication>
 #include <QDir>
 #include <QEventLoop>
@@ -14,6 +17,7 @@
 #include <QThread>
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <mutex>
 #include <onnxruntime/onnxruntime_cxx_api.h>
 #include <stdexcept>
@@ -24,6 +28,13 @@ namespace silma {
 QList<AiModelInfo> aiDenoiseModels()
 {
     static const QList<AiModelInfo> models = {
+        // Joint demosaicing and denoising on the raw mosaic; trained on real camera noise.
+        {"rawnind", "RawNIND (raw, demosaics too)", "GPL-3.0", "rawdenoise-nind/model_bayer.onnx", {},
+         "https://github.com/darktable-org/darktable-ai/releases/download/release-5.6.0/rawdenoise-nind.dtmodel", 512, 512,
+         "<a href=\"https://github.com/trougnouf/rawnind_jddc\">trougnouf/rawnind_jddc</a> UtNet2 (Brummer &amp; De Vleeschouwer, "
+         "<a href=\"https://arxiv.org/abs/2501.08924\">arXiv:2501.08924</a>); ONNX: "
+         "<a href=\"https://github.com/darktable-org/darktable-ai\">darktable-ai</a> release-5.6.0",
+         false, false, true, "rawdenoise-nind/model_linear.onnx"},
         // Made by `cmake --build <dir> --target ai-models` (tools/prepare_ai_models.py) from the
         // official weights: no ready-made ONNX export is published.
         {"nafnet-sidd-w32", "NAFNet (SIDD, width 32)", "MIT", "nafnet_w32.onnx", {}, {}, 256, 8,
@@ -55,8 +66,8 @@ const AiModelInfo* findAiModel(const QString& id)
 
 QString defaultAiDenoiseModel()
 {
-    // Width 32 denoises as well as width 64 at about two thirds of the time.
-    return aiModelInstalled(QStringLiteral("nafnet-sidd-w32")) ? QStringLiteral("nafnet-sidd-w32") : QStringLiteral("nafnet-sidd-w64");
+    // Much better detail than NAFNet (trained on real camera raws, not phone JPEGs), and faster.
+    return QStringLiteral("rawnind");
 }
 
 QString aiModelDir(const QString& id)
@@ -239,8 +250,9 @@ QStringList aiExecutionProviders()
     return out;
 }
 
-ImageF runAiDenoise(const QString& modelPath, const ImageF& in, int tile, bool blockedLayout, const AiProgress& progress, const std::atomic<bool>* cancel,
-                    QString* providerUsed)
+namespace {
+
+std::unique_ptr<Ort::Session> makeSession(const QString& modelPath, bool blockedLayout, QString* providerUsed)
 {
     Ort::SessionOptions so;
     so.SetGraphOptimizationLevel(aiGraphOptimization(blockedLayout));
@@ -252,16 +264,34 @@ ImageF runAiDenoise(const QString& modelPath, const ImageF& in, int tile, bool b
     if (providerUsed)
         *providerUsed = provider;
     QByteArray mp = QFile::encodeName(modelPath);
-    Ort::Session session(ortEnv(), mp.constData(), so);
+    return std::make_unique<Ort::Session>(ortEnv(), mp.constData(), so);
+}
+
+// Mirrors an index into [0, len) (repeatedly, for tiles larger than the image).
+int mirror(int i, int len)
+{
+    if (len == 1)
+        return 0;
+    const int period = 2 * (len - 1);
+    i %= period;
+    if (i < 0)
+        i += period;
+    return i < len ? i : period - i;
+}
+
+// Runs a model with a fixed input size over planar data (inC planes of w x h) in overlapping
+// tiles, mirrored at the edges and blended with linear ramps over the overlap. The model
+// outputs outC planes, `scale` times the input size.
+std::vector<float> runTiled(Ort::Session& session, const std::vector<float>& in, int inC, int w, int h, int tile, int outC, int scale,
+                            const AiProgress& progress, const std::atomic<bool>* cancel)
+{
     Ort::AllocatorWithDefaultOptions alloc;
     std::string inName = session.GetInputNameAllocated(0, alloc).get();
     std::string outName = session.GetOutputNameAllocated(0, alloc).get();
-
-    const int w = in.width, h = in.height;
     const int overlap = std::max(16, tile / 8);
     const int stride = tile - overlap;
-    // Tile origins covering the image (last tile aligned to the edge). Small images are
-    // padded by edge replication.
+    // Tile origins covering the image (last tile aligned to the edge; small images get one
+    // tile, mirrored beyond the image).
     auto origins = [&](int len) {
         std::vector<int> o;
         if (len <= tile) {
@@ -278,16 +308,16 @@ ImageF runAiDenoise(const QString& modelPath, const ImageF& in, int tile, bool b
         return o;
     };
     auto ox = origins(w), oy = origins(h);
-    ImageF acc(w, h);
-    PlaneF wsum(w, h, 0.0f);
-    std::vector<float> input(size_t(3) * tile * tile), weight(size_t(tile) * tile);
+    const int W = w * scale, H = h * scale, T = tile * scale;
+    std::vector<float> acc(size_t(outC) * W * H, 0.0f), wsum(size_t(W) * H, 0.0f);
+    std::vector<float> input(size_t(inC) * tile * tile), weight(size_t(T) * T);
     // Blend weights: linear ramps over the overlap.
-    for (int y = 0; y < tile; ++y)
-        for (int x = 0; x < tile; ++x) {
-            auto ramp = [&](int i) { return std::min(1.0f, (std::min(i, tile - 1 - i) + 1.0f) / float(overlap)); };
-            weight[size_t(y) * tile + x] = std::max(1e-3f, ramp(x) * ramp(y));
+    for (int y = 0; y < T; ++y)
+        for (int x = 0; x < T; ++x) {
+            auto ramp = [&](int i) { return std::min(1.0f, (std::min(i, T - 1 - i) + 1.0f) / float(overlap * scale)); };
+            weight[size_t(y) * T + x] = std::max(1e-3f, ramp(x) * ramp(y));
         }
-    std::array<int64_t, 4> shape{1, 3, tile, tile};
+    std::array<int64_t, 4> shape{1, inC, tile, tile};
     Ort::MemoryInfo memInfo = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
     const int total = int(ox.size() * oy.size());
     int done = 0;
@@ -295,35 +325,64 @@ ImageF runAiDenoise(const QString& modelPath, const ImageF& in, int tile, bool b
         for (int tx : ox) {
             if (cancel && *cancel)
                 throw std::runtime_error("Cancelled");
-            for (int c = 0; c < 3; ++c)
+            for (int c = 0; c < inC; ++c)
                 for (int y = 0; y < tile; ++y) {
-                    int sy = std::clamp(ty + y, 0, h - 1);
-                    for (int x = 0; x < tile; ++x) {
-                        int sx = std::clamp(tx + x, 0, w - 1);
-                        input[(size_t(c) * tile + y) * tile + x] = in.px(sx, sy)[c];
-                    }
+                    const float* src = in.data() + (size_t(c) * h + mirror(ty + y, h)) * w;
+                    float* dst = input.data() + (size_t(c) * tile + y) * tile;
+                    for (int x = 0; x < tile; ++x)
+                        dst[x] = src[mirror(tx + x, w)];
                 }
             Ort::Value inT = Ort::Value::CreateTensor<float>(memInfo, input.data(), input.size(), shape.data(), shape.size());
             const char* inNames[] = {inName.c_str()};
             const char* outNames[] = {outName.c_str()};
             auto outs = session.Run(Ort::RunOptions{nullptr}, inNames, &inT, 1, outNames, 1);
             const float* o = outs[0].GetTensorData<float>();
-            for (int y = 0; y < tile && ty + y < h; ++y)
-                for (int x = 0; x < tile && tx + x < w; ++x) {
-                    float wt = weight[size_t(y) * tile + x];
-                    float* a = acc.px(tx + x, ty + y);
-                    for (int c = 0; c < 3; ++c)
-                        a[c] += wt * o[(size_t(c) * tile + y) * tile + x];
-                    wsum.at(tx + x, ty + y) += wt;
+            const int X0 = tx * scale, Y0 = ty * scale;
+            for (int y = 0; y < T && Y0 + y < H; ++y)
+                for (int x = 0; x < T && X0 + x < W; ++x) {
+                    const float wt = weight[size_t(y) * T + x];
+                    const size_t at = size_t(Y0 + y) * W + X0 + x;
+                    for (int c = 0; c < outC; ++c)
+                        acc[size_t(c) * W * H + at] += wt * o[(size_t(c) * T + y) * T + x];
+                    wsum[at] += wt;
                 }
             if (progress)
                 progress(++done, total);
         }
     }
-    for (int i = 0; i < w * h; ++i)
-        for (int c = 0; c < 3; ++c)
-            acc.data[size_t(i) * 3 + c] /= std::max(wsum.data[i], 1e-6f);
+    for (int c = 0; c < outC; ++c)
+        for (size_t i = 0; i < wsum.size(); ++i)
+            acc[size_t(c) * W * H + i] /= std::max(wsum[i], 1e-6f);
     return acc;
+}
+
+std::vector<float> toPlanar(const ImageF& img)
+{
+    const size_t n = img.pixelCount();
+    std::vector<float> out(3 * n);
+    for (size_t i = 0; i < n; ++i)
+        for (int c = 0; c < 3; ++c)
+            out[c * n + i] = img.data[i * 3 + c];
+    return out;
+}
+
+ImageF fromPlanar(const std::vector<float>& planes, int w, int h)
+{
+    ImageF out(w, h);
+    const size_t n = out.pixelCount();
+    for (size_t i = 0; i < n; ++i)
+        for (int c = 0; c < 3; ++c)
+            out.data[i * 3 + c] = planes[c * n + i];
+    return out;
+}
+
+} // namespace
+
+ImageF runAiDenoise(const QString& modelPath, const ImageF& in, int tile, bool blockedLayout, const AiProgress& progress, const std::atomic<bool>* cancel,
+                    QString* providerUsed)
+{
+    auto session = makeSession(modelPath, blockedLayout, providerUsed);
+    return fromPlanar(runTiled(*session, toPlanar(in), 3, in.width, in.height, tile, 3, 1, progress, cancel), in.width, in.height);
 }
 
 ImageF runAiInpaint(const ImageF& img, const PlaneF& mask, QString* providerUsed)
@@ -422,6 +481,127 @@ ImageF aiDenoiseLinear(const QString& modelId, const ImageF& linear, double stre
         out.data[i] = std::expm1(e / norm) / fk;
     }
     return out;
+}
+
+namespace {
+
+// Scale making the mean of `out` that of `in` (the RawNIND models output at an arbitrary gain).
+// `outWeights`: weights of the output planes in that mean (to match a mosaic, where green
+// counts twice).
+float matchGain(const std::vector<float>& in, const std::vector<float>& out, std::array<double, 3> outWeights = {1, 1, 1})
+{
+    double a = 0, b = 0;
+    for (float v : in)
+        a += v;
+    const size_t n = out.size() / 3;
+    for (int c = 0; c < 3; ++c) {
+        double s = 0;
+        for (size_t i = 0; i < n; ++i)
+            s += out[c * n + i];
+        b += outWeights[c] * s;
+    }
+    a /= double(in.size());
+    b /= double(n) * (outWeights[0] + outWeights[1] + outWeights[2]);
+    return std::abs(b) > 1e-12 ? float(a / b) : 1.0f;
+}
+
+// Bayer variant: the mosaic packed into R, G1, G2, B planes at half size; outputs camera RGB
+// (not white-balanced) at full size. Empty when the sensor is not a usable Bayer one.
+ImageF denoiseBayer(Ort::Session& session, const QString& path, const RawImage& raw, int tile, const AiProgress& progress, const std::atomic<bool>* cancel)
+{
+    const BayerMosaic m = decodeBayerMosaic(path);
+    if (m.width == 0 || m.width != raw.image.width || m.height != raw.image.height)
+        return {};
+    // Offset of an RGGB quad (the model expects red at the top left).
+    int ry = -1, rx = -1;
+    for (int y = 0; y < 2; ++y)
+        for (int x = 0; x < 2; ++x)
+            if (m.color[y][x] == 0)
+                ry = y, rx = x;
+    if (ry < 0 || m.color[ry][1 - rx] != 1 || m.color[1 - ry][rx] != 1 || m.color[1 - ry][1 - rx] != 2)
+        return {};
+    const int pw = (m.width - rx) / 2, ph = (m.height - ry) / 2;
+    if (pw < 16 || ph < 16)
+        return {};
+    const size_t pn = size_t(pw) * ph;
+    std::vector<float> packed(4 * pn);
+    for (int y = 0; y < ph; ++y)
+        for (int x = 0; x < pw; ++x) {
+            const float* q = m.data.data() + size_t(ry + 2 * y) * m.width + rx + 2 * x;
+            const size_t i = size_t(y) * pw + x;
+            packed[i] = q[0];
+            packed[pn + i] = q[1];
+            packed[2 * pn + i] = q[m.width];
+            packed[3 * pn + i] = q[m.width + 1];
+        }
+    std::vector<float> den = runTiled(session, packed, 4, pw, ph, tile, 3, 2, progress, cancel);
+    const float gain = matchGain(packed, den, {1, 2, 1});
+    // Back to the full frame; the odd row/column the quad offset leaves out is repeated.
+    const int W = 2 * pw, H = 2 * ph;
+    const size_t n = size_t(W) * H;
+    ImageF out(m.width, m.height);
+#pragma omp parallel for schedule(static)
+    for (int y = 0; y < m.height; ++y) {
+        const int sy = std::clamp(y - ry, 0, H - 1);
+        for (int x = 0; x < m.width; ++x) {
+            const size_t i = size_t(sy) * W + std::clamp(x - rx, 0, W - 1);
+            for (int c = 0; c < 3; ++c)
+                out.px(x, y)[c] = den[c * n + i] * gain;
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+ImageF aiDenoiseRaw(const QString& modelId, const QString& path, const RawImage& raw, double strength, const AiProgress& progress,
+                    const std::atomic<bool>* cancel, QString* providerUsed)
+{
+    const AiModelInfo* m = findAiModel(modelId);
+    if (!m || !m->rawInput)
+        throw std::runtime_error(("Not a raw denoise model: " + modelId).toStdString());
+    if (!aiModelInstalled(modelId))
+        throw std::runtime_error("Model not installed");
+    const float mul[3] = {float(raw.color.appliedMul[0]), float(raw.color.appliedMul[1]), float(raw.color.appliedMul[2])};
+    ImageF den;
+    if (!raw.halfSize && !qEnvironmentVariableIsSet("SILMA_AI_FORCE_LINEAR")) {
+        auto session = makeSession(aiModelDir(modelId) + "/" + m->onnxFile, m->blockedLayout, providerUsed);
+        den = denoiseBayer(*session, path, raw, m->tileSize, progress, cancel);
+        // White balance and clip like the decoder does.
+#pragma omp parallel for schedule(static)
+        for (size_t i = 0; i < den.pixelCount(); ++i)
+            for (int c = 0; c < 3; ++c)
+                den.data[i * 3 + c] = std::clamp(den.data[i * 3 + c] * mul[c], 0.0f, 1.0f);
+    }
+    if (den.empty()) {
+        // Other sensors: the linear variant on the demosaiced image in linear Rec.2020.
+        auto session = makeSession(aiModelDir(modelId) + "/" + m->linearOnnxFile, m->blockedLayout, providerUsed);
+        const Mat3 toRec = CameraColor(raw.color).camToRec2020(Vec3{raw.color.asShotMul[0], raw.color.asShotMul[1], raw.color.asShotMul[2]});
+        const Mat3 fromRec = matInverse(toRec);
+        ImageF rec(raw.image.width, raw.image.height);
+#pragma omp parallel for schedule(static)
+        for (size_t i = 0; i < rec.pixelCount(); ++i) {
+            const Vec3 v = matMul(toRec, Vec3{raw.image.data[i * 3], raw.image.data[i * 3 + 1], raw.image.data[i * 3 + 2]});
+            for (int c = 0; c < 3; ++c)
+                rec.data[i * 3 + c] = float(v[c]);
+        }
+        const std::vector<float> in = toPlanar(rec);
+        std::vector<float> out = runTiled(*session, in, 3, rec.width, rec.height, m->tileSize, 3, 1, progress, cancel);
+        const float gain = matchGain(in, out);
+        den = fromPlanar(out, rec.width, rec.height);
+#pragma omp parallel for schedule(static)
+        for (size_t i = 0; i < den.pixelCount(); ++i) {
+            float* p = den.data.data() + i * 3;
+            const Vec3 v = matMul(fromRec, Vec3{p[0] * gain, p[1] * gain, p[2] * gain});
+            for (int c = 0; c < 3; ++c)
+                p[c] = std::clamp(float(v[c]), 0.0f, 1.0f);
+        }
+    }
+    const float s = float(std::clamp(strength, 0.0, 1.0));
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < den.data.size(); ++i)
+        den.data[i] = raw.image.data[i] + s * (den.data[i] - raw.image.data[i]);
+    return den;
 }
 
 } // namespace silma

@@ -32,12 +32,16 @@ struct AiModelInfo {
     // for the others its layout conversions cost more than they save, up to 4x on some machines
     // (strided memory traffic that can be dramatically slow natively).
     bool blockedLayout = false;
+    // Works on raw data (aiDenoiseRaw): `onnxFile` on the Bayer mosaic, demosaicing at the same
+    // time; `linearOnnxFile` on demosaiced linear Rec.2020 for other sensors.
+    bool rawInput = false;
+    QString linearOnnxFile;
 };
 
 QList<AiModelInfo> aiDenoiseModels();
 AiModelInfo aiInpaintModel();
 const AiModelInfo* findAiModel(const QString& id);
-// The best installed denoise model (NAFNet width 32 once prepared).
+// The default denoise model (RawNIND).
 QString defaultAiDenoiseModel();
 
 // Model storage: $XDG_DATA_HOME/silma/models/<id>/
@@ -71,5 +75,13 @@ ImageF aiDenoiseEncode(const ImageF& linear, float* k = nullptr, float* norm = n
 // log encoding adapted to the image brightness. strength 0..1 blends with the input.
 ImageF aiDenoiseLinear(const QString& modelId, const ImageF& linear, double strength, const AiProgress& progress = {},
                        const std::atomic<bool>* cancel = nullptr, QString* providerUsed = nullptr);
+
+struct RawImage;
+
+// Denoises a raw file with a raw-input model (AiModelInfo::rawInput). `raw` is its decodeRaw()
+// result; returns the same kind of image (white-balanced camera RGB, 1 = clip). Bayer sensors
+// are denoised on the mosaic, the others on `raw.image`. strength 0..1 blends with the input.
+ImageF aiDenoiseRaw(const QString& modelId, const QString& path, const RawImage& raw, double strength, const AiProgress& progress = {},
+                    const std::atomic<bool>* cancel = nullptr, QString* providerUsed = nullptr);
 
 } // namespace silma

@@ -263,6 +263,52 @@ RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts)
     return out;
 }
 
+BayerMosaic decodeBayerMosaic(const QString& path)
+{
+    LibRawPtr raw = openRaw(path);
+    const auto& I = raw->imgdata.idata;
+    BayerMosaic out;
+    // filters: 0 = no CFA (linear), 1 = Leaf, 2 = Fuji SuperCCD-like, 9 = X-Trans; Bayer otherwise.
+    if (I.colors != 3 || I.filters < 1000 || raw->imgdata.sizes.pixel_aspect != 1.0 || raw->is_fuji_rotated())
+        return out;
+    if (I.dng_version != 0) {
+        QFile f(path);
+        if (f.open(QIODevice::ReadOnly) && isJxlDng(f.readAll()))
+            return out; // decoded ourselves into RGB
+    }
+    check(raw->unpack(), "Cannot unpack raw data");
+    if (!raw->imgdata.rawdata.raw_image)
+        return out; // not single-plane CFA data
+    // Visible area into image[][4], black level subtracted (per channel and pattern).
+    check(raw->raw2image_ex(1), "Cannot extract raw data");
+    const auto& S = raw->imgdata.sizes;
+    const auto& C = raw->imgdata.color;
+    out.width = S.iwidth;
+    out.height = S.iheight;
+    bool seen[3] = {};
+    for (int y = 0; y < 2; ++y)
+        for (int x = 0; x < 2; ++x) {
+            int c = raw->COLOR(y, x);
+            out.color[y][x] = c == 3 ? 1 : c;
+            if (c < 0 || c > 3)
+                return {};
+            seen[out.color[y][x]] = true;
+        }
+    if (!seen[0] || !seen[1] || !seen[2])
+        return {};
+    const float scale = 1.0f / float(std::max(1u, C.maximum - C.black));
+    out.data.resize(size_t(out.width) * out.height);
+    const auto* img = raw->imgdata.image;
+#pragma omp parallel for schedule(static)
+    for (int y = 0; y < out.height; ++y)
+        for (int x = 0; x < out.width; ++x) {
+            const auto& p = img[size_t(y) * out.width + x];
+            // One component holds the sample (which one depends on the colour index).
+            out.data[size_t(y) * out.width + x] = float(std::max({p[0], p[1], p[2], p[3]})) * scale;
+        }
+    return out;
+}
+
 QByteArray extractEmbeddedPreview(const QString& path)
 {
     LibRawPtr raw = openRaw(path);

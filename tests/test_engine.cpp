@@ -3,6 +3,7 @@
 #include "Export.h"
 #include "AiDenoise.h"
 #include "Heal.h"
+#include "RawDecoder.h"
 
 #include <QDir>
 #include <QTemporaryDir>
@@ -141,6 +142,87 @@ private slots:
         QVERIFY(healExtent(HealSpot{0.5, 0.5, 0.02, 0, {}}, W, H) < kMaxHealExtent);
     }
 
+    void bayerMosaic()
+    {
+        // The mosaic matches LibRaw's demosaiced image per colour (without white balance).
+        for (const char* dir : {"2026-08-08", "2026-05-17"}) {
+            const QString f = sample(dir);
+            if (f.isEmpty())
+                QSKIP("samples not available");
+            const BayerMosaic m = decodeBayerMosaic(f);
+            const RawImage raw = decodeRaw(f);
+            QCOMPARE(m.width, raw.image.width);
+            QCOMPARE(m.height, raw.image.height);
+            double sum[3] = {}, ref[3] = {};
+            long n[3] = {};
+            for (int y = 0; y < m.height; y += 3)
+                for (int x = 0; x < m.width; x += 5) {
+                    const int c = m.color[y % 2][x % 2];
+                    const float v = raw.image.px(x, y)[c];
+                    if (v > 0.9f)
+                        continue; // clipped by LibRaw
+                    sum[c] += m.data[size_t(y) * m.width + x];
+                    ref[c] += v / raw.color.appliedMul[c];
+                    ++n[c];
+                }
+            for (int c = 0; c < 3; ++c) {
+                QVERIFY(n[c] > 1000);
+                QVERIFY(std::abs(sum[c] / ref[c] - 1) < 0.02);
+            }
+        }
+    }
+
+    void rawAiDenoise()
+    {
+        // Needs the downloaded model (run with SILMA_MODEL_DIR pointing at installed models).
+        if (!aiModelInstalled("rawnind"))
+            QSKIP("RawNIND model not installed");
+        const QString f = sample("2026-05-17");
+        if (f.isEmpty())
+            QSKIP("samples not available");
+        const RawImage raw = decodeRaw(f);
+        // Fine-scale variation (difference to a 3x3 box mean) and mean of a channel.
+        auto stats = [&](const ImageF& img, int c, double& mean, double& detail) {
+            double s = 0, d = 0;
+            long n = 0;
+            for (int y = 1; y < img.height - 1; y += 4)
+                for (int x = 1; x < img.width - 1; x += 4) {
+                    double box = 0;
+                    for (int dy = -1; dy <= 1; ++dy)
+                        for (int dx = -1; dx <= 1; ++dx)
+                            box += img.px(x + dx, y + dy)[c];
+                    const double v = img.px(x, y)[c];
+                    s += v;
+                    d += std::abs(v - box / 9);
+                    ++n;
+                }
+            mean = s / n;
+            detail = d / n;
+        };
+        auto check = [&](const ImageF& den) {
+            QCOMPARE(den.width, raw.image.width);
+            QCOMPARE(den.height, raw.image.height);
+            for (int c = 0; c < 3; ++c) {
+                double m0, d0, m1, d1;
+                stats(raw.image, c, m0, d0);
+                stats(den, c, m1, d1);
+                // Same brightness and colour, much less pixel-level noise.
+                QVERIFY2(std::abs(m1 / m0 - 1) < 0.03, qPrintable(QStringLiteral("channel %1 mean %2 -> %3").arg(c).arg(m0).arg(m1)));
+                QVERIFY2(d1 < 0.7 * d0, qPrintable(QStringLiteral("channel %1 detail %2 -> %3").arg(c).arg(d0).arg(d1)));
+            }
+        };
+        int steps = 0;
+        check(aiDenoiseRaw("rawnind", f, raw, 1.0, [&](int, int) { ++steps; }));
+        QVERIFY(steps > 1);
+        // Strength 0 is the input unchanged.
+        const ImageF none = aiDenoiseRaw("rawnind", f, raw, 0.0);
+        QVERIFY(none.data == raw.image.data);
+        // The variant for other sensors (on the demosaiced image).
+        qputenv("SILMA_AI_FORCE_LINEAR", "1");
+        check(aiDenoiseRaw("rawnind", f, raw, 1.0));
+        qunsetenv("SILMA_AI_FORCE_LINEAR");
+    }
+
     void preparedAiModels()
     {
         // The NAFNet width-32 models are made locally (ai-models target), never downloaded.
@@ -153,19 +235,15 @@ private slots:
         QVERIFY(findAiModel("nafnet-sidd-w32-int8")->blockedLayout);
         QVERIFY(!w32->blockedLayout && !findAiModel("nafnet-sidd-w64")->blockedLayout && !aiInpaintModel().blockedLayout);
         QVERIFY(!findAiModel("scunet-real-psnr")); // dropped: it wiped out fine texture
-        QCOMPARE(defaultAiDenoiseModel(), QStringLiteral("nafnet-sidd-w64"));
+        // The default is the raw model (downloaded, not prepared), installed or not.
+        QCOMPARE(defaultAiDenoiseModel(), QStringLiteral("rawnind"));
+        QVERIFY(findAiModel("rawnind")->rawInput && !findAiModel("rawnind")->prepared && !w32->rawInput);
         try {
             downloadAiModel("nafnet-sidd-w32");
             QFAIL("prepared models cannot be downloaded");
         } catch (const std::runtime_error& e) {
             QVERIFY(QString::fromUtf8(e.what()).contains("--target ai-models"));
         }
-        // Once prepared, width 32 is the default (same quality as width 64, about twice as fast).
-        QDir().mkpath(aiModelDir("nafnet-sidd-w32"));
-        QFile f(aiModelDir("nafnet-sidd-w32") + "/" + w32->onnxFile);
-        QVERIFY(f.open(QIODevice::WriteOnly));
-        f.close();
-        QCOMPARE(defaultAiDenoiseModel(), QStringLiteral("nafnet-sidd-w32"));
         if (before.isNull())
             qunsetenv("SILMA_MODEL_DIR");
         else

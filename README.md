@@ -70,7 +70,13 @@ window and exits (works with `QT_QPA_PLATFORM=offscreen`).
 AI denoise, HDR and panorama results are written as linear (floating point) DNGs next to the
 source photo, added to the batch and developed like any raw. Panoramas include a DNG transparency
 mask of the stitched area, so Auto Crop works on them later too (e.g. after `pano --no-crop`). AI models are downloaded on first
-use to `~/.local/share/silma/models` (NAFNet-SIDD; LaMa for heal).
+use to `~/.local/share/silma/models` (RawNIND for denoise; LaMa for heal).
+
+AI denoise uses RawNIND by default (Benoit Brummer's UtNet2, GPL-3.0, trained on real camera
+noise; ONNX export from darktable). On Bayer sensors it works on the raw mosaic and demosaics at
+the same time (about 8 s per 24 MP photo on a Ryzen 5 8600G); on others (X-Trans, Foveon, linear
+DNGs) a second variant denoises the demosaiced image in linear Rec.2020 (about 25 s).
+`SILMA_AI_FORCE_LINEAR=1` uses that variant on Bayer sensors too (for comparing).
 AI Heal (Q) fills a clicked spot or a dragged brush stroke; its fills are stored in the batch, so
 heals are ordinary undoable edits. LaMa works at 512×512, so a heal may span at most a fifth of the
 photo's long edge, and larger ones come out softer.
@@ -81,9 +87,10 @@ come out black, and Auto Crop finds the largest fully covered rectangle (any asp
 unless the crop already has a locked one). JPEG XL compressed mosaic (CFA) DNGs are not supported yet.
 
 
-### Faster AI denoise models
+### NAFNet denoise models
 
-NAFNet width 32 denoises as well as the default width-64 model in about half the time, but no
+The older NAFNet models (trained on smartphone photos) remain available; they keep less fine
+detail than RawNIND. NAFNet width 32 denoises as well as width 64 in about half the time, but no
 ready-made ONNX export of it exists, so it is made locally from the official weights (needs
 Python 3 and the network; PyTorch is installed into a venv in the build dir):
 
@@ -92,7 +99,7 @@ Python 3 and the network; PyTorch is installed into a venv in the build dir):
 For a 24 MP photo on a Ryzen 5 8600G: width 64 takes 225 s, width 32 73 s. It also makes an 8-bit
 version, calibrated on the raw files in `example-raws/` (set `SILMA_CALIBRATION_RAWS` to use
 another folder): a little faster (67 s), denoising a little less. Any Python 3.10+ works; the
-target prints the versions it used. Width 32 becomes the default once prepared.
+target prints the versions it used.
 
 For measuring: `SILMA_AI_THREADS` sets the inference threads (default: one per physical core),
 `SILMA_AI_LAYOUT=0/1` switches ONNX Runtime's blocked layout transform (on only for the 8-bit

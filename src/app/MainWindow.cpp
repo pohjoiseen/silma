@@ -1388,7 +1388,7 @@ void MainWindow::aiDenoise()
     QStringList prov = aiExecutionProviders();
     bool gpu = prov.contains("MIGraphX") || prov.contains("ROCM") || prov.contains("CUDA");
     auto* info = new QLabel(gpu ? tr("Runs on the GPU (%1).").arg(prov.join(", "))
-                                : tr("Runs on the CPU: this takes several minutes per photo. Install onnxruntime-rocm (AMD) or onnxruntime-cuda for GPU acceleration."),
+                                : tr("Runs on the CPU: RawNIND takes about 10 s per 24 MP photo, NAFNet over a minute. Install onnxruntime-rocm (AMD) or onnxruntime-cuda for GPU acceleration."),
                             &dlg);
     info->setWordWrap(true);
     l->addRow(info);

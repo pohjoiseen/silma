@@ -809,14 +809,20 @@ std::map<QString, Command> commands()
         auto r = a.value("roi", "0.4,0.4,0.1,0.15").split(',');
         int x0 = int(r[0].toDouble() * raw.image.width), y0 = int(r[1].toDouble() * raw.image.height);
         int cw = int(r[2].toDouble() * raw.image.width), ch = int(r[3].toDouble() * raw.image.height);
-        ImageF crop(cw, ch);
-        for (int y = 0; y < ch; ++y)
-            std::copy_n(raw.image.px(x0, y0 + y), cw * 3, crop.row(y));
+        auto cropOf = [&](const ImageF& img) {
+            ImageF c(cw, ch);
+            for (int y = 0; y < ch; ++y)
+                std::copy_n(img.px(x0, y0 + y), cw * 3, c.row(y));
+            return c;
+        };
+        ImageF crop = cropOf(raw.image);
         QElapsedTimer t;
         t.start();
         QString prov;
-        ImageF den = aiDenoiseLinear(model, crop, 1.0, {}, nullptr, &prov);
-        double mpix = double(cw) * ch / 1e6;
+        // Raw models need the whole file: denoise it all, time per megapixel of that.
+        const bool rawModel = findAiModel(model) && findAiModel(model)->rawInput;
+        ImageF den = rawModel ? cropOf(aiDenoiseRaw(model, a.positional()[1], raw, 1.0, {}, nullptr, &prov)) : aiDenoiseLinear(model, crop, 1.0, {}, nullptr, &prov);
+        double mpix = rawModel ? double(raw.image.pixelCount()) / 1e6 : double(cw) * ch / 1e6;
         out() << QStringLiteral("%1: %2x%3 in %4 ms on %5 (%6 s per 24 MP)\n").arg(model).arg(cw).arg(ch).arg(t.elapsed()).arg(prov).arg(t.elapsed() / 1000.0 / mpix * 24, 0, 'f', 1);
         // Quick look: simple gain + sRGB gamma, original left, denoised right.
         float gain = 0.25f / std::max(1e-4f, [&] { double s = 0; for (float v : crop.data) s += v; return float(s / crop.data.size()); }());
@@ -863,7 +869,7 @@ std::map<QString, Command> commands()
         out() << "Wrote " << written << " tiles to " << dir << '\n';
     }};
 
-    m["ai-denoise"] = {"ai-denoise PHOTO... [--model ID] [--strength 0..100]", "AI noise reduction into a new DNG photo (slow on CPU)", {"model", "strength", "import"}, {}, true, [](const Args& a, Batch* b, bool json) {
+    m["ai-denoise"] = {"ai-denoise PHOTO... [--model ID] [--strength 0..100]", "AI noise reduction into a new DNG photo", {"model", "strength", "import"}, {}, true, [](const Args& a, Batch* b, bool json) {
         auto ps = resolvePhotos(*b, a.positional(), a.value("import"));
         QString model = a.value("model", defaultAiDenoiseModel());
         if (!findAiModel(model))
