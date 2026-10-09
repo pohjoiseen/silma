@@ -7,11 +7,12 @@ pkgdesc="Raw photo developer modelled on Lightroom Classic's Develop module (AI 
 arch=('x86_64')
 url="https://github.com/pohjoiseen/silma"
 license=('GPL-3.0-or-later')
-depends=('qt6-base' 'qt6-svg' 'libraw' 'exiv2' 'lensfun' 'libjpeg-turbo' 'libtiff' 'libjxl' 'libheif'
-         'sqlite' 'lcms2' 'opencv' 'onnxruntime' 'libgomp' 'glibc' 'gcc-libs' 'hicolor-icon-theme')
+# qt6-svg: the SVG icon; kcolorscheme: KDE colour schemes (Breeze Dark by default).
+depends=('qt6-base' 'qt6-svg' 'kcolorscheme' 'libraw' 'exiv2' 'lensfun' 'libjpeg-turbo' 'libtiff' 'libjxl'
+         'libheif' 'sqlite' 'lcms2' 'opencv' 'onnxruntime' 'libgomp' 'libstdc++' 'libgcc' 'glibc'
+         'hicolor-icon-theme')
 makedepends=('git' 'cmake' 'ninja')
-optdepends=('kcolorscheme: KDE colour schemes (Breeze Dark by default) instead of a built-in dark palette'
-            'onnxruntime-opt-rocm: AI denoise and heal on AMD GPUs (instead of onnxruntime-cpu)'
+optdepends=('onnxruntime-opt-rocm: AI denoise and heal on AMD GPUs (instead of onnxruntime-cpu)'
             'onnxruntime-cuda: AI denoise and heal on NVIDIA GPUs (instead of onnxruntime-cpu)')
 provides=("$_pkgname")
 conflicts=("$_pkgname")
