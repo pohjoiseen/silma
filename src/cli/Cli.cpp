@@ -984,6 +984,20 @@ std::map<QString, Command> commands()
                 if (!json)
                     err() << "\r" << step << (total > 0 ? QStringLiteral(" %1/%2").arg(d).arg(total) : QString()) << "          " << Qt::flush;
             };
+            if (!hdr && a.has("preview")) {
+                PanoramaPreview preview(ps, progress);
+                QImage img = preview.render(!a.has("no-tone"), 1600);
+                const QRectF c = preview.autoCrop();
+                if (!a.has("no-crop"))
+                    img = img.copy(QRectF(c.x() * img.width(), c.y() * img.height(), c.width() * img.width(), c.height() * img.height()).toRect());
+                if (!img.save(a.value("preview")))
+                    fail("Cannot write " + a.value("preview"));
+                if (json)
+                    printJson(QJsonObject{{"file", a.value("preview")}, {"width", img.width()}, {"height", img.height()}, {"seconds", t.elapsed() / 1000.0}});
+                else
+                    out() << "\nPreview " << a.value("preview") << " (" << img.width() << "x" << img.height() << ", " << t.elapsed() / 1000.0 << " s)\n";
+                return;
+            }
             qint64 id;
             if (hdr) {
                 HdrOptions o;
@@ -1003,7 +1017,8 @@ std::map<QString, Command> commands()
         };
     };
     m["hdr"] = {"hdr PHOTO PHOTO... [--no-align] [--no-deghost]", "Merge bracketed exposures into an HDR DNG", {"import"}, {"no-align", "no-deghost"}, true, mergeCmd(true)};
-    m["pano"] = {"pano PHOTO PHOTO... [--no-crop]", "Stitch a cylindrical panorama DNG", {"import"}, {"no-crop"}, true, mergeCmd(false)};
+    m["pano"] = {"pano PHOTO PHOTO... [--no-crop] [--preview OUT.jpg [--no-tone]]", "Stitch a cylindrical panorama DNG (or only a quick preview image)", {"import", "preview"},
+                 {"no-crop", "no-tone"}, true, mergeCmd(false)};
 
     m["heal"] = {"heal PHOTO X,Y[,R]... | --clear | --undo-last", "Generative heal of spots; X,Y,R relative to the rendered output (R of the long edge, default 0.02)",
                  {"import"}, {"clear", "undo-last"}, true, [](const Args& a, Batch* b, bool json) {

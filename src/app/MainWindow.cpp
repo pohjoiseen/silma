@@ -16,6 +16,7 @@
 #include "RenderedImage.h"
 #include "Merge.h"
 #include "DenoiseDialog.h"
+#include "PanoramaDialog.h"
 #include "Dialogs.h"
 #include "Filmstrip.h"
 #include "Importer.h"
@@ -1563,22 +1564,31 @@ void MainWindow::mergePhotos(bool hdr)
         QMessageBox::information(this, title, tr("Select at least two photos in the filmstrip (Ctrl+click or Shift+click)."));
         return;
     }
+    if (!hdr) {
+        QList<PhotoInfo> photos;
+        for (qint64 id : ids)
+            if (auto p = m_batch.photo(id))
+                photos << *p;
+        PanoramaDialog dlg(photos, this);
+        if (dlg.exec() != QDialog::Accepted)
+            return;
+        const PanoOptions o = dlg.options();
+        runDerivedJob(title, [ids, o](Batch& b, const auto& progress, const std::atomic<bool>* cancel) {
+            return QList<qint64>{createPanorama(b, ids, o, progress, cancel)};
+        });
+        return;
+    }
     QDialog dlg(this);
     dlg.setWindowTitle(title);
     auto* l = new QVBoxLayout(&dlg);
-    l->addWidget(new QLabel(hdr ? tr("Merge %n bracketed exposure(s) into an HDR DNG.", nullptr, int(ids.size()))
-                                : tr("Stitch %n photo(s) into a cylindrical panorama DNG.", nullptr, int(ids.size())), &dlg));
-    auto* c1 = new QCheckBox(hdr ? tr("Align photos") : tr("Auto crop"), &dlg);
+    l->addWidget(new QLabel(tr("Merge %n bracketed exposure(s) into an HDR DNG.", nullptr, int(ids.size())), &dlg));
+    auto* c1 = new QCheckBox(tr("Align photos"), &dlg);
     auto* c2 = new QCheckBox(tr("Remove ghosts (moving objects)"), &dlg);
     auto* c3 = new QCheckBox(tr("Auto tone"), &dlg);
-    for (auto* c : {c1, c2, c3})
+    for (auto* c : {c1, c2, c3}) {
         c->setChecked(true);
-    l->addWidget(c1);
-    if (hdr)
-        l->addWidget(c2);
-    else
-        c2->hide();
-    l->addWidget(c3);
+        l->addWidget(c);
+    }
     auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
     bb->button(QDialogButtonBox::Ok)->setText(tr("Merge"));
     connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
@@ -1586,17 +1596,10 @@ void MainWindow::mergePhotos(bool hdr)
     l->addWidget(bb);
     if (dlg.exec() != QDialog::Accepted)
         return;
-    if (hdr) {
-        HdrOptions o{c1->isChecked(), c2->isChecked(), c3->isChecked()};
-        runDerivedJob(title, [ids, o](Batch& b, const auto& progress, const std::atomic<bool>* cancel) {
-            return QList<qint64>{createHdrMerge(b, ids, o, progress, cancel)};
-        });
-    } else {
-        PanoOptions o{c1->isChecked(), c3->isChecked()};
-        runDerivedJob(title, [ids, o](Batch& b, const auto& progress, const std::atomic<bool>* cancel) {
-            return QList<qint64>{createPanorama(b, ids, o, progress, cancel)};
-        });
-    }
+    HdrOptions o{c1->isChecked(), c2->isChecked(), c3->isChecked()};
+    runDerivedJob(title, [ids, o](Batch& b, const auto& progress, const std::atomic<bool>* cancel) {
+        return QList<qint64>{createHdrMerge(b, ids, o, progress, cancel)};
+    });
 }
 
 bool MainWindow::ensureAiModel(const QString& id)

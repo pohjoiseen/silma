@@ -4,8 +4,11 @@
 #include "Batch.h"
 #include "Derived.h"
 
+#include <QImage>
 #include <QList>
+#include <QRectF>
 #include <atomic>
+#include <memory>
 
 namespace silma {
 
@@ -25,6 +28,24 @@ qint64 createHdrMerge(Batch& b, const QList<qint64>& ids, const HdrOptions& o, c
                       const std::atomic<bool>* cancel = nullptr);
 qint64 createPanorama(Batch& b, const QList<qint64>& ids, const PanoOptions& o, const StepProgress& progress = {},
                       const std::atomic<bool>* cancel = nullptr);
+
+// A quick, small stitch of photos for a preview (half-size decodes, the working resolution
+// of the registration), rendered like the panorama DNG would be. Throws like createPanorama
+// (e.g. when the photos do not connect).
+class PanoramaPreview {
+public:
+    PanoramaPreview(const QList<PhotoInfo>& photos, const StepProgress& progress = {}, const std::atomic<bool>* cancel = nullptr);
+    ~PanoramaPreview();
+    // The whole stitched area (uncropped), long edge at most `longEdge`.
+    QImage render(bool autoTone, int longEdge) const;
+    // The auto crop (normalized), as the panorama would get it.
+    QRectF autoCrop() const;
+    QSize size() const;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> d;
+};
 
 // Largest axis-aligned rectangle of non-zero mask pixels (8-bit mask, row-major).
 QRect largestRectangle(const std::vector<uint8_t>& mask, int width, int height);

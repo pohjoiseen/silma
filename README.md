@@ -93,6 +93,10 @@ screens at the exported size, like Lightroom's: None, Low, Standard (default) or
 
 ## Derived photos
 
+The Merge to Panorama dialog stitches a quick, smaller preview as soon as it opens (a couple of
+seconds), with the auto crop marked, so a failing or poor merge shows before the real one
+(`silma pano ... --preview out.jpg` for the same from the command line).
+
 AI denoise, HDR and panorama results are written as linear (floating point) DNGs next to the
 source photo, added to the batch and developed like any raw. Panoramas include a DNG transparency
 mask of the stitched area, so Auto Crop works on them later too (e.g. after `pano --no-crop`). AI models are downloaded on first

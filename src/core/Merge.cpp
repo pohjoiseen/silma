@@ -4,6 +4,7 @@
 #include "Metadata.h"
 
 #include <QFileInfo>
+#include <QTemporaryDir>
 #include <algorithm>
 #include <cmath>
 #include <opencv2/core.hpp>
@@ -348,13 +349,24 @@ QRect largestRectangle(const std::vector<uint8_t>& mask, int w, int h)
     return best;
 }
 
-qint64 createPanorama(Batch& b, const QList<qint64>& idsIn, const PanoOptions& o, const StepProgress& progress, const std::atomic<bool>* cancel)
+namespace {
+
+// A stitched panorama, before it becomes a DNG.
+struct Stitched {
+    ImageF pano; // camera-native linear (the reference photo's camera), not white-balanced
+    cv::Mat valid; // coverage (8-bit, 255 = covered)
+    QRectF crop{0, 0, 1, 1}; // largest covered rectangle (normalized), when asked for
+    RawImage refRaw;
+    QList<PhotoInfo> photos; // in capture order
+    int ref = 0;
+    double nativeClip = 1;
+};
+
+// Registers the photos at a small working size and stitches them, at full resolution or
+// (`preview`) at the working size from fast half-size decodes.
+Stitched stitchPanorama(QList<PhotoInfo> photos, bool preview, bool autoCrop, const StepProgress& progress, const std::atomic<bool>* cancel)
 {
     namespace cd = cv::detail;
-    QList<PhotoInfo> photos;
-    for (qint64 id : idsIn)
-        if (auto p = b.photo(id))
-            photos << *p;
     if (photos.size() < 2)
         throw std::runtime_error("A panorama needs at least two photos");
     std::sort(photos.begin(), photos.end(), [](const PhotoInfo& a, const PhotoInfo& c) { return a.captureTime < c.captureTime; });
@@ -368,21 +380,22 @@ qint64 createPanorama(Batch& b, const QList<qint64>& idsIn, const PanoOptions& o
     RawImage refRaw;
     DevelopSettings plain; // lens corrections only
     plain.sharpenAmount = 0;
-    double workScale = 1, seamScale = 1;
+    double workScale = 1, seamScale = 1, outScale = 1;
     for (int i = 0; i < n; ++i) {
         report(progress, QStringLiteral("Preparing photos"), i, n);
         checkCancel(cancel);
-        DevelopEngine e(photos[i].path);
+        DevelopEngine e(photos[i].path, {.halfSize = preview});
         QSizeF cs = e.geometry(plain, true).canvasSize();
         int W = int(std::round(cs.width())), H = int(std::round(cs.height()));
-        ImageF cam = e.warpedCamera(plain, W, H, true);
+        workScale = std::min(1.0, std::sqrt(0.6e6 / (double(W) * H)));
+        seamScale = std::min(1.0, std::sqrt(0.1e6 / (double(W) * H)));
+        outScale = preview ? workScale : 1.0;
+        ImageF cam = e.warpedCamera(plain, std::max(1, int(W * outScale)), std::max(1, int(H * outScale)), true);
         colors[i] = e.raw().color;
         for (size_t p = 0; p < cam.pixelCount(); ++p)
             for (int c = 0; c < 3; ++c)
                 cam.data[p * 3 + c] /= float(colors[i].appliedMul[c]);
         full[i] = std::move(cam);
-        workScale = std::min(1.0, std::sqrt(0.6e6 / (double(W) * H)));
-        seamScale = std::min(1.0, std::sqrt(0.1e6 / (double(W) * H)));
         // Registration previews use the normal rendering (default look).
         work[i] = to8bit(e.renderEncoded(plain, {.width = int(W * workScale), .height = int(H * workScale), .ignoreCrop = true}));
         cv::resize(work[i], seamImgs[i], cv::Size(), seamScale / workScale, seamScale / workScale, cv::INTER_AREA);
@@ -464,8 +477,8 @@ qint64 createPanorama(Batch& b, const QList<qint64>& idsIn, const PanoOptions& o
         seams.find(seamWarped, seamCorners, seamMasks);
     }
 
-    // Full-resolution warp.
-    double fullAspect = 1.0 / workScale;
+    // Full-resolution (or preview-sized) warp.
+    double fullAspect = outScale / workScale;
     cd::CylindricalWarper warper(float(warpedScale * fullAspect));
     std::vector<cv::Mat> warped(n), masks(n);
     std::vector<cv::Point> corners(n);
@@ -577,8 +590,8 @@ qint64 createPanorama(Batch& b, const QList<qint64>& idsIn, const PanoOptions& o
         }
 
     // Constrained crop (as a crop setting, the DNG keeps everything).
-    QRectF crop(0, 0, 1, 1);
-    if (o.autoCrop) {
+    Stitched out;
+    if (autoCrop) {
         const int f = std::max(1, std::max(pano.width, pano.height) / 1500);
         cv::Mat small;
         cv::resize(valid, small, cv::Size(pano.width / f, pano.height / f), 0, 0, cv::INTER_AREA);
@@ -588,32 +601,95 @@ qint64 createPanorama(Batch& b, const QList<qint64>& idsIn, const PanoOptions& o
                 m[size_t(y) * small.cols + x] = small.at<uchar>(y, x) > 250;
         QRect r = largestRectangle(m, small.cols, small.rows);
         if (r.width() > 10 && r.height() > 10)
-            crop = QRectF(double(r.x() + 1) / small.cols, double(r.y() + 1) / small.rows, double(r.width() - 2) / small.cols, double(r.height() - 2) / small.rows);
+            out.crop = QRectF(double(r.x() + 1) / small.cols, double(r.y() + 1) / small.rows, double(r.width() - 2) / small.cols, double(r.height() - 2) / small.rows);
     }
+    out.nativeClip = 1.0 / std::max({colors[ref].appliedMul[0], colors[ref].appliedMul[1], colors[ref].appliedMul[2]});
+    out.pano = std::move(pano);
+    out.valid = valid;
+    out.refRaw = std::move(refRaw);
+    out.photos = photos;
+    out.ref = ref;
+    return out;
+}
 
-    report(progress, QStringLiteral("Writing DNG"));
+// DNG description of a stitched panorama.
+LinearDngInfo panoramaDngInfo(const Stitched& st)
+{
     float mx = 1e-6f;
-    for (float v : pano.data)
+    for (float v : st.pano.data)
         mx = std::max(mx, v);
-    double nativeClip = 1.0 / std::max({colors[ref].appliedMul[0], colors[ref].appliedMul[1], colors[ref].appliedMul[2]});
-    LinearDngInfo info = dngInfoFromRaw(refRaw, photos[ref].path, QString());
+    LinearDngInfo info = dngInfoFromRaw(st.refRaw, st.photos[st.ref].path, QString());
     info.orientation = 1;
     info.lensCorrected = true;
-    info.whiteScale = float(std::max(1.0, mx / nativeClip));
+    info.whiteScale = float(std::max(1.0, mx / st.nativeClip));
     info.baselineExposure += std::log2(info.whiteScale);
     // Coverage, so auto crop can find the stitched area later (e.g. with --no-crop).
-    info.transparencyMask.assign(valid.datastart, valid.dataend);
+    info.transparencyMask.assign(st.valid.datastart, st.valid.dataend);
+    return info;
+}
+
+} // namespace
+
+qint64 createPanorama(Batch& b, const QList<qint64>& idsIn, const PanoOptions& o, const StepProgress& progress, const std::atomic<bool>* cancel)
+{
+    QList<PhotoInfo> photos;
+    for (qint64 id : idsIn)
+        if (auto p = b.photo(id))
+            photos << *p;
+    const Stitched st = stitchPanorama(photos, false, o.autoCrop, progress, cancel);
+    report(progress, QStringLiteral("Writing DNG"));
+    const LinearDngInfo info = panoramaDngInfo(st);
     QList<qint64> ids;
-    for (const auto& p : photos)
+    for (const auto& p : st.photos)
         ids << p.id;
-    PhotoInfo base = photos[ref];
+    PhotoInfo base = st.photos[st.ref];
     base.orientation = 1;
-    qint64 id = addDerivedPhoto(b, base, ids, "Pano", pano, info, QString(), DevelopSettings().toJsonString(), true);
+    qint64 id = addDerivedPhoto(b, base, ids, "Pano", st.pano, info, QString(), DevelopSettings().toJsonString(), true);
     auto np = b.photo(id);
     DevelopSettings s = settingsWithAutoTone(np->path, o.autoTone);
-    s.crop = crop;
-    b.pushHistory(id, QStringLiteral("Panorama (%1 photos)").arg(n), s.toJsonString());
+    s.crop = st.crop;
+    b.pushHistory(id, QStringLiteral("Panorama (%1 photos)").arg(st.photos.size()), s.toJsonString());
     return id;
+}
+
+struct PanoramaPreview::Impl {
+    QTemporaryDir dir;
+    std::unique_ptr<DevelopEngine> engine;
+    QRectF crop;
+    int photoCount = 0;
+};
+
+PanoramaPreview::PanoramaPreview(const QList<PhotoInfo>& photos, const StepProgress& progress, const std::atomic<bool>* cancel) : d(std::make_unique<Impl>())
+{
+    Stitched st = stitchPanorama(photos, true, true, progress, cancel);
+    if (!d->dir.isValid())
+        throw std::runtime_error("No temporary directory for the preview");
+    // Through a DNG like the real result, so the preview renders the same way.
+    const QString path = d->dir.filePath("preview.dng");
+    writeLinearDng(path, st.pano, panoramaDngInfo(st), true);
+    d->engine = std::make_unique<DevelopEngine>(path);
+    d->crop = st.crop;
+    d->photoCount = int(st.photos.size());
+}
+
+PanoramaPreview::~PanoramaPreview() = default;
+
+QRectF PanoramaPreview::autoCrop() const { return d->crop; }
+
+QSize PanoramaPreview::size() const
+{
+    const QSizeF s = d->engine->geometry(DevelopSettings(), true).canvasSize();
+    return QSize(int(s.width()), int(s.height()));
+}
+
+QImage PanoramaPreview::render(bool autoTone, int longEdge) const
+{
+    DevelopSettings s;
+    if (autoTone)
+        s = d->engine->autoTone(s);
+    const QSize full = size();
+    const double k = std::min(1.0, double(longEdge) / std::max(full.width(), full.height()));
+    return d->engine->render(s, {.width = std::max(1, int(full.width() * k)), .height = std::max(1, int(full.height() * k)), .ignoreCrop = true}).image;
 }
 
 } // namespace silma

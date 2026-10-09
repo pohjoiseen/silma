@@ -5,6 +5,7 @@
 #include "Upright.h"
 
 #include <QDir>
+#include <QElapsedTimer>
 #include <QTemporaryDir>
 
 #include <QtTest>
@@ -60,6 +61,42 @@ private slots:
             QVERIFY(g.canvasValid(p));
         const double area = c.width() * c.height(), mergeArea = s.crop.width() * s.crop.height();
         QVERIFY2(std::abs(area - mergeArea) < 0.1 * mergeArea, qPrintable(QStringLiteral("%1 vs %2").arg(area).arg(mergeArea)));
+    }
+
+    void panoramaPreview()
+    {
+        QList<PhotoInfo> photos;
+        for (qint64 id : m_ids)
+            photos << *m_batch.photo(id);
+        QElapsedTimer t;
+        t.start();
+        PanoramaPreview preview(photos);
+        const qint64 ms = t.elapsed();
+        const QImage img = preview.render(true, 1000);
+        QVERIFY(!img.isNull());
+        QCOMPARE(std::max(img.width(), img.height()), 1000);
+        // Same stitch as the full merge (from panorama()), only smaller.
+        std::optional<PhotoInfo> pano;
+        for (const auto& p : m_batch.photos())
+            if (p.kind == PhotoKind::DerivedDng && p.fileName.contains("-Pano"))
+                pano = p;
+        QVERIFY(pano);
+        const double aspect = double(img.width()) / img.height(), fullAspect = double(pano->width) / pano->height;
+        QVERIFY2(std::abs(aspect / fullAspect - 1) < 0.03, qPrintable(QStringLiteral("%1 vs %2").arg(aspect).arg(fullAspect)));
+        const QRectF crop = preview.autoCrop(), fullCrop = DevelopSettings::fromJsonString(m_batch.settings(pano->id)).crop;
+        QVERIFY2(std::abs(crop.width() - fullCrop.width()) < 0.03 && std::abs(crop.height() - fullCrop.height()) < 0.05,
+                 qPrintable(QStringLiteral("%1x%2 vs %3x%4").arg(crop.width()).arg(crop.height()).arg(fullCrop.width()).arg(fullCrop.height())));
+        qInfo() << "preview of" << photos.size() << "photos in" << ms << "ms," << preview.size();
+        // Photos that do not overlap: the preview says so.
+        QDir d(QString(SILMA_SAMPLES) + "/2026-09-01");
+        if (d.exists("DSC_0153.NEF") && d.exists("DSC_0160.NEF")) {
+            Batch b2;
+            b2.create(m_tmp.filePath("apart.silma"));
+            QList<PhotoInfo> apart;
+            for (qint64 id : importFiles(b2, {d.filePath("DSC_0153.NEF"), d.filePath("DSC_0160.NEF")}, {}).added)
+                apart << *b2.photo(id);
+            QVERIFY_THROWS_EXCEPTION(std::runtime_error, PanoramaPreview{apart});
+        }
     }
 
     void hdr()

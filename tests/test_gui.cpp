@@ -11,6 +11,7 @@
 #include "HealTool.h"
 #include "Dialogs.h"
 #include "DenoiseDialog.h"
+#include "PanoramaDialog.h"
 #include <QLineEdit>
 #include <QRadioButton>
 #include <QScrollBar>
@@ -24,6 +25,7 @@
 #include <QSignalSpy>
 #include <QSlider>
 #include <QDockWidget>
+#include <QCheckBox>
 #include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
@@ -471,6 +473,36 @@ private slots:
         QTest::mouseClick(view, Qt::LeftButton, {}, QPoint(100, 100));
         QCOMPARE(dlg.regionCenter(), c3);
         QVERIFY(dlg.previewReady());
+    }
+
+    void panoramaPreview()
+    {
+        // DSC_0010..0012 of 2026-08-08 are a handheld sequence.
+        QDir d(QString(SILMA_SAMPLES) + "/2026-08-08");
+        if (!d.exists("DSC_0012.NEF"))
+            QSKIP("samples not available");
+        QDir(m_tmp.path()).mkpath("pano");
+        Batch b;
+        b.create(m_tmp.filePath("pano/pano.silma"));
+        QList<PhotoInfo> photos;
+        for (qint64 id : importFiles(b, {d.filePath("DSC_0010.NEF"), d.filePath("DSC_0011.NEF"), d.filePath("DSC_0012.NEF")}, {}).added)
+            photos << *b.photo(id);
+        QCOMPARE(photos.size(), 3);
+        PanoramaDialog dlg(photos);
+        dlg.show();
+        QVERIFY(!dlg.previewDone());
+        QTRY_VERIFY_WITH_TIMEOUT(dlg.previewDone(), 60000);
+        QVERIFY2(dlg.previewError().isEmpty(), qPrintable(dlg.previewError()));
+        const QImage toned = dlg.previewImage();
+        QVERIFY(toned.width() > toned.height() && toned.width() >= 1000);
+        const QRectF crop = dlg.previewCrop();
+        QVERIFY(crop.width() > 0.7 && crop.width() < 1 && crop.height() > 0.6);
+        // Options: auto tone switches the preview's rendering; both go to the merge.
+        auto* tone = dlg.findChildren<QCheckBox*>().last();
+        QCOMPARE(tone->text(), tr("Auto tone"));
+        tone->setChecked(false);
+        QVERIFY(dlg.previewImage() != toned);
+        QVERIFY(!dlg.options().autoTone && dlg.options().autoCrop);
     }
 
     void progressStaysOpenAndShowsInTaskbar()
