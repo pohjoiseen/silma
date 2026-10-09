@@ -8,8 +8,7 @@ Ryzen 5 8600G with Radeon 760M; the laptop has no discrete GPU either). ONNX Run
 denoising several times faster than on the CPU, also on the go.
 
 - Needs an ONNX Runtime built with `--use_webgpu` (Arch's packages do not include it); try in the VM first.
-- Measure NAFNet width 32 and SCUNet on the 760M (SCUNet takes about 10 min per 24 MP photo on the
-  CPU, NAFNet width 32 about 75-85 s). LaMa (AI heal) would benefit too.
+- Measure NAFNet width 32 on the 760M (about 75-85 s per 24 MP photo on the CPU). LaMa (AI heal) would benefit too.
 - If it pays off: add it to `configureAiProviders()` in `src/core/AiDenoise.cpp`, in the order
   providers are tried, with a CPU fallback as now.
 

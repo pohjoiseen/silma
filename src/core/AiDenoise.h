@@ -32,7 +32,6 @@ struct AiModelInfo {
     // for the others its layout conversions cost more than they save, up to 4x on some machines
     // (strided memory traffic that can be dramatically slow natively).
     bool blockedLayout = false;
-    bool slowOnCpu = false; // minutes per photo on a CPU (shown in the model choice)
 };
 
 QList<AiModelInfo> aiDenoiseModels();

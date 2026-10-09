@@ -33,12 +33,6 @@ QList<AiModelInfo> aiDenoiseModels()
         {"nafnet-sidd-w64", "NAFNet (SIDD, width 64)", "MIT", "nafnet_denoise-onnx-float/nafnet_denoise.onnx", {},
          "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/nafnet_denoise/releases/v0.64.0/nafnet_denoise-onnx-float.zip", 256, 8,
          "<a href=\"https://github.com/megvii-research/NAFNet\">megvii-research/NAFNet</a>; ONNX: Qualcomm AI Hub nafnet_denoise v0.64.0"},
-        {"scunet-real-psnr", "SCUNet (real-world, PSNR)", "Apache-2.0", "scunet_color_real_psnr.onnx",
-         {{"scunet_color_real_psnr.onnx", "https://huggingface.co/Heliosoph/scunet-onnx/resolve/6d11417ee2fbcc73783c502a238ac115097754fe/scunet_color_real_psnr.onnx", 3798678},
-          {"scunet_color_real_psnr.onnx.data", "https://huggingface.co/Heliosoph/scunet-onnx/resolve/6d11417ee2fbcc73783c502a238ac115097754fe/scunet_color_real_psnr.onnx.data", 73138176}},
-         {}, 256, 64,
-         "<a href=\"https://github.com/cszn/SCUNet\">cszn/SCUNet</a>; ONNX: <a href=\"https://huggingface.co/Heliosoph/scunet-onnx\">Heliosoph/scunet-onnx</a> @6d11417",
-         false, false, true},
     };
     return models;
 }

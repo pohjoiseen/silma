@@ -70,7 +70,7 @@ window and exits (works with `QT_QPA_PLATFORM=offscreen`).
 AI denoise, HDR and panorama results are written as linear (floating point) DNGs next to the
 source photo, added to the batch and developed like any raw. Panoramas include a DNG transparency
 mask of the stitched area, so Auto Crop works on them later too (e.g. after `pano --no-crop`). AI models are downloaded on first
-use to `~/.local/share/silma/models` (NAFNet-SIDD by default, SCUNet optional; LaMa for heal).
+use to `~/.local/share/silma/models` (NAFNet-SIDD; LaMa for heal).
 AI Heal (Q) fills a clicked spot or a dragged brush stroke; its fills are stored in the batch, so
 heals are ordinary undoable edits. LaMa works at 512×512, so a heal may span at most a fifth of the
 photo's long edge, and larger ones come out softer.

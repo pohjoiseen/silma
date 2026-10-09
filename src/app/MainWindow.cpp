@@ -1364,8 +1364,6 @@ void MainWindow::aiDenoise()
     for (const auto& m : aiDenoiseModels()) {
         const bool installed = aiModelInstalled(m.id);
         QString note = installed ? QString() : m.prepared ? tr(" (not prepared)") : tr(" (will be downloaded)");
-        if (m.slowOnCpu)
-            note += tr(" — slow on CPU (about 10 min per 24 MP photo)");
         model->addItem(QStringLiteral("%1 — %2%3").arg(m.name, m.license, note), m.id);
         if (!installed && m.prepared) {
             // Made from the original weights by a build step; cannot be downloaded.
