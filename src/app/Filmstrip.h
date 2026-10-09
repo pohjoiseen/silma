@@ -18,7 +18,7 @@ public:
         RejectedRole,
         EditedRole,
         PathRole,
-        DerivedRole, // badge text for photos Silmä made from others ("AI", "HDR", "Pano"), else empty
+        DerivedRole, // badge text for photos Silmä made from others ("Denoise", "HDR", "Pano"), else empty
     };
 
     explicit PhotoListModel(QObject* parent = nullptr);

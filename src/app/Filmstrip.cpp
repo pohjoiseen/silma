@@ -95,7 +95,7 @@ QString derivedBadge(const PhotoInfo& p)
         return {};
     static const QRegularExpression re(QStringLiteral("-(Denoise|HDR|Pano)(-\\d+)?\\.dng$"), QRegularExpression::CaseInsensitiveOption);
     const QString what = re.match(p.fileName).captured(1).toLower();
-    return what == "denoise" ? QStringLiteral("AI") : what == "hdr" ? QStringLiteral("HDR") : what == "pano" ? QStringLiteral("Pano") : QStringLiteral("DNG");
+    return what == "denoise" ? QStringLiteral("Denoise") : what == "hdr" ? QStringLiteral("HDR") : what == "pano" ? QStringLiteral("Pano") : QStringLiteral("DNG");
 }
 
 } // namespace
@@ -115,7 +115,7 @@ QVariant PhotoListModel::data(const QModelIndex& idx, int role) const
                 if (auto src = m_batch->photo(v.toInteger()))
                     names << src->fileName;
             const QString badge = derivedBadge(p);
-            const QString what = badge == "AI" ? tr("AI denoised") : badge == "HDR" ? tr("HDR merge") : badge == "Pano" ? tr("Panorama") : tr("Made");
+            const QString what = badge == "Denoise" ? tr("AI denoised") : badge == "HDR" ? tr("HDR merge") : badge == "Pano" ? tr("Panorama") : tr("Made");
             tip += '\n' + (names.isEmpty() ? what : tr("%1 from %2").arg(what, names.join(", ")));
         }
         return tip;
