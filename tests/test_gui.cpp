@@ -484,9 +484,7 @@ private slots:
         QDir(m_tmp.path()).mkpath("pano");
         Batch b;
         b.create(m_tmp.filePath("pano/pano.silma"));
-        QList<PhotoInfo> photos;
-        for (qint64 id : importFiles(b, {d.filePath("DSC_0010.NEF"), d.filePath("DSC_0011.NEF"), d.filePath("DSC_0012.NEF")}, {}).added)
-            photos << *b.photo(id);
+        const QList<PanoramaSource> photos = panoramaSources(b, importFiles(b, {d.filePath("DSC_0010.NEF"), d.filePath("DSC_0011.NEF"), d.filePath("DSC_0012.NEF")}, {}).added);
         QCOMPARE(photos.size(), 3);
         PanoramaDialog dlg(photos);
         dlg.show();

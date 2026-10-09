@@ -1565,11 +1565,7 @@ void MainWindow::mergePhotos(bool hdr)
         return;
     }
     if (!hdr) {
-        QList<PhotoInfo> photos;
-        for (qint64 id : ids)
-            if (auto p = m_batch.photo(id))
-                photos << *p;
-        PanoramaDialog dlg(photos, this);
+        PanoramaDialog dlg(panoramaSources(m_batch, ids), this);
         if (dlg.exec() != QDialog::Accepted)
             return;
         const PanoOptions o = dlg.options();

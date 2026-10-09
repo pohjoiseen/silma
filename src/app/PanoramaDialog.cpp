@@ -65,7 +65,7 @@ private:
     QString m_message;
 };
 
-PanoramaDialog::PanoramaDialog(const QList<PhotoInfo>& photos, QWidget* parent)
+PanoramaDialog::PanoramaDialog(const QList<PanoramaSource>& photos, QWidget* parent)
     : QDialog(parent), m_cancel(std::make_shared<std::atomic<bool>>(false))
 {
     setWindowTitle(tr("Merge to Panorama"));

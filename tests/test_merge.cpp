@@ -65,9 +65,7 @@ private slots:
 
     void panoramaPreview()
     {
-        QList<PhotoInfo> photos;
-        for (qint64 id : m_ids)
-            photos << *m_batch.photo(id);
+        const QList<PanoramaSource> photos = panoramaSources(m_batch, m_ids);
         QElapsedTimer t;
         t.start();
         PanoramaPreview preview(photos);
@@ -87,25 +85,37 @@ private slots:
         QVERIFY2(std::abs(crop.width() - fullCrop.width()) < 0.03 && std::abs(crop.height() - fullCrop.height()) < 0.05,
                  qPrintable(QStringLiteral("%1x%2 vs %3x%4").arg(crop.width()).arg(crop.height()).arg(fullCrop.width()).arg(fullCrop.height())));
         qInfo() << "preview of" << photos.size() << "photos in" << ms << "ms," << preview.size();
+        // Photos turned by hand (develop setting) are stitched turned: the sideways pan of
+        // these becomes an upright strip.
+        QList<PanoramaSource> turned = photos;
+        for (auto& src : turned)
+            src.quarterTurns = 1;
+        const QSize ts = PanoramaPreview(turned).size();
+        QVERIFY2(ts.height() > ts.width(), qPrintable(QStringLiteral("%1x%2").arg(ts.width()).arg(ts.height())));
         // Photos that do not overlap: the preview says so.
         QDir d(QString(SILMA_SAMPLES) + "/2026-09-01");
         if (d.exists("DSC_0153.NEF") && d.exists("DSC_0160.NEF")) {
             Batch b2;
             b2.create(m_tmp.filePath("apart.silma"));
-            QList<PhotoInfo> apart;
-            for (qint64 id : importFiles(b2, {d.filePath("DSC_0153.NEF"), d.filePath("DSC_0160.NEF")}, {}).added)
-                apart << *b2.photo(id);
+            const QList<PanoramaSource> apart = panoramaSources(b2, importFiles(b2, {d.filePath("DSC_0153.NEF"), d.filePath("DSC_0160.NEF")}, {}).added);
             QVERIFY_THROWS_EXCEPTION(std::runtime_error, PanoramaPreview{apart});
         }
     }
 
     void hdr()
     {
+        // A turn of the photos carries over to the merge.
+        for (qint64 src : m_ids.mid(0, 2)) {
+            DevelopSettings s = DevelopSettings::fromJsonString(m_batch.settings(src));
+            s.quarterTurns = 3;
+            m_batch.pushHistory(src, "Rotate Left", s.toJsonString());
+        }
         qint64 id = createHdrMerge(m_batch, m_ids.mid(0, 2), {});
         auto p = m_batch.photo(id);
         QVERIFY(p && QFile::exists(p->path));
         QCOMPARE(p->width, 6016);
         QVERIFY(m_batch.history(id).size() == 2);
+        QCOMPARE(DevelopSettings::fromJsonString(m_batch.settings(id)).quarterTurns, 3);
     }
 };
 

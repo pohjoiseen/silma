@@ -314,6 +314,8 @@ qint64 createHdrMerge(Batch& b, const QList<qint64>& idsIn, const HdrOptions& o,
     qint64 id = addDerivedPhoto(b, photos[ref], ids, "HDR", out, info, QString(), DevelopSettings().toJsonString(), true);
     auto np = b.photo(id);
     DevelopSettings s = settingsWithAutoTone(np->path, o.autoTone);
+    // The merge keeps the sensor's orientation: a 90 degree turn of the photos carries over.
+    s.quarterTurns = DevelopSettings::fromJsonString(b.settings(photos[ref].id)).quarterTurns;
     b.pushHistory(id, QStringLiteral("HDR Merge (%1 photos)").arg(n), s.toJsonString());
     return id;
 }
@@ -364,12 +366,15 @@ struct Stitched {
 
 // Registers the photos at a small working size and stitches them, at full resolution or
 // (`preview`) at the working size from fast half-size decodes.
-Stitched stitchPanorama(QList<PhotoInfo> photos, bool preview, bool autoCrop, const StepProgress& progress, const std::atomic<bool>* cancel)
+Stitched stitchPanorama(QList<PanoramaSource> sources, bool preview, bool autoCrop, const StepProgress& progress, const std::atomic<bool>* cancel)
 {
     namespace cd = cv::detail;
-    if (photos.size() < 2)
+    if (sources.size() < 2)
         throw std::runtime_error("A panorama needs at least two photos");
-    std::sort(photos.begin(), photos.end(), [](const PhotoInfo& a, const PhotoInfo& c) { return a.captureTime < c.captureTime; });
+    std::sort(sources.begin(), sources.end(), [](const PanoramaSource& a, const PanoramaSource& c) { return a.photo.captureTime < c.photo.captureTime; });
+    QList<PhotoInfo> photos;
+    for (const auto& src : sources)
+        photos << src.photo;
     const int n = int(photos.size());
     const int ref = n / 2;
 
@@ -385,6 +390,7 @@ Stitched stitchPanorama(QList<PhotoInfo> photos, bool preview, bool autoCrop, co
         report(progress, QStringLiteral("Preparing photos"), i, n);
         checkCancel(cancel);
         DevelopEngine e(photos[i].path, {.halfSize = preview});
+        plain.quarterTurns = sources[i].quarterTurns; // e.g. turned by hand: wrong orientation tag
         QSizeF cs = e.geometry(plain, true).canvasSize();
         int W = int(std::round(cs.width())), H = int(std::round(cs.height()));
         workScale = std::min(1.0, std::sqrt(0.6e6 / (double(W) * H)));
@@ -630,21 +636,26 @@ LinearDngInfo panoramaDngInfo(const Stitched& st)
 
 } // namespace
 
-qint64 createPanorama(Batch& b, const QList<qint64>& idsIn, const PanoOptions& o, const StepProgress& progress, const std::atomic<bool>* cancel)
+QList<PanoramaSource> panoramaSources(Batch& b, const QList<qint64>& ids)
 {
-    QList<PhotoInfo> photos;
-    for (qint64 id : idsIn)
+    QList<PanoramaSource> out;
+    for (qint64 id : ids)
         if (auto p = b.photo(id))
-            photos << *p;
-    const Stitched st = stitchPanorama(photos, false, o.autoCrop, progress, cancel);
+            out << PanoramaSource{*p, DevelopSettings::fromJsonString(b.settings(id)).quarterTurns};
+    return out;
+}
+
+qint64 createPanorama(Batch& b, const QList<qint64>& ids, const PanoOptions& o, const StepProgress& progress, const std::atomic<bool>* cancel)
+{
+    const Stitched st = stitchPanorama(panoramaSources(b, ids), false, o.autoCrop, progress, cancel);
     report(progress, QStringLiteral("Writing DNG"));
     const LinearDngInfo info = panoramaDngInfo(st);
-    QList<qint64> ids;
+    QList<qint64> sourceIds;
     for (const auto& p : st.photos)
-        ids << p.id;
+        sourceIds << p.id;
     PhotoInfo base = st.photos[st.ref];
     base.orientation = 1;
-    qint64 id = addDerivedPhoto(b, base, ids, "Pano", st.pano, info, QString(), DevelopSettings().toJsonString(), true);
+    qint64 id = addDerivedPhoto(b, base, sourceIds, "Pano", st.pano, info, QString(), DevelopSettings().toJsonString(), true);
     auto np = b.photo(id);
     DevelopSettings s = settingsWithAutoTone(np->path, o.autoTone);
     s.crop = st.crop;
@@ -659,9 +670,10 @@ struct PanoramaPreview::Impl {
     int photoCount = 0;
 };
 
-PanoramaPreview::PanoramaPreview(const QList<PhotoInfo>& photos, const StepProgress& progress, const std::atomic<bool>* cancel) : d(std::make_unique<Impl>())
+PanoramaPreview::PanoramaPreview(const QList<PanoramaSource>& sources, const StepProgress& progress, const std::atomic<bool>* cancel)
+    : d(std::make_unique<Impl>())
 {
-    Stitched st = stitchPanorama(photos, true, true, progress, cancel);
+    Stitched st = stitchPanorama(sources, true, true, progress, cancel);
     if (!d->dir.isValid())
         throw std::runtime_error("No temporary directory for the preview");
     // Through a DNG like the real result, so the preview renders the same way.

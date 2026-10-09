@@ -985,7 +985,7 @@ std::map<QString, Command> commands()
                     err() << "\r" << step << (total > 0 ? QStringLiteral(" %1/%2").arg(d).arg(total) : QString()) << "          " << Qt::flush;
             };
             if (!hdr && a.has("preview")) {
-                PanoramaPreview preview(ps, progress);
+                PanoramaPreview preview(panoramaSources(*b, ids), progress);
                 QImage img = preview.render(!a.has("no-tone"), 1600);
                 const QRectF c = preview.autoCrop();
                 if (!a.has("no-crop"))

@@ -19,7 +19,7 @@ class PanoramaPreviewView;
 class PanoramaDialog : public QDialog {
     Q_OBJECT
 public:
-    PanoramaDialog(const QList<PhotoInfo>& photos, QWidget* parent = nullptr);
+    PanoramaDialog(const QList<PanoramaSource>& photos, QWidget* parent = nullptr);
     ~PanoramaDialog() override;
 
     PanoOptions options() const;
