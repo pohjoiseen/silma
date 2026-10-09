@@ -336,6 +336,9 @@ void MainWindow::createActions()
                                              [this] { pasteSettings(false); });
     QAction* actReset = edit->addAction(tr("R&eset Settings"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_R), this, &MainWindow::resetSettings);
     edit->addSeparator();
+    QAction* actRemove = edit->addAction(tr("&Delete Photos..."), QKeySequence(Qt::Key_Delete), this, [this] { removePhotos(false); });
+    QAction* actExclude = edit->addAction(tr("E&xclude from Batch..."), this, [this] { removePhotos(true); });
+    edit->addSeparator();
     QAction* actSelectAll = edit->addAction(tr("Select &All"), QKeySequence::SelectAll, m_filmstrip, &QListView::selectAll);
 
     auto* photo = menuBar()->addMenu(tr("&Photo"));
@@ -456,6 +459,9 @@ void MainWindow::createActions()
                 add(actPano);
             }
             add(actExport, n > 1 ? tr("&Export %n Photos...", nullptr, n) : QString());
+            menu.addSeparator();
+            add(actRemove, n > 1 ? tr("&Delete %n Photos...", nullptr, n) : QString());
+            add(actExclude, n > 1 ? tr("E&xclude %n Photos from Batch...", nullptr, n) : QString());
             menu.addSeparator();
             const QString path = at.data(PhotoListModel::PathRole).toString();
             menu.addAction(tr("Show in &File Manager"), this, [path] { showInFileManager(path); });
@@ -643,7 +649,7 @@ void MainWindow::reloadImports()
             m_importList->setCurrentRow(i);
 }
 
-void MainWindow::selectImport(std::optional<qint64> importId, bool all)
+void MainWindow::selectImport(std::optional<qint64> importId, bool all, qint64 preferredPhoto)
 {
     m_knownHistory.clear();
     if (!m_batch.isOpen())
@@ -664,7 +670,7 @@ void MainWindow::selectImport(std::optional<qint64> importId, bool all)
         m_knownHistory[p.id] = p.historyPos;
     m_batch.setState("ui.import", all ? QString::fromLatin1(kAllImports) : QString::number(*importId));
     // Keep the current photo if it is in this list, else select the first.
-    qint64 want = m_photo ? m_photo->id : 0;
+    qint64 want = m_photo ? m_photo->id : preferredPhoto;
     if (m_model->rowOf(want) < 0)
         want = m_model->rowCount() ? m_model->photoAt(0).id : 0;
     if (want)
@@ -1278,6 +1284,100 @@ void MainWindow::exportPhotos()
     watcher->setFuture(future);
 }
 
+void MainWindow::removePhotos(bool excludeOnly)
+{
+    QList<PhotoInfo> photos;
+    for (qint64 id : selectedPhotoIds())
+        if (auto p = m_batch.photo(id))
+            photos << *p;
+    if (photos.isEmpty())
+        return;
+    const int n = int(photos.size());
+    QStringList paths;
+    for (const auto& p : photos)
+        paths << p.path;
+    const QString title = excludeOnly ? tr("Exclude from Batch") : tr("Delete Photos");
+    const QString what = n == 1 ? photos.first().fileName : tr("%n photos", nullptr, n);
+    QMessageBox box(QMessageBox::Question, title,
+                    excludeOnly ? tr("Exclude %1 from the batch?\n\nThe files stay on disk; their edits and history are dropped.").arg(what)
+                                : tr("Move %1 to the trash, or only exclude from the batch (files stay on disk)?\n\nEdits and history are dropped either way.").arg(what),
+                    QMessageBox::Cancel, this);
+    box.setDetailedText(paths.join('\n'));
+    QPushButton* trash = excludeOnly ? nullptr : box.addButton(tr("Move to Trash"), QMessageBox::DestructiveRole);
+    QPushButton* exclude = box.addButton(tr("Exclude from Batch"), excludeOnly ? QMessageBox::AcceptRole : QMessageBox::ActionRole);
+    box.setDefaultButton(QMessageBox::Cancel);
+    box.exec();
+    const bool toTrash = trash && box.clickedButton() == static_cast<QAbstractButton*>(trash);
+    if (!toTrash && box.clickedButton() != static_cast<QAbstractButton*>(exclude))
+        return;
+
+    // Where to go next: the first photo after the removed ones, else the one before.
+    QSet<qint64> removing;
+    for (const auto& p : photos)
+        removing.insert(p.id);
+    qint64 next = 0;
+    if (m_photo && removing.contains(m_photo->id)) {
+        const int row = m_model->rowOf(m_photo->id);
+        for (int r = row + 1; r < m_model->rowCount() && !next; ++r)
+            if (!removing.contains(m_model->photoAt(r).id))
+                next = m_model->photoAt(r).id;
+        for (int r = row - 1; r >= 0 && !next; --r)
+            if (!removing.contains(m_model->photoAt(r).id))
+                next = m_model->photoAt(r).id;
+    }
+
+    QStringList failed;
+    QList<PhotoInfo> removed;
+    for (const auto& p : photos) {
+        QString trashed;
+        if (toTrash && QFile::exists(p.path) && !QFile::moveToTrash(p.path, &trashed)) {
+            failed << p.path;
+            continue;
+        }
+        if (!trashed.isEmpty())
+            m_trashed << trashed;
+        removed << p;
+    }
+    if (!failed.isEmpty()) {
+        // No trash on this file system (or no permission): offer to delete for good.
+        QMessageBox ask(QMessageBox::Warning, title,
+                        tr("%n file(s) could not be moved to the trash. Delete them permanently?\n\nThis cannot be undone.", nullptr, int(failed.size())),
+                        QMessageBox::Cancel, this);
+        ask.setDetailedText(failed.join('\n'));
+        QPushButton* del = ask.addButton(tr("Delete Permanently"), QMessageBox::DestructiveRole);
+        ask.setDefaultButton(QMessageBox::Cancel);
+        ask.exec();
+        if (ask.clickedButton() == static_cast<QAbstractButton*>(del)) {
+            QStringList still;
+            for (const auto& p : photos)
+                if (failed.contains(p.path)) {
+                    if (QFile::remove(p.path))
+                        removed << p;
+                    else
+                        still << p.path;
+                }
+            if (!still.isEmpty())
+                QMessageBox::warning(this, title, tr("Could not delete:\n%1").arg(still.join('\n')));
+        }
+    }
+    for (const auto& p : removed) {
+        m_batch.removePhoto(p.id);
+        if (m_photo && m_photo->id == p.id)
+            m_photo.reset();
+        if (m_comparePhoto && m_comparePhoto->id == p.id)
+            m_comparePhoto.reset();
+        if (m_previousPhotoId == p.id)
+            m_previousPhotoId = 0;
+    }
+    if (removed.isEmpty())
+        return;
+    m_dataVersion = m_batch.dataVersion();
+    reloadImports();
+    selectImport(m_model->importId(), !m_model->importId(), next);
+    statusBar()->showMessage(toTrash ? tr("%n photo(s) moved to the trash", nullptr, int(removed.size()))
+                                     : tr("%n photo(s) excluded from the batch", nullptr, int(removed.size())), 4000);
+}
+
 void MainWindow::deleteRejected()
 {
     if (!m_batch.isOpen())
@@ -1697,6 +1797,8 @@ void MainWindow::healAt(const QList<QPointF>& stroke, double radius)
             QMessageBox::warning(this, tr("AI Heal"), err);
             return;
         }
+        if (!m_batch.photo(photoId))
+            return; // deleted or excluded meanwhile
         HealSpot sp = spot;
         sp.patchId = storeHealPatch(m_batch, photoId, patch);
         e->addHealPatch(sp.patchId, patch);

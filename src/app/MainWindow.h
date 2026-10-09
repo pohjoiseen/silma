@@ -64,6 +64,9 @@ public:
     void testAutoUpright(int mode) { autoUpright(mode); }
     void testTurn(int quarterTurnsCw) { turnPhotos(quarterTurnsCw); }
     void testResetTransform() { resetTransform(); }
+    void testRemovePhotos(bool excludeOnly) { removePhotos(excludeOnly); }
+    void testSelectPhoto(qint64 id) { selectPhoto(id); }
+    QStringList trashedFiles() const { return m_trashed; }
     void testCommit(const DevelopSettings& s, const QString& label) { commit(s, label); }
     void testCropTool(bool on) { setCropTool(on); }
     void testWbPicker(bool on) { setWbPicker(on); }
@@ -99,7 +102,7 @@ private:
     void openBatchDialog();
     void closeBatch();
     void reloadImports();
-    void selectImport(std::optional<qint64> importId, bool all);
+    void selectImport(std::optional<qint64> importId, bool all, qint64 preferredPhoto = 0);
     void selectPhoto(qint64 id);
     void showCurrentPhoto();
     void navigate(int delta);
@@ -132,6 +135,9 @@ private:
     void importPhotos();
     void exportPhotos();
     void deleteRejected();
+    // Removes the selected photos from the batch, moving their files to the trash unless
+    // `excludeOnly` (asks first; the dialog also offers the other choice).
+    void removePhotos(bool excludeOnly);
     void aiDenoise();
     void mergePhotos(bool hdr);
     // Runs a job creating derived photos in the background with a progress dialog.
@@ -193,6 +199,7 @@ private:
     std::optional<PhotoInfo> m_photo;
     std::optional<PhotoInfo> m_comparePhoto;
     qint64 m_previousPhotoId = 0;
+    QStringList m_trashed; // where files moved to the trash went (this session)
     DevelopSettings m_settings;  // live (possibly uncommitted while dragging)
     DevelopSettings m_committed; // what the history says
     std::optional<DevelopSettings> m_clipboard;

@@ -24,6 +24,7 @@
 #include <QSlider>
 #include <QDockWidget>
 #include <QMenu>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QTreeWidget>
 #include <QTabWidget>
@@ -333,6 +334,84 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(thumb().width() > thumb().height(), 15000);
         QTest::qWait(100);
         QCOMPARE(gap(), gap0);
+    }
+
+    void deleteAndExcludePhotos()
+    {
+        const QString file = freshBatch("deleteAndExclude", 4);
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(w.openBatch(file));
+        QTRY_VERIFY_WITH_TIMEOUT(w.mainPane()->hasRender(), 15000);
+        auto* strip = w.findChild<Filmstrip*>();
+        QList<PhotoInfo> photos;
+        for (int r = 0; r < strip->model()->rowCount(); ++r)
+            photos << static_cast<PhotoListModel*>(strip->model())->photoAt(r);
+        QCOMPARE(photos.size(), 4);
+        // Answers confirmations in turn with the buttons labelled `texts` (empty: Cancel);
+        // stops when the list is used up or the removal returns.
+        auto answering = std::make_shared<QTimer>();
+        auto answer = [answering](QStringList texts) {
+            answering->disconnect();
+            answering->setInterval(20);
+            QObject::connect(answering.get(), &QTimer::timeout, [answering, texts]() mutable {
+                auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+                if (!box || texts.isEmpty())
+                    return;
+                const QString text = texts.takeFirst();
+                for (QAbstractButton* b : box->buttons())
+                    if (b->text() == text || (text.isEmpty() && box->buttonRole(b) == QMessageBox::RejectRole)) {
+                        b->click();
+                        return;
+                    }
+                box->reject();
+            });
+            answering->start();
+        };
+        auto ids = [&] {
+            QList<qint64> l;
+            for (int r = 0; r < strip->model()->rowCount(); ++r)
+                l << static_cast<PhotoListModel*>(strip->model())->photoAt(r).id;
+            return l;
+        };
+        // Only that photo selected (whatever modifier state earlier tests left).
+        auto selectOnly = [&](qint64 id) {
+            w.testSelectPhoto(id);
+            const int r = static_cast<PhotoListModel*>(strip->model())->rowOf(id);
+            strip->selectionModel()->select(strip->model()->index(r, 0), QItemSelectionModel::ClearAndSelect);
+            QCOMPARE(w.testSelectedIds(), QList<qint64>{id});
+        };
+        selectOnly(photos[1].id);
+        // Cancel keeps everything.
+        answer({QString()});
+        w.testRemovePhotos(false);
+        QCOMPARE(ids().size(), 4);
+        // Exclude: gone from the batch, file kept, the next photo becomes current.
+        answer({tr("Exclude from Batch")});
+        w.testRemovePhotos(false);
+        QCOMPARE(ids(), (QList<qint64>{photos[0].id, photos[2].id, photos[3].id}));
+        QVERIFY(QFile::exists(photos[1].path));
+        QCOMPARE(w.currentPhoto()->id, photos[2].id);
+        // Delete the last photo: its file goes to the trash (or, where there is none, is
+        // deleted after a second question), the one before becomes current.
+        selectOnly(photos[3].id);
+        answer({tr("Move to Trash"), tr("Delete Permanently")});
+        w.testRemovePhotos(false);
+        answering->stop();
+        QCOMPARE(ids(), (QList<qint64>{photos[0].id, photos[2].id}));
+        QVERIFY(!QFile::exists(photos[3].path));
+        QCOMPARE(w.currentPhoto()->id, photos[2].id);
+        QTRY_VERIFY_WITH_TIMEOUT(w.mainPane()->hasRender(), 15000);
+        // Don't leave test files in the trash.
+        for (const QString& t : w.trashedFiles()) {
+            const QFileInfo fi(t);
+            QVERIFY(QFile::remove(t));
+            QFile::remove(fi.dir().filePath("../info/" + fi.fileName() + ".trashinfo"));
+        }
+        Batch b;
+        b.open(file);
+        QCOMPARE(b.photos().size(), 2);
     }
 
     void progressStaysOpenAndShowsInTaskbar()

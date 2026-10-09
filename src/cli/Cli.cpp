@@ -415,6 +415,47 @@ std::map<QString, Command> commands()
             out() << "Deleted " << deleted.size() << " file(s)" << (failed.isEmpty() ? "" : QStringLiteral(", %1 failed").arg(failed.size())) << '\n';
     }};
 
+    m["exclude"] = {"exclude PHOTO... [--import NAME]", "Remove photos from the batch; the files stay on disk", {"import"}, {}, true, [](const Args& a, Batch* b, bool json) {
+        auto ps = resolvePhotos(*b, a.positional(), a.value("import"));
+        QJsonArray ids;
+        for (const auto& p : ps) {
+            b->removePhoto(p.id);
+            ids.append(p.id);
+        }
+        if (json)
+            printJson(QJsonObject{{"excluded", ids}});
+        else
+            out() << "Excluded " << ps.size() << " photo(s) from the batch\n";
+    }};
+
+    m["delete"] = {"delete PHOTO... --yes [--permanently] [--import NAME]", "Move photos' files to the trash and remove them from the batch",
+                   {"import"}, {"yes", "permanently"}, true, [](const Args& a, Batch* b, bool json) {
+        auto ps = resolvePhotos(*b, a.positional(), a.value("import"));
+        const bool permanently = a.has("permanently");
+        if (!a.has("yes")) {
+            out() << ps.size() << " photo(s) would be " << (permanently ? "deleted from disk" : "moved to the trash") << ". Re-run with --yes.\n";
+            for (const auto& p : ps)
+                out() << "  " << p.path << '\n';
+            return;
+        }
+        QJsonArray deleted, failed;
+        for (const auto& p : ps) {
+            if (QFile::exists(p.path) && !(permanently ? QFile::remove(p.path) : QFile::moveToTrash(p.path))) {
+                failed.append(p.path);
+                continue;
+            }
+            b->removePhoto(p.id);
+            deleted.append(p.path);
+        }
+        if (json)
+            printJson(QJsonObject{{"deleted", deleted}, {"failed", failed}});
+        else
+            out() << (permanently ? "Deleted " : "Moved to the trash: ") << deleted.size() << " file(s)"
+                  << (failed.isEmpty() ? "" : QStringLiteral(", %1 failed (no trash here? try --permanently)").arg(failed.size())) << '\n';
+        if (!failed.isEmpty())
+            throw CliError(QStringLiteral("%1 file(s) could not be removed").arg(failed.size()).toStdString());
+    }};
+
     m["history"] = {"history PHOTO", "Show the edit history of a photo", {}, {}, true, [](const Args& a, Batch* b, bool json) {
         auto ps = resolvePhotos(*b, a.positional());
         if (ps.size() != 1)
