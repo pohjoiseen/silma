@@ -1,7 +1,8 @@
 # Silmä
 
 A streamlined raw photo developer for Linux (Qt 6), modelled on Lightroom Classic's
-Develop module. See `SPEC.md` for the goals.
+Develop module: cull, develop and export the photos of a trip, with lens profiles, AI denoise
+and heal, HDR and panorama merges. (*Silmä* is Finnish for "eye".)
 
 ## Building
 
