@@ -239,4 +239,27 @@ CurveLut::CurveLut(const QList<QPointF>& ptsIn)
     }
 }
 
+void outputSharpen(ImageF& img, float amount)
+{
+    if (amount <= 0 || img.width < 3 || img.height < 3)
+        return;
+    // Unsharp mask on luminance with a small radius (pixel-level detail at the final size);
+    // large differences are damped against halos.
+    constexpr float limit = 0.08f;
+    PlaneF L(img.width, img.height);
+    for (size_t i = 0; i < L.data.size(); ++i) {
+        const float* p = img.data.data() + i * 3;
+        L.data[i] = 0.2126f * p[0] + 0.7152f * p[1] + 0.0722f * p[2];
+    }
+    const PlaneF blur = gaussianBlur(L, 0.7f);
+#pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < L.data.size(); ++i) {
+        float d = L.data[i] - blur.data[i];
+        d = amount * d / (1.0f + std::abs(d) / limit);
+        float* p = img.data.data() + i * 3;
+        for (int c = 0; c < 3; ++c)
+            p[c] = std::clamp(p[c] + d, 0.0f, 1.0f);
+    }
+}
+
 } // namespace silma

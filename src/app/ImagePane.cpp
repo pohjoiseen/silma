@@ -1,9 +1,12 @@
 #include "ImagePane.h"
 
+#include "Export.h"
+
 #include <QCursor>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPointer>
+#include <QSettings>
 #include <QThreadPool>
 #include <QWheelEvent>
 #include <QtConcurrent>
@@ -176,8 +179,13 @@ QRectF ImagePane::imageRect() const
     }
     double z = currentZoom();
     QSizeF s(m_cropPx.width() * z, m_cropPx.height() * z);
+    const double dpr = devicePixelRatioF();
+    if (m_view.fit && z * dpr <= 1.0) // the size of the base render, so that it is drawn unscaled
+        s = QSizeF(std::round(s.width() * dpr) / dpr, std::round(s.height() * dpr) / dpr);
     QPointF c = m_view.fit ? QPointF(0.5, 0.5) : m_view.center;
-    return QRectF(width() / 2.0 - c.x() * s.width(), height() / 2.0 - c.y() * s.height(), s.width(), s.height());
+    // On the device pixel grid: renders drawn at a fractional offset would be resampled (blurred).
+    QPointF tl(std::round((width() / 2.0 - c.x() * s.width()) * dpr) / dpr, std::round((height() / 2.0 - c.y() * s.height()) * dpr) / dpr);
+    return QRectF(tl, s);
 }
 
 QPointF ImagePane::widgetToImage(QPointF w) const
@@ -267,6 +275,17 @@ void ImagePane::scheduleDetail()
     m_detailTimer.start();
 }
 
+// Downscaled views look like an export at that size: bicubic resampling, and the output
+// sharpening chosen for exports.
+namespace {
+void previewQuality(RenderRequest& req)
+{
+    req.highQuality = true;
+    const int level = QSettings().value("export/sharpening", int(OutputSharpening::Standard)).toInt();
+    req.outputSharpening = outputSharpeningAmount(OutputSharpening(std::clamp(level, 0, 3)));
+}
+} // namespace
+
 void ImagePane::runBase()
 {
     if (!m_engine || m_cropPx.isEmpty() || width() < 10)
@@ -278,6 +297,7 @@ void ImagePane::runBase()
     req.width = std::max(1, int(std::round(m_cropPx.width() * z)));
     req.height = std::max(1, int(std::round(m_cropPx.height() * z)));
     req.ignoreCrop = m_ignoreCrop;
+    previewQuality(req);
     m_baseBusy = true;
     m_baseDirty = false;
     quint64 gen = ++m_baseGen;
@@ -335,6 +355,7 @@ void ImagePane::runDetail()
     req.height = std::max(1, int(std::round(visible.height() * dpr)));
     req.roi = roi;
     req.ignoreCrop = m_ignoreCrop;
+    previewQuality(req);
     m_detailBusy = true;
     m_detailDirty = false;
     quint64 gen = ++m_detailGen;

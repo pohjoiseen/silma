@@ -34,6 +34,7 @@ void writeJpeg(const QString& path, const ImageF& encoded, int quality, const QS
 
 // Output sharpening of an sRGB-encoded image at its final size.
 void outputSharpen(ImageF& encoded, OutputSharpening level);
+float outputSharpeningAmount(OutputSharpening level);
 
 // Renders and writes one photo; returns the written path.
 QString exportPhoto(const PhotoInfo& p, const DevelopSettings& s, const QString& importName, int seq, const ExportOptions& o,

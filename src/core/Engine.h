@@ -39,7 +39,10 @@ struct WbValues {
 struct RenderRequest {
     int width = 0, height = 0;   // output size in pixels
     QRectF roi{0, 0, 1, 1};      // region of the crop to render (normalized crop coords)
-    bool highQuality = false;    // bicubic resampling (export)
+    bool highQuality = false;    // bicubic resampling (export, previews)
+    // Screen sharpening (outputSharpen amount) for downscaled views, so that they look like
+    // an export at that size; fades in between 100% and 50%.
+    float outputSharpening = 0;
     bool ignoreCrop = false;     // render the whole transformed canvas (crop tool)
 };
 

@@ -13,6 +13,9 @@ namespace silma {
 PlaneF boxMean(const PlaneF& in, int r);
 // Gaussian blur (separable kernel for small sigma, three box passes otherwise).
 PlaneF gaussianBlur(const PlaneF& in, float sigma);
+// Screen sharpening of an sRGB-encoded image at its final size: a small-radius unsharp mask
+// on luminance, damped for large differences (halos). `amount` ~0.4 (low) .. 1.2 (high).
+void outputSharpen(ImageF& encoded, float amount);
 
 // Self-guided filter (He et al.). Returns the smoothed coefficient planes (mean a, mean b),
 // so the filter output at any resolution is a*I + b with a, b bilinearly upsampled.

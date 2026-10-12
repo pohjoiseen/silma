@@ -934,6 +934,8 @@ ImageF DevelopEngine::renderEncoded(const DevelopSettings& s, const RenderReques
     presenceStage(img, s);
     outputStage(img, s);
     sharpenStage(img, s, 1.0 / pxPer);
+    if (req.outputSharpening > 0 && pxPer > 1)
+        outputSharpen(img, req.outputSharpening * float(std::min(pxPer - 1.0, 1.0)));
     return img;
 }
 

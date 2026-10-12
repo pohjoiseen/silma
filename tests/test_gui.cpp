@@ -752,10 +752,10 @@ private slots:
 
         // A click on a usable point sets a custom white balance and ends the tool.
         w.testWbPicker(true);
-        auto expected = w.mainPane()->engine()->wbFromPoint(w.currentSettings(), {0.5, 0.5});
+        const QPoint at = w.mainPane()->imageToWidget({0.5, 0.5}).toPoint();
+        auto expected = w.mainPane()->engine()->wbFromPoint(w.currentSettings(), w.mainPane()->widgetToImage(at));
         QVERIFY(expected);
-        QPointF at = w.mainPane()->imageToWidget({0.5, 0.5});
-        QTest::mouseClick(w.mainPane(), Qt::LeftButton, {}, at.toPoint());
+        QTest::mouseClick(w.mainPane(), Qt::LeftButton, {}, at);
         QVERIFY(!w.wbPickerActive());
         QCOMPARE(w.currentSettings().wbMode, WbMode::Custom);
         QVERIFY(std::abs(w.currentSettings().temperature - expected->temperature) <= 25);
