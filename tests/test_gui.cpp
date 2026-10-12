@@ -22,6 +22,7 @@
 
 #include <QApplication>
 #include <QDir>
+#include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QSignalSpy>
 #include <QSlider>
@@ -695,6 +696,29 @@ private slots:
         tone->setCheckState(0, Qt::Checked);
         QCOMPARE(again.parts(), (QSet<QString>{"exposure", "contrast", "highlights", "shadows", "whites", "blacks"}));
         QSettings().remove("paste/excluded");
+    }
+
+    void exportOpenFolderOption()
+    {
+        QSettings().remove("export/open_folder");
+        auto box = [](ExportDialog& d) {
+            for (auto* c : d.findChildren<QCheckBox*>())
+                if (c->text() == "Open the folder after export")
+                    return c;
+            return static_cast<QCheckBox*>(nullptr);
+        };
+        {
+            // On by default; remembered when exporting.
+            ExportDialog dlg(1, 3, 3);
+            QVERIFY(box(dlg) && box(dlg)->isChecked() && dlg.openFolderAfter());
+            box(dlg)->setChecked(false);
+            QVERIFY(!dlg.openFolderAfter());
+            auto* bb = dlg.findChild<QDialogButtonBox*>();
+            emit bb->accepted();
+        }
+        ExportDialog again(1, 3, 3);
+        QVERIFY(!again.openFolderAfter());
+        QSettings().remove("export/open_folder");
     }
 
     void exportNewFolder()

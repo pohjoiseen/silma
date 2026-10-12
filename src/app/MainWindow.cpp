@@ -82,15 +82,20 @@ QString exposureText(double t)
 } // namespace
 
 namespace {
-// Opens the file's folder with the file selected (freedesktop FileManager1, as Dolphin
+// Opens the files' folder with the files selected (freedesktop FileManager1, as Dolphin
 // and most file managers implement), or just the folder.
-void showInFileManager(const QString& path)
+void showInFileManager(const QStringList& paths)
 {
+    if (paths.isEmpty())
+        return;
+    QStringList urls;
+    for (const QString& p : paths)
+        urls << QUrl::fromLocalFile(p).toString();
     QDBusMessage m = QDBusMessage::createMethodCall(QStringLiteral("org.freedesktop.FileManager1"), QStringLiteral("/org/freedesktop/FileManager1"),
                                                     QStringLiteral("org.freedesktop.FileManager1"), QStringLiteral("ShowItems"));
-    m << QStringList{QUrl::fromLocalFile(path).toString()} << QString();
+    m << urls << QString();
     if (QDBusConnection::sessionBus().call(m, QDBus::Block, 3000).type() != QDBusMessage::ReplyMessage)
-        QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(path).absolutePath()));
+        QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(paths.first()).absolutePath()));
 }
 } // namespace
 
@@ -484,7 +489,7 @@ void MainWindow::createActions()
             add(actExclude, n > 1 ? tr("E&xclude %n Photos from Batch...", nullptr, n) : QString());
             menu.addSeparator();
             const QString path = at.data(PhotoListModel::PathRole).toString();
-            menu.addAction(tr("Show in &File Manager"), this, [path] { showInFileManager(path); });
+            menu.addAction(tr("Show in &File Manager"), this, [path] { showInFileManager({path}); });
             menu.addAction(tr("Copy File Pa&th"), this, [path] { QGuiApplication::clipboard()->setText(path); });
         }
         menu.exec(m_filmstrip->viewport()->mapToGlobal(pos));
@@ -1280,6 +1285,7 @@ void MainWindow::exportPhotos()
     if (photos.isEmpty())
         return;
     ExportOptions o = dlg.options();
+    const bool openFolder = dlg.openFolderAfter();
     QHash<qint64, QString> importNames;
     for (const auto& im : m_batch.imports())
         importNames[im.id] = im.name;
@@ -1307,7 +1313,7 @@ void MainWindow::exportPhotos()
     auto pool = std::make_shared<QThreadPool>();
     pool->setMaxThreadCount(2);
     struct Outcome {
-        QString error;
+        QString path, error;
         QStringList warnings;
     };
     auto future = QtConcurrent::mapped(pool.get(), jobs, [o, cancelled, done, pd, pool](const Job& j) -> Outcome {
@@ -1315,7 +1321,7 @@ void MainWindow::exportPhotos()
         if (*cancelled)
             return r;
         try {
-            exportPhoto(j.p, j.s, j.import, j.seq, o, j.patches, &r.warnings);
+            r.path = exportPhoto(j.p, j.s, j.import, j.seq, o, j.patches, &r.warnings);
         } catch (const std::exception& e) {
             r.error = j.p.fileName + ": " + QString::fromUtf8(e.what());
         }
@@ -1327,20 +1333,23 @@ void MainWindow::exportPhotos()
         return r;
     });
     auto* watcher = new QFutureWatcher<Outcome>(this);
-    connect(watcher, &QFutureWatcher<Outcome>::finished, this, [this, watcher, progress, o, pool] {
-        QStringList errors, warnings;
+    connect(watcher, &QFutureWatcher<Outcome>::finished, this, [this, watcher, progress, o, pool, cancelled, openFolder] {
+        QStringList files, errors, warnings;
         for (const Outcome& r : watcher->future().results()) {
+            if (!r.path.isEmpty())
+                files << r.path;
             if (!r.error.isEmpty())
                 errors << r.error;
             warnings << r.warnings;
         }
         progress->deleteLater();
         watcher->deleteLater();
-        if (errors.isEmpty() && warnings.isEmpty()) {
+        if (errors.isEmpty() && warnings.isEmpty())
             statusBar()->showMessage(tr("Export finished: %1").arg(o.folder), 5000);
-            return;
-        }
-        showExportProblems(errors, warnings);
+        else
+            showExportProblems(errors, warnings);
+        if (openFolder && !*cancelled)
+            showInFileManager(files);
     });
     watcher->setFuture(future);
 }

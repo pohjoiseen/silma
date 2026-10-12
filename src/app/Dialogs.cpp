@@ -265,6 +265,10 @@ ExportDialog::ExportDialog(int selected, int inImport, int inBatch, QWidget* par
     m_sharpening->setCurrentIndex(s.value("export/sharpening", int(OutputSharpening::Standard)).toInt());
     m_sharpening->setToolTip(tr("Sharpening for screens, applied at the exported size (on top of the Develop sharpening)"));
     fl->addRow(tr("Output sharpening:"), m_sharpening);
+    m_openFolder = new QCheckBox(tr("Open the folder after export"), fg);
+    m_openFolder->setToolTip(tr("Show the exported photos in the file manager"));
+    m_openFolder->setChecked(s.value("export/open_folder", true).toBool());
+    fl->addRow(QString(), m_openFolder);
     l->addWidget(fg);
 
     auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
@@ -277,6 +281,7 @@ ExportDialog::ExportDialog(int selected, int inImport, int inBatch, QWidget* par
         s.setValue("export/size_mode", m_sizeMode->currentIndex());
         s.setValue("export/size", m_size->value());
         s.setValue("export/sharpening", m_sharpening->currentIndex());
+        s.setValue("export/open_folder", m_openFolder->isChecked());
         accept();
     });
     connect(bb, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -305,5 +310,6 @@ ExportScope ExportDialog::scope() const
 }
 
 bool ExportDialog::includeRejected() const { return m_rejected->isChecked(); }
+bool ExportDialog::openFolderAfter() const { return m_openFolder->isChecked(); }
 
 } // namespace silma

@@ -60,6 +60,7 @@ public:
     ExportOptions options() const;
     ExportScope scope() const;
     bool includeRejected() const;
+    bool openFolderAfter() const;
 
 private:
     QRadioButton* m_scope[3];
@@ -70,6 +71,7 @@ private:
     QComboBox* m_sharpening;
     QSpinBox* m_size;
     QCheckBox* m_rejected;
+    QCheckBox* m_openFolder;
 };
 
 } // namespace silma
