@@ -5,6 +5,7 @@
 #include "EngineCache.h"
 #include "ImagePane.h"
 
+#include <QElapsedTimer>
 #include <QHash>
 #include <QMainWindow>
 #include <QPointer>
@@ -110,8 +111,10 @@ private:
     void updateRecentMenu();
 
     // editing
-    void onPanelEdited(const DevelopSettings& s, const QString& label, bool final);
-    void commit(const DevelopSettings& s, const QString& label);
+    void onPanelEdited(const DevelopSettings& s, const QString& label, bool final, const QString& mergeKey);
+    // A commit with the same `mergeKey` as the previous one, soon after it, replaces that
+    // history step instead of adding one (Up pressed five times: one step).
+    void commit(const DevelopSettings& s, const QString& label, const QString& mergeKey = {});
     void applySettingsToUi();
     void reloadHistory();
     void undo();
@@ -204,6 +207,12 @@ private:
     QStringList m_trashed; // where files moved to the trash went (this session)
     DevelopSettings m_settings;  // live (possibly uncommitted while dragging)
     DevelopSettings m_committed; // what the history says
+    struct {
+        QString key;
+        qint64 photoId = 0;
+        int seq = 0;
+        QElapsedTimer since;
+    } m_lastMergeable; // the last commit that a quick repeat may merge into
     std::optional<DevelopSettings> m_clipboard;
     ViewMode m_viewMode = ViewMode::Single;
     bool m_cropTool = false;

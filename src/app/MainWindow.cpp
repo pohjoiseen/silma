@@ -128,7 +128,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
         m_settings.rotate = deg;
         m_pane->setSettings(m_settings);
         if (final)
-            commit(m_settings, tr("Rotate %1°").arg(deg));
+            commit(m_settings, tr("Rotate %1°").arg(deg), QStringLiteral("rotate"));
     });
 
     m_healToolObj = new HealTool(this);
@@ -801,17 +801,17 @@ void MainWindow::onEngineReady(const QString& path)
 
 // ---- editing --------------------------------------------------------------------
 
-void MainWindow::onPanelEdited(const DevelopSettings& s, const QString& label, bool final)
+void MainWindow::onPanelEdited(const DevelopSettings& s, const QString& label, bool final, const QString& mergeKey)
 {
     if (!m_photo)
         return;
     m_settings = s;
     m_pane->setSettings(m_settings);
     if (final)
-        commit(s, label);
+        commit(s, label, mergeKey);
 }
 
-void MainWindow::commit(const DevelopSettings& s, const QString& label)
+void MainWindow::commit(const DevelopSettings& s, const QString& label, const QString& mergeKey)
 {
     if (!m_photo)
         return;
@@ -820,7 +820,19 @@ void MainWindow::commit(const DevelopSettings& s, const QString& label)
         applySettingsToUi();
         return;
     }
-    m_batch.pushHistory(m_photo->id, label, s.toJsonString());
+    const qint64 id = m_photo->id;
+    auto& last = m_lastMergeable;
+    const bool merge = !mergeKey.isEmpty() && mergeKey == last.key && id == last.photoId && last.since.isValid()
+                       && last.since.elapsed() < 1500
+                       // Not after an undo, or a change from elsewhere (the CLI).
+                       && m_batch.historyPos(id) == last.seq && m_batch.dataVersion() == m_dataVersion;
+    if (merge)
+        m_batch.replaceHistory(id, label, s.toJsonString());
+    else
+        last.seq = m_batch.pushHistory(id, label, s.toJsonString());
+    last.key = mergeKey;
+    last.photoId = id;
+    last.since.start();
     m_committed = s;
     m_dataVersion = m_batch.dataVersion();
     historyChanged(m_photo->id);

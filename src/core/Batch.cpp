@@ -399,6 +399,13 @@ int Batch::pushHistory(qint64 photoId, const QString& label, const QString& sett
     return seq;
 }
 
+void Batch::replaceHistory(qint64 photoId, const QString& label, const QString& settings)
+{
+    auto up = m_db.prepare("UPDATE history SET label = ?, settings = ?, created_at = ? WHERE photo_id = ? AND seq = "
+                           "(SELECT history_pos FROM photos WHERE id = ?)");
+    up.bind(1, label).bind(2, settings).bind(3, nowIso()).bind(4, photoId).bind(5, photoId).exec();
+}
+
 QString Batch::setHistoryPos(qint64 photoId, int pos)
 {
     auto chk = m_db.prepare("SELECT settings FROM history WHERE photo_id = ? AND seq = ?");

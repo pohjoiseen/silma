@@ -297,16 +297,16 @@ void DevelopPanel::addSliders(CollapsibleSection* sec, const char* group)
             QString val = QString::number(v, 'f', d.decimals);
             if (d.min < 0 && v > 0)
                 val.prepend('+');
-            emitEdit(QStringLiteral("%1 %2").arg(QString::fromUtf8(d.label), val), final);
+            emitEdit(QStringLiteral("%1 %2").arg(QString::fromUtf8(d.label), val), final, key);
         });
     }
 }
 
-void DevelopPanel::emitEdit(const QString& label, bool final)
+void DevelopPanel::emitEdit(const QString& label, bool final, const QString& mergeKey)
 {
     if (m_updating)
         return;
-    emit edited(m_settings, label, final);
+    emit edited(m_settings, label, final, mergeKey);
 }
 
 void DevelopPanel::setDefaults(const DevelopSettings& d)

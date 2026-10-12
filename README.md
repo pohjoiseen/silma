@@ -61,7 +61,8 @@ The binary is `build/src/app/silma`.
 - **Batch**: a `*.silma` file (sqlite) holding everything about one trip: imports, photos,
   develop settings, full edit history and UI state. Schema is versioned and migrated.
 - **Import**: a folder (by default `YYYY-MM-DD` next to the batch file) into which photos are copied.
-- Editing is non-destructive. Every change is a history step; undo/redo moves within it.
+- Editing is non-destructive. Every change is a history step; undo/redo moves within it. Quick repeated
+  edits of one slider (arrow keys, wheel, typing) make a single step.
 
 ## GUI
 

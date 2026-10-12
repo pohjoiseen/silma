@@ -41,7 +41,8 @@ public:
     CollapsibleSection* section(const QString& id) const { return m_sections.value(id); }
 
 signals:
-    void edited(const DevelopSettings& s, const QString& label, bool final);
+    // `mergeKey` (the parameter) lets quick repeated edits of one slider make one history step.
+    void edited(const DevelopSettings& s, const QString& label, bool final, const QString& mergeKey);
     void autoToneRequested();
     void autoUprightRequested(int mode); // 0 vertical, 1 horizontal, 2 both
     void transformResetRequested();
@@ -58,7 +59,7 @@ signals:
 private:
     CollapsibleSection* addSection(QVBoxLayout* layout, const QString& id, const QString& title, bool expanded);
     void addSliders(CollapsibleSection* sec, const char* group);
-    void emitEdit(const QString& label, bool final);
+    void emitEdit(const QString& label, bool final, const QString& mergeKey = {});
 
     DevelopSettings m_settings;
     WbValues m_wb;

@@ -92,6 +92,8 @@ public:
     QList<HistoryEntry> history(qint64 photoId);
     // Appends a new state after the current position, dropping any redo tail.
     int pushHistory(qint64 photoId, const QString& label, const QString& settings);
+    // Overwrites the current state (merging a run of small edits into one step).
+    void replaceHistory(qint64 photoId, const QString& label, const QString& settings);
     // Moves the current position; returns the settings at the new position.
     QString setHistoryPos(qint64 photoId, int pos);
     int historyPos(qint64 photoId);

@@ -699,6 +699,57 @@ private slots:
         QSettings().remove("paste/excluded");
     }
 
+    void repeatedEditsMergeInHistory()
+    {
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowActive(&w));
+        const QString file = freshBatch("mergeEdits", 1);
+        QVERIFY(w.openBatch(file));
+        QTRY_VERIFY_WITH_TIMEOUT(w.mainPane()->engine() != nullptr, 15000);
+        const qint64 id = w.currentPhoto()->id;
+        Batch b;
+        b.open(file);
+        const int base = b.history(id).size();
+        auto* exposure = slider(w, "exposure")->findChild<QDoubleSpinBox*>();
+        auto* contrast = slider(w, "contrast")->findChild<QDoubleSpinBox*>();
+
+        // Up five times: one step with the total.
+        exposure->setFocus();
+        for (int i = 0; i < 5; ++i)
+            QTest::keyClick(exposure, Qt::Key_Up);
+        QCOMPARE(w.currentSettings().exposure, 5 * exposure->singleStep());
+        QCOMPARE(b.history(id).size(), base + 1);
+        QCOMPARE(DevelopSettings::fromJsonString(b.history(id).last().settings).exposure, w.currentSettings().exposure);
+        QCOMPARE(b.history(id).last().label, QStringLiteral("Exposure +%1").arg(5 * exposure->singleStep(), 0, 'f', 2));
+
+        // Another parameter is a new step.
+        contrast->setFocus();
+        QTest::keyClick(contrast, Qt::Key_Up);
+        QCOMPARE(b.history(id).size(), base + 2);
+        exposure->setFocus();
+        QTest::keyClick(exposure, Qt::Key_Up);
+        QCOMPARE(b.history(id).size(), base + 3);
+
+        // So is the same one after an undo, or after a pause.
+        w.testUndo();
+        QTest::keyClick(exposure, Qt::Key_Up);
+        QCOMPARE(b.history(id).size(), base + 3);
+        QCOMPARE(b.historyPos(id), base + 2);
+        QTest::qWait(1600);
+        QTest::keyClick(exposure, Qt::Key_Up);
+        QCOMPARE(b.history(id).size(), base + 4);
+
+        // Undo goes back to before the whole run.
+        w.testUndo();
+        w.testUndo();
+        w.testUndo();
+        QCOMPARE(w.currentSettings().exposure, 5 * exposure->singleStep());
+        w.testUndo();
+        QCOMPARE(w.currentSettings().exposure, 0.0);
+    }
+
     void rejectMovesInTheDirectionOfTravel()
     {
         MainWindow w;
