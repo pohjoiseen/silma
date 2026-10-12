@@ -66,7 +66,7 @@ The binary is `build/src/app/silma`.
 ## GUI
 
 `silma` opens the last batch; `silma TRIP.silma` opens a specific one.
-Keyboard: Left/Right navigate, X/U reject/unreject, Z, Space or click toggles fit/1:1, wheel zooms,
+Keyboard: Left/Right navigate, X/U reject/unreject (rejecting moves on to the next photo, or the previous one after Left), Z, Space or click toggles fit/1:1, wheel zooms,
 `\` before/after, C compare, R crop tool, Q heal tool, Ctrl+I metadata, Ctrl+U auto tone, Ctrl+[ / Ctrl+] rotate 90° left/right (all selected; exports are physically rotated, Reset keeps the rotation), Ctrl+Z / Ctrl+Shift+Z undo/redo,
 W white balance picker (click a neutral point), Ctrl+Shift+C/V copy/paste settings (pasting asks which settings, Ctrl+Alt+Shift+V reuses the previous choice; heal spots are not pasted), Ctrl+Tab / F6 / F7 / F8 hide panels (Tab moves between controls), the pin button in a panel title (or Shift+F6 / F7 / F8) switches the filmstrip, left or right panel to auto hide & show (the panel slides in while the mouse is at that window edge). Delete moves the selected photos to the trash or only excludes them from the batch (asks first; the files stay on disk). Right-click a photo in the filmstrip for reject, settings, rotate, merge, export, delete and file actions.
 

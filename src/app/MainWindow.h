@@ -198,6 +198,8 @@ private:
 
     std::optional<PhotoInfo> m_photo;
     std::optional<PhotoInfo> m_comparePhoto;
+    // The current photo was reached with Previous Photo: rejecting it moves on to the left.
+    bool m_navBackwards = false;
     qint64 m_previousPhotoId = 0;
     QStringList m_trashed; // where files moved to the trash went (this session)
     DevelopSettings m_settings;  // live (possibly uncommitted while dragging)

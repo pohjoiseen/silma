@@ -699,6 +699,43 @@ private slots:
         QSettings().remove("paste/excluded");
     }
 
+    void rejectMovesInTheDirectionOfTravel()
+    {
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowActive(&w));
+        QVERIFY(w.openBatch(freshBatch("rejectDirection", 4)));
+        auto* film = w.findChild<Filmstrip*>();
+        auto idAt = [film](int row) { return film->model()->index(row, 0).data(PhotoListModel::IdRole).toLongLong(); };
+        QTRY_COMPARE(w.currentPhoto()->id, idAt(0));
+
+        // Reached with Previous Photo: rejecting moves on to the left.
+        QTest::keyClick(&w, Qt::Key_Right);
+        QTest::keyClick(&w, Qt::Key_Right);
+        QTest::keyClick(&w, Qt::Key_Left);
+        QCOMPARE(w.currentPhoto()->id, idAt(1));
+        w.testReject();
+        QCOMPARE(w.currentPhoto()->id, idAt(0));
+        // Still backwards after that (at the first photo, it stays).
+        w.testReject();
+        QCOMPARE(w.currentPhoto()->id, idAt(0));
+
+        // Picked in the filmstrip: to the right again.
+        film->setCurrentIndex(film->model()->index(2, 0));
+        QCOMPARE(w.currentPhoto()->id, idAt(2));
+        w.testReject();
+        QCOMPARE(w.currentPhoto()->id, idAt(3));
+
+        // Reached with Next Photo: to the right.
+        QTest::keyClick(&w, Qt::Key_Left);
+        QTest::keyClick(&w, Qt::Key_Left);
+        QTest::keyClick(&w, Qt::Key_Right);
+        QCOMPARE(w.currentPhoto()->id, idAt(2));
+        w.testReject();
+        QCOMPARE(w.currentPhoto()->id, idAt(3));
+    }
+
     void spaceTogglesZoom()
     {
         MainWindow w;

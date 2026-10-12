@@ -691,6 +691,7 @@ void MainWindow::selectPhoto(qint64 id)
 {
     if (m_photo && m_photo->id == id && m_pane->engine())
         return;
+    m_navBackwards = false;
     // Flush a pending thumbnail update for the photo we leave.
     if (m_thumbTimer.isActive() && m_photo) {
         m_thumbTimer.stop();
@@ -777,6 +778,7 @@ void MainWindow::navigate(int delta)
     row = std::clamp(row + delta, 0, m_model->rowCount() - 1);
     selectPhoto(m_model->photoAt(row).id);
     m_filmstrip->selectionModel()->select(m_model->index(row), QItemSelectionModel::ClearAndSelect);
+    m_navBackwards = delta < 0;
 }
 
 void MainWindow::onEngineReady(const QString& path)
@@ -1109,9 +1111,10 @@ void MainWindow::setRejected(bool rejected)
     if (m_photo)
         m_photo = m_batch.photo(m_photo->id);
     statusBar()->showMessage(rejected ? tr("Rejected %n photo(s)", nullptr, int(ids.size())) : tr("Unrejected %n photo(s)", nullptr, int(ids.size())), 2000);
-    // Lightroom-style: move on after rejecting a single photo.
+    // Lightroom-style: move on after rejecting a single photo, in the direction of travel
+    // (backwards after Previous Photo: going through a batch from the end).
     if (rejected && ids.size() == 1)
-        navigate(1);
+        navigate(m_navBackwards ? -1 : 1);
 }
 
 void MainWindow::importPhotos()
