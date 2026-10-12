@@ -561,6 +561,46 @@ private slots:
         QCOMPARE(silma::constrainedCrop(e, c, d).crop, d.crop);
     }
 
+    void healMatchesItsSurroundings()
+    {
+        if (!aiModelInstalled("lama"))
+            QSKIP("LaMa model not installed (set SILMA_MODEL_DIR)");
+        const QString f = testRaw("heal/DSC_0320.NEF");
+        if (f.isEmpty())
+            QSKIP("test raws not available");
+        // A heal over plain cloudy sky (next to a bird, the photo's real heal) should give
+        // back about the same sky; it used to come out as a cyan-green disc.
+        DevelopEngine e(f);
+        HealSpot spot;
+        spot.x = 0.50;
+        spot.y = 0.10;
+        spot.radius = 0.012;
+        spot.patchId = 1;
+        e.addHealPatch(1, generateHealPatch(e.raw(), spot));
+        DevelopSettings healed;
+        healed.heals << spot;
+        const QRectF roi(spot.x - 0.02, spot.y - 0.03, 0.04, 0.06);
+        const QSize full = e.outputSize(healed);
+        const RenderRequest req{.width = int(full.width() * roi.width()), .height = int(full.height() * roi.height()), .roi = roi};
+        const QImage before = e.render(DevelopSettings(), req).image, after = e.render(healed, req).image;
+        // Mean colour difference over the inner part of the spot, in 8-bit levels.
+        const double r = spot.radius * full.width() * 0.8;
+        double diff[3] = {};
+        int n = 0;
+        for (int y = 0; y < after.height(); ++y)
+            for (int x = 0; x < after.width(); ++x)
+                if (std::hypot(x - after.width() / 2.0, y - after.height() / 2.0) < r) {
+                    const QRgb a = after.pixel(x, y), b = before.pixel(x, y);
+                    diff[0] += qRed(a) - qRed(b);
+                    diff[1] += qGreen(a) - qGreen(b);
+                    diff[2] += qBlue(a) - qBlue(b);
+                    ++n;
+                }
+        QVERIFY(n > 1000);
+        for (int k = 0; k < 3; ++k)
+            QVERIFY2(std::abs(diff[k] / n) < 3, qPrintable(QStringLiteral("channel %1 off by %2 levels").arg(k).arg(diff[k] / n)));
+    }
+
     void autoToneSparesBlownSkies()
     {
         const QString blownSky = testRaw("auto-tone/DSC_0251.NEF"), brightSky = testRaw("auto-tone/DSC_0160.NEF");

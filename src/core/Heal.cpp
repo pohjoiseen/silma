@@ -78,6 +78,99 @@ void sampleBilinear(const ImageF& img, double x, double y, float* out)
         out[c] = (img.px(ix, iy)[c] * (1 - tx) + img.px(ix1, iy)[c] * tx) * (1 - ty) + (img.px(ix, iy1)[c] * (1 - tx) + img.px(ix1, iy1)[c] * tx) * ty;
 }
 
+// Smoothly fills the unknown values (weight 0) of a 3-channel field from the known ones
+// (weight 1): weighted averages down a pyramid ("pull"), then interpolated back up into
+// the gaps ("push"). A fast stand-in for a membrane (harmonic) interpolation.
+void pushPull(std::vector<float>& v, std::vector<float>& w, int W, int H)
+{
+    if (W <= 1 && H <= 1)
+        return;
+    const int w2 = (W + 1) / 2, h2 = (H + 1) / 2;
+    std::vector<float> cv(size_t(w2) * h2 * 3, 0.0f), cw(size_t(w2) * h2, 0.0f);
+    for (int y = 0; y < H; ++y)
+        for (int x = 0; x < W; ++x) {
+            const size_t i = size_t(y) * W + x, j = size_t(y / 2) * w2 + x / 2;
+            for (int c = 0; c < 3; ++c)
+                cv[j * 3 + c] += w[i] * v[i * 3 + c];
+            cw[j] += w[i];
+        }
+    for (size_t j = 0; j < cw.size(); ++j) {
+        if (cw[j] > 0)
+            for (int c = 0; c < 3; ++c)
+                cv[j * 3 + c] /= cw[j];
+        cw[j] = std::min(1.0f, cw[j]);
+    }
+    pushPull(cv, cw, w2, h2);
+    for (int y = 0; y < H; ++y)
+        for (int x = 0; x < W; ++x) {
+            const size_t i = size_t(y) * W + x;
+            if (w[i] >= 1)
+                continue;
+            // Bilinear sample of the coarse level at this pixel's centre.
+            const float fx = std::clamp((x + 0.5f) / 2 - 0.5f, 0.0f, float(w2 - 1)), fy = std::clamp((y + 0.5f) / 2 - 0.5f, 0.0f, float(h2 - 1));
+            const int x0 = int(fx), y0 = int(fy), x1 = std::min(x0 + 1, w2 - 1), y1 = std::min(y0 + 1, h2 - 1);
+            const float tx = fx - x0, ty = fy - y0;
+            for (int c = 0; c < 3; ++c) {
+                auto at = [&](int xx, int yy) { return cv[(size_t(yy) * w2 + xx) * 3 + c]; };
+                const float coarse = (at(x0, y0) * (1 - tx) + at(x1, y0) * tx) * (1 - ty) + (at(x0, y1) * (1 - tx) + at(x1, y1) * tx) * ty;
+                v[i * 3 + c] = w[i] * v[i * 3 + c] + (1 - w[i]) * coarse;
+            }
+            w[i] = 1;
+        }
+}
+
+// Makes an inpainted fill meet its surroundings in colour and brightness: the difference
+// between the original just outside the mask and the fill just inside it (both averaged
+// locally, so texture does not count) is spread smoothly over the fill.
+void matchFillToSurroundings(ImageF& filled, const ImageF& original, const PlaneF& mask)
+{
+    const int S = filled.width, H = filled.height;
+    constexpr int r = 3; // averaging radius (model pixels)
+    auto inside = [&](int x, int y) { return x >= 0 && y >= 0 && x < S && y < H && mask.at(x, y) > 0.5f; };
+    std::vector<float> d(size_t(S) * H * 3, 0.0f), w(size_t(S) * H, 0.0f);
+    bool any = false;
+#pragma omp parallel for schedule(dynamic, 16)
+    for (int y = 0; y < H; ++y)
+        for (int x = 0; x < S; ++x) {
+            if (!inside(x, y))
+                continue;
+            // A fill pixel at the mask's edge (a 4-neighbour outside, within the image).
+            bool edge = false;
+            for (auto [dx, dy] : {std::pair{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+                const int xx = x + dx, yy = y + dy;
+                edge |= xx >= 0 && yy >= 0 && xx < S && yy < H && !inside(xx, yy);
+            }
+            if (!edge)
+                continue;
+            double out[3] = {0, 0, 0}, in[3] = {0, 0, 0};
+            int no = 0, ni = 0;
+            for (int yy = std::max(0, y - r); yy <= std::min(H - 1, y + r); ++yy)
+                for (int xx = std::max(0, x - r); xx <= std::min(S - 1, x + r); ++xx) {
+                    const bool m = inside(xx, yy);
+                    const float* p = m ? filled.px(xx, yy) : original.px(xx, yy);
+                    for (int c = 0; c < 3; ++c)
+                        (m ? in : out)[c] += p[c];
+                    ++(m ? ni : no);
+                }
+            if (!no || !ni)
+                continue;
+            const size_t i = size_t(y) * S + x;
+            for (int c = 0; c < 3; ++c)
+                d[i * 3 + c] = float(out[c] / no - in[c] / ni);
+            w[i] = 1;
+            any = true;
+        }
+    if (!any)
+        return;
+    pushPull(d, w, S, H);
+#pragma omp parallel for schedule(static)
+    for (int y = 0; y < H; ++y)
+        for (int x = 0; x < S; ++x)
+            if (inside(x, y))
+                for (int c = 0; c < 3; ++c)
+                    filled.px(x, y)[c] = std::clamp(filled.px(x, y)[c] + d[(size_t(y) * S + x) * 3 + c], 0.0f, 1.0f);
+}
+
 } // namespace
 
 double healExtent(const HealSpot& spot, int sensorWidth, int sensorHeight)
@@ -108,14 +201,23 @@ HealPatch generateHealPatch(const RawImage& raw, const HealSpot& spot, QString* 
     ImageF crop(S, S);
     for (int y = 0; y < S; ++y)
         std::copy_n(raw.image.px(x0, y0 + y), S * 3, crop.row(y));
-    // Display-like encoding adapted to the local brightness (invertible).
-    double mean = 0;
-    for (float v : crop.data)
-        mean += v;
-    mean = std::max(1e-4, mean / crop.data.size());
-    const double gain = 0.18 / mean;
-    auto enc = [&](float v) { return std::pow(std::clamp(float(v * gain), 0.0f, 16.0f) / 16.0f, 1.0f / 4.0f); };
-    auto dec = [&](float e) { return float(std::pow(std::clamp(e, 0.0f, 1.0f), 4.0f) * 16.0f / gain); };
+    // Display-like encoding (invertible): exposure keyed to the crop's median, highlights
+    // rolled off (x / (1 + x)), gamma 2.2, like the photos the model was trained on. The
+    // brightness range of the crop keeps enough levels for the model's small errors to stay
+    // small in linear light (a 4th root used to turn them into visible colour casts).
+    std::vector<float> lum(crop.data.size() / 3);
+    for (size_t i = 0; i < lum.size(); ++i)
+        lum[i] = std::max({crop.data[i * 3], crop.data[i * 3 + 1], crop.data[i * 3 + 2]});
+    std::nth_element(lum.begin(), lum.begin() + lum.size() / 2, lum.end());
+    const double gain = 0.25 / std::max(1e-5f, lum[lum.size() / 2]);
+    auto enc = [&](float v) {
+        const float x = std::max(0.0f, float(v * gain));
+        return std::pow(x / (1 + x), 1.0f / 2.2f);
+    };
+    auto dec = [&](float e) {
+        const float r = std::pow(std::clamp(e, 0.0f, 0.999f), 2.2f);
+        return float(r / (1 - r) / gain);
+    };
     ImageF small = resize(crop, kModelSize, kModelSize);
     for (float& v : small.data)
         v = enc(v);
@@ -129,6 +231,7 @@ HealPatch generateHealPatch(const RawImage& raw, const HealSpot& spot, QString* 
             if (st.distance({x0 + (x + 0.5) / k, y0 + (y + 0.5) / k}, reach) <= reach)
                 mask.at(x, y) = 1;
     ImageF filled = runAiInpaint(small, mask, providerUsed);
+    matchFillToSurroundings(filled, small, mask);
     for (float& v : filled.data)
         v = dec(v);
     // Keep only the part that gets pasted (the stroke and its feather), at full resolution.
