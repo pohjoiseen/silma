@@ -73,6 +73,7 @@ public:
     void testCommit(const DevelopSettings& s, const QString& label) { commit(s, label); }
     void testCropTool(bool on) { setCropTool(on); }
     bool cropToolActive() const { return m_cropTool; }
+    void testShowExportProblems(const QStringList& errors, const QStringList& warnings) { showExportProblems(errors, warnings); }
     void testWbPicker(bool on) { setWbPicker(on); }
     void testHealTool(bool on) { setHealTool(on); }
     void testPickWhiteBalance(QPointF p) { pickWhiteBalance(p); }
@@ -142,6 +143,8 @@ private:
     void setRejected(bool rejected);
     void importPhotos();
     void exportPhotos();
+    // After an export: photos that failed, and warnings about exported ones.
+    void showExportProblems(const QStringList& errors, const QStringList& warnings);
     void deleteRejected();
     // Removes the selected photos from the batch, moving their files to the trash unless
     // `excludeOnly` (asks first; the dialog also offers the other choice).

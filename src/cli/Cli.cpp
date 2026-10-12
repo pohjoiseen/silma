@@ -808,23 +808,34 @@ std::map<QString, Command> commands()
         QThreadPool pool;
         pool.setMaxThreadCount(std::max(1, a.value("jobs", "2").toInt()));
         std::atomic<int> done{0};
-        QList<QPair<QString, QString>> results = QtConcurrent::blockingMapped(&pool, jobs, [&](const Job& j) {
-            QPair<QString, QString> r;
+        struct Result {
+            QString file, error;
+            QStringList warnings;
+        };
+        QList<Result> results = QtConcurrent::blockingMapped(&pool, jobs, [&](const Job& j) {
+            Result r;
             try {
-                r.first = exportPhoto(j.p, j.s, importNames.value(j.p.importId), j.seq, o, j.patches);
+                r.file = exportPhoto(j.p, j.s, importNames.value(j.p.importId), j.seq, o, j.patches, &r.warnings);
             } catch (const std::exception& e) {
-                r.second = j.p.fileName + ": " + QString::fromUtf8(e.what());
+                r.error = j.p.fileName + ": " + QString::fromUtf8(e.what());
             }
             int n = ++done;
-            if (!json)
-                err() << QStringLiteral("[%1/%2] %3\n").arg(n).arg(jobs.size()).arg(r.first.isEmpty() ? r.second : QFileInfo(r.first).fileName()) << Qt::flush;
+            if (!json) {
+                QString line = QStringLiteral("[%1/%2] %3\n").arg(n).arg(jobs.size()).arg(r.file.isEmpty() ? r.error : QFileInfo(r.file).fileName());
+                for (const QString& w : r.warnings)
+                    line += QStringLiteral("  warning: ") + w + '\n';
+                err() << line << Qt::flush;
+            }
             return r;
         });
-        QJsonArray files, errors;
-        for (const auto& r : results)
-            r.second.isEmpty() ? files.append(r.first) : errors.append(r.second);
+        QJsonArray files, errors, warnings;
+        for (const auto& r : results) {
+            r.error.isEmpty() ? files.append(r.file) : errors.append(r.error);
+            for (const QString& w : r.warnings)
+                warnings.append(w);
+        }
         if (json)
-            printJson(QJsonObject{{"files", files}, {"errors", errors}});
+            printJson(QJsonObject{{"files", files}, {"errors", errors}, {"warnings", warnings}});
         else
             out() << "Exported " << files.size() << " file(s) to " << o.folder << '\n';
         if (!errors.isEmpty())

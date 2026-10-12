@@ -645,6 +645,23 @@ private slots:
         // Second export does not overwrite.
         QString out2 = exportPhoto(p, DevelopSettings(), "x", 1, o);
         QVERIFY(out2 != out);
+
+        // Empty borders in the crop are reported.
+        QStringList warnings;
+        exportPhoto(p, DevelopSettings(), "x", 1, o, {}, &warnings);
+        QVERIFY(warnings.isEmpty());
+        DevelopSettings rotated;
+        rotated.rotate = 8; // not constrained (settings as stored, e.g. from an old edit)
+        exportPhoto(p, rotated, "x", 1, o, {}, &warnings);
+        QCOMPARE(warnings.size(), 1);
+        QVERIFY2(warnings[0].startsWith(p.fileName + ": empty (black) borders") && warnings[0].contains("% of the image"), qPrintable(warnings[0]));
+        // The largest valid crop is fine.
+        warnings.clear();
+        DevelopEngine e(f, {.halfSize = true});
+        const Geometry g = e.geometry(rotated, true);
+        rotated.crop = autoCropRect(g, g.canvasSize().width() / g.canvasSize().height());
+        exportPhoto(p, rotated, "x", 1, o, {}, &warnings);
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
     }
 };
 

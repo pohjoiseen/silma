@@ -1306,36 +1306,68 @@ void MainWindow::exportPhotos()
     auto done = std::make_shared<std::atomic<int>>(0);
     auto pool = std::make_shared<QThreadPool>();
     pool->setMaxThreadCount(2);
-    auto future = QtConcurrent::mapped(pool.get(), jobs, [o, cancelled, done, pd, pool](const Job& j) -> QString {
+    struct Outcome {
+        QString error;
+        QStringList warnings;
+    };
+    auto future = QtConcurrent::mapped(pool.get(), jobs, [o, cancelled, done, pd, pool](const Job& j) -> Outcome {
+        Outcome r;
         if (*cancelled)
-            return QString();
-        QString err;
+            return r;
         try {
-            exportPhoto(j.p, j.s, j.import, j.seq, o, j.patches);
+            exportPhoto(j.p, j.s, j.import, j.seq, o, j.patches, &r.warnings);
         } catch (const std::exception& e) {
-            err = j.p.fileName + ": " + QString::fromUtf8(e.what());
+            r.error = j.p.fileName + ": " + QString::fromUtf8(e.what());
         }
         int n = ++*done;
         QMetaObject::invokeMethod(qApp, [pd, n] {
             if (pd)
                 pd->setValue(n);
         });
-        return err;
+        return r;
     });
-    auto* watcher = new QFutureWatcher<QString>(this);
-    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, progress, o, pool] {
-        QStringList errors;
-        for (const QString& e : watcher->future().results())
-            if (!e.isEmpty())
-                errors << e;
+    auto* watcher = new QFutureWatcher<Outcome>(this);
+    connect(watcher, &QFutureWatcher<Outcome>::finished, this, [this, watcher, progress, o, pool] {
+        QStringList errors, warnings;
+        for (const Outcome& r : watcher->future().results()) {
+            if (!r.error.isEmpty())
+                errors << r.error;
+            warnings << r.warnings;
+        }
         progress->deleteLater();
         watcher->deleteLater();
-        if (!errors.isEmpty())
-            QMessageBox::warning(this, tr("Export"), errors.mid(0, 20).join('\n'));
-        else
+        if (errors.isEmpty() && warnings.isEmpty()) {
             statusBar()->showMessage(tr("Export finished: %1").arg(o.folder), 5000);
+            return;
+        }
+        showExportProblems(errors, warnings);
     });
     watcher->setFuture(future);
+}
+
+void MainWindow::showExportProblems(const QStringList& errors, const QStringList& warnings)
+{
+    QStringList parts;
+    if (!errors.isEmpty())
+        parts << tr("%n photo(s) could not be exported:", nullptr, int(errors.size())) + "\n" + errors.join('\n');
+    if (!warnings.isEmpty())
+        parts << tr("%n exported photo(s) may need a look:", nullptr, int(warnings.size())) + "\n" + warnings.join('\n');
+    const QString all = parts.join(QStringLiteral("\n\n"));
+    QMessageBox box(errors.isEmpty() ? QMessageBox::Information : QMessageBox::Warning, tr("Export"), QString(), QMessageBox::Ok, this);
+    // Long lists go to the details (scrollable).
+    const int lines = int(errors.size() + warnings.size());
+    if (lines <= 15) {
+        box.setText(all);
+    } else {
+        QStringList summary;
+        if (!errors.isEmpty())
+            summary << tr("%n photo(s) could not be exported.", nullptr, int(errors.size()));
+        if (!warnings.isEmpty())
+            summary << tr("%n exported photo(s) may need a look.", nullptr, int(warnings.size()));
+        box.setText(summary.join(' ') + "\n" + tr("See the details."));
+        box.setDetailedText(all);
+    }
+    box.exec();
 }
 
 void MainWindow::removePhotos(bool excludeOnly)

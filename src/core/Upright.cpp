@@ -413,6 +413,19 @@ QRectF autoCropRect(const Geometry& g, double aspect)
     return scaledAboutCentre(full, lo);
 }
 
+double emptyCropFraction(const Geometry& g, const QRectF& crop)
+{
+    const int n = 100;
+    int empty = 0;
+    for (int y = 0; y < n; ++y)
+        for (int x = 0; x < n; ++x)
+            empty += !g.canvasValid({crop.left() + crop.width() * (x + 0.5) / n, crop.top() + crop.height() * (y + 0.5) / n});
+    if (empty > 0)
+        return double(empty) / (n * n);
+    // Thinner than the grid: the edges (and corners) themselves.
+    return rectValid(g, crop) ? 0.0 : 1e-4;
+}
+
 bool cropConstraintApplies(const DevelopSettings& before, const DevelopSettings& after)
 {
     if (!after.constrainCrop || after.crop != before.crop || after.quarterTurns != before.quarterTurns)

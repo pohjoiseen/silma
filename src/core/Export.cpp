@@ -3,6 +3,7 @@
 #include "Engine.h"
 #include "Filters.h"
 #include "Heal.h"
+#include "Upright.h"
 
 #include <QDir>
 #include <QFile>
@@ -162,10 +163,17 @@ void outputSharpen(ImageF& img, OutputSharpening level)
 }
 
 QString exportPhoto(const PhotoInfo& p, const DevelopSettings& s, const QString& importName, int seq, const ExportOptions& o,
-                    const QMap<qint64, HealPatch>& patches)
+                    const QMap<qint64, HealPatch>& patches, QStringList* warnings)
 {
     DevelopEngine engine(p.path);
     addHealPatches(engine, patches);
+    if (warnings) {
+        if (const double empty = emptyCropFraction(engine.geometry(s, true), s.crop); empty > 0) {
+            const QString amount = empty < 0.005 ? QStringLiteral("a sliver along the edge")
+                                                 : QStringLiteral("about %1% of the image").arg(empty * 100, 0, 'f', empty < 0.1 ? 1 : 0);
+            *warnings << p.fileName + QStringLiteral(": empty (black) borders in the crop, ") + amount;
+        }
+    }
     QSize full = engine.outputSize(s);
     int w = full.width(), h = full.height();
     if (o.sizeMode != ExportSizeMode::Original && o.size > 0) {

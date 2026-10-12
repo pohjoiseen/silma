@@ -696,6 +696,35 @@ private slots:
         QSettings().remove("paste/excluded");
     }
 
+    void exportProblemsDialog()
+    {
+        MainWindow w;
+        QString text, details;
+        auto grab = [&] {
+            QTimer::singleShot(100, [&] {
+                if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+                    text = box->text();
+                    details = box->detailedText();
+                    box->accept();
+                }
+            });
+        };
+        // A few: listed in the message itself.
+        grab();
+        w.testShowExportProblems({"a.NEF: cannot decode"}, {"b.NEF: empty (black) borders in the crop, about 3% of the image"});
+        QVERIFY(text.contains("1 photo(s) could not be exported"));
+        QVERIFY(text.contains("a.NEF: cannot decode") && text.contains("b.NEF: empty (black) borders"));
+        QVERIFY(details.isEmpty());
+        // Many: a summary, the list in the details.
+        QStringList many;
+        for (int i = 0; i < 30; ++i)
+            many << QStringLiteral("p%1.NEF: empty (black) borders in the crop, a sliver along the edge").arg(i);
+        grab();
+        w.testShowExportProblems({}, many);
+        QVERIFY(!text.contains("p0.NEF"));
+        QVERIFY(details.contains("p0.NEF") && details.contains("p29.NEF"));
+    }
+
     void cropToolEnterAndEscape()
     {
         MainWindow w;
