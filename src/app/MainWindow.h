@@ -22,6 +22,8 @@ class QListWidget;
 class QSplitter;
 class QTabWidget;
 
+class QShortcut;
+
 namespace silma {
 
 class AutoHidePanel;
@@ -70,6 +72,7 @@ public:
     QStringList trashedFiles() const { return m_trashed; }
     void testCommit(const DevelopSettings& s, const QString& label) { commit(s, label); }
     void testCropTool(bool on) { setCropTool(on); }
+    bool cropToolActive() const { return m_cropTool; }
     void testWbPicker(bool on) { setWbPicker(on); }
     void testHealTool(bool on) { setHealTool(on); }
     void testPickWhiteBalance(QPointF p) { pickWhiteBalance(p); }
@@ -154,6 +157,8 @@ private:
     void onEngineReady(const QString& path);
     void toggleSidePanels();
     void setCropTool(bool on);
+    // Esc: closes the crop tool, undoing what was done since it was opened.
+    void cancelCropTool();
     void setHealTool(bool on);
     // Makes sure an AI model is installed, offering to download it (modal). False if not.
     bool ensureAiModel(const QString& id);
@@ -218,6 +223,8 @@ private:
     std::optional<DevelopSettings> m_clipboard;
     ViewMode m_viewMode = ViewMode::Single;
     bool m_cropTool = false;
+    int m_cropEntryPos = -1;       // history position when the crop tool was opened
+    QShortcut* m_cropAccept[2] = {}; // Return, Enter: close the crop tool
     QString m_activeSlider;
     QTimer m_thumbTimer;
     QTimer m_pollTimer;

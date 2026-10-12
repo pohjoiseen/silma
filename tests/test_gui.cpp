@@ -696,6 +696,44 @@ private slots:
         QSettings().remove("paste/excluded");
     }
 
+    void cropToolEnterAndEscape()
+    {
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowActive(&w));
+        QVERIFY(w.openBatch(freshBatch("cropKeys", 1)));
+        QTRY_VERIFY_WITH_TIMEOUT(w.mainPane()->engine() != nullptr, 15000);
+        auto* tool = w.findChild<CropTool*>();
+        QVERIFY(tool);
+        const QRectF full(0, 0, 1, 1), cropped(0.1, 0.1, 0.6, 0.6);
+
+        // Enter keeps the crop and closes the tool.
+        w.testCropTool(true);
+        emit tool->rectChanged(cropped, true);
+        QTest::keyClick(&w, Qt::Key_Return);
+        QVERIFY(!w.cropToolActive());
+        QCOMPARE(w.currentSettings().crop, cropped);
+
+        // Esc undoes everything done since the tool was opened.
+        w.testCropTool(true);
+        emit tool->rectChanged(full, true);
+        emit tool->rotationChanged(3, true);
+        QVERIFY(w.currentSettings().crop.width() < 1); // constrained by the rotation
+        QTest::keyClick(&w, Qt::Key_Escape);
+        QVERIFY(!w.cropToolActive());
+        QCOMPARE(w.currentSettings().crop, cropped);
+        QCOMPARE(w.currentSettings().rotate, 0.0);
+        // Esc without changes just closes it.
+        w.testCropTool(true);
+        QTest::keyClick(&w, Qt::Key_Escape);
+        QVERIFY(!w.cropToolActive());
+        QCOMPARE(w.currentSettings().crop, cropped);
+        // Enter outside the tool does nothing to it.
+        QTest::keyClick(&w, Qt::Key_Return);
+        QVERIFY(!w.cropToolActive());
+    }
+
     void transformsConstrainCrop()
     {
         MainWindow w;

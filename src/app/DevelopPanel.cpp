@@ -190,7 +190,7 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
         auto* row = new QHBoxLayout();
         m_cropTool = rowButton(tr("Crop Tool"), crop);
         m_cropTool->setCheckable(true);
-        m_cropTool->setToolTip(tr("Edit the crop on the image (R)"));
+        m_cropTool->setToolTip(tr("Edit the crop on the image (R; Enter: done, Esc: cancel)"));
         row->addWidget(m_cropTool);
         auto* autoCrop = rowButton(tr("Auto"), crop);
         autoCrop->setToolTip(tr("Largest crop without empty borders"));

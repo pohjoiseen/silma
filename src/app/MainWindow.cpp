@@ -364,7 +364,16 @@ void MainWindow::createActions()
     connect(esc, &QShortcut::activated, this, [this] {
         if (m_wbPicker)
             setWbPicker(false);
+        if (m_cropTool)
+            cancelCropTool();
     });
+    // Enter closes the crop tool keeping its changes (only while it is open: elsewhere Enter
+    // belongs to the focused field).
+    for (int i = 0; i < 2; ++i) {
+        m_cropAccept[i] = new QShortcut(QKeySequence(i == 0 ? Qt::Key_Return : Qt::Key_Enter), this);
+        m_cropAccept[i]->setEnabled(false);
+        connect(m_cropAccept[i], &QShortcut::activated, this, [this] { setCropTool(false); });
+    }
     photo->addAction(tr("&Crop Tool"), QKeySequence(Qt::Key_R), this, [this] { setCropTool(!m_cropTool); });
     QAction* actTurnCcw = photo->addAction(tr("Rotate &Left (90° CCW)"), QKeySequence(Qt::CTRL | Qt::Key_BracketLeft), this, [this] { turnPhotos(-1); });
     QAction* actTurnCw = photo->addAction(tr("Rotate Ri&ght (90° CW)"), QKeySequence(Qt::CTRL | Qt::Key_BracketRight), this, [this] { turnPhotos(1); });
@@ -974,7 +983,11 @@ void MainWindow::setCropTool(bool on)
         setHealTool(false);
     if (on && m_wbPicker)
         setWbPicker(false);
+    if (on && !m_cropTool)
+        m_cropEntryPos = m_batch.historyPos(m_photo->id);
     m_cropTool = on;
+    for (QShortcut* s : m_cropAccept)
+        s->setEnabled(on);
     m_panel->setCropToolActive(on);
     if (on) {
         m_cropToolObj->setRect(m_settings.crop);
@@ -985,6 +998,16 @@ void MainWindow::setCropTool(bool on)
     }
     m_pane->setIgnoreCrop(on);
     m_pane->setTool(on ? m_cropToolObj : nullptr);
+}
+
+void MainWindow::cancelCropTool()
+{
+    // The tool's edits are committed as they are made: back to where it was opened (they
+    // stay available as redo steps).
+    const int pos = m_cropEntryPos;
+    setCropTool(false);
+    if (m_photo && pos >= 0 && m_batch.historyPos(m_photo->id) > pos)
+        jumpToHistory(pos);
 }
 
 void MainWindow::resetSettings()
