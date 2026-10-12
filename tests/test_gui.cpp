@@ -28,6 +28,7 @@
 #include <QDockWidget>
 #include <QCheckBox>
 #include <QMenu>
+#include <QInputDialog>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QTreeWidget>
@@ -694,6 +695,41 @@ private slots:
         tone->setCheckState(0, Qt::Checked);
         QCOMPARE(again.parts(), (QSet<QString>{"exposure", "contrast", "highlights", "shadows", "whites", "blacks"}));
         QSettings().remove("paste/excluded");
+    }
+
+    void exportNewFolder()
+    {
+        QTemporaryDir tmp;
+        QSettings().setValue("export/folder", tmp.path());
+        ExportDialog dlg(1, 3, 3);
+        dlg.show();
+        QPushButton* button = nullptr;
+        for (auto* b : dlg.findChildren<QPushButton*>())
+            if (b->text() == "New Folder...")
+                button = b;
+        QVERIFY(button);
+        auto answer = [](const QString& name) {
+            QTimer::singleShot(100, [name] {
+                if (auto* in = qobject_cast<QInputDialog*>(QApplication::activeModalWidget())) {
+                    in->setTextValue(name);
+                    in->accept();
+                }
+            });
+        };
+        // Created inside the current folder, and selected.
+        answer("  Jakobstad ");
+        button->click();
+        QCOMPARE(dlg.options().folder, tmp.filePath("Jakobstad"));
+        QVERIFY(QFileInfo(tmp.filePath("Jakobstad")).isDir());
+        // Again: a folder inside that one; an empty name changes nothing.
+        answer("Day 2");
+        button->click();
+        QCOMPARE(dlg.options().folder, tmp.filePath("Jakobstad/Day 2"));
+        QVERIFY(QFileInfo(dlg.options().folder).isDir());
+        answer("");
+        button->click();
+        QCOMPARE(dlg.options().folder, tmp.filePath("Jakobstad/Day 2"));
+        QSettings().remove("export/folder");
     }
 
     void exportProblemsDialog()

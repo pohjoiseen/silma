@@ -8,8 +8,10 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QSettings>
@@ -212,13 +214,30 @@ ExportDialog::ExportDialog(int selected, int inImport, int inBatch, QWidget* par
     auto* folderRow = new QHBoxLayout();
     m_folder = new QLineEdit(s.value("export/folder", QStandardPaths::writableLocation(QStandardPaths::PicturesLocation) + "/Silmä").toString(), fg);
     auto* browse = new QPushButton(tr("Browse..."), fg);
+    // KDE's folder chooser has no New Folder button (only in save dialogs).
+    auto* newFolder = new QPushButton(tr("New Folder..."), fg);
+    newFolder->setToolTip(tr("Create a folder inside the one above and export there"));
+    m_folder->setMinimumWidth(m_folder->fontMetrics().averageCharWidth() * 40);
     folderRow->addWidget(m_folder, 1);
     folderRow->addWidget(browse);
+    folderRow->addWidget(newFolder);
     fl->addRow(tr("Folder:"), folderRow);
     connect(browse, &QPushButton::clicked, this, [this] {
         QString d = QFileDialog::getExistingDirectory(this, tr("Export Folder"), m_folder->text());
         if (!d.isEmpty())
             m_folder->setText(d);
+    });
+    connect(newFolder, &QPushButton::clicked, this, [this] {
+        const QString name = QInputDialog::getText(this, tr("New Folder"), tr("Create a folder in %1:").arg(QDir::toNativeSeparators(m_folder->text())))
+                                 .trimmed();
+        if (name.isEmpty())
+            return;
+        const QString path = QDir::cleanPath(QDir(m_folder->text()).filePath(name));
+        if (!QDir().mkpath(path)) {
+            QMessageBox::warning(this, tr("New Folder"), tr("Cannot create %1").arg(QDir::toNativeSeparators(path)));
+            return;
+        }
+        m_folder->setText(path);
     });
     m_pattern = new QLineEdit(s.value("export/pattern", "{date}-{name}").toString(), fg);
     m_pattern->setToolTip(tr("Tokens: {date} (YYYYMMDD), {time} (HHMMSS), {name} (original file name), {import}, {seq}, {camera}"));
