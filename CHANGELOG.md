@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Command line
+- `set` takes relative changes: `KEY+=D` and `KEY-=D` (clamped to the setting's range).
+- New `crop PHOTO... X,Y,W,H [--aspect W:H]`: crop to a part of the current crop, in the
+  coordinates of what `render` shows.
+- `undo`/`redo` no longer fail with "database is locked" when another `silma` process writes
+  to the batch at the same time.
+
 ## 1.0.1 (2026-10-12)
 
 Fixes and conveniences from editing a first real trip with Silmä.

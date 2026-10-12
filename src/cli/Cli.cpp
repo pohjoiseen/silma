@@ -525,7 +525,7 @@ std::map<QString, Command> commands()
             out() << "  crop              " << s.crop.x() << ',' << s.crop.y() << ',' << s.crop.width() << ',' << s.crop.height() << '\n';
     }};
 
-    m["set"] = {"set PHOTO... KEY=VALUE... [--label TEXT]", "Change develop settings (adds a history step)", {"label", "import"}, {}, true, [](const Args& a, Batch* b, bool json) {
+    m["set"] = {"set PHOTO... KEY=VALUE|KEY+=D|KEY-=D... [--label TEXT]", "Change develop settings (adds a history step; += and -= are relative)", {"label", "import"}, {}, true, [](const Args& a, Batch* b, bool json) {
         QStringList refs, assigns;
         for (const auto& x : a.positional())
             (x.contains('=') ? assigns : refs) << x;
@@ -533,10 +533,18 @@ std::map<QString, Command> commands()
             fail("Nothing to set; use KEY=VALUE (see 'silma keys')");
         auto ps = resolvePhotos(*b, refs, a.value("import"));
         QStringList labels;
+        // KEY=VALUE, or KEY+=D / KEY-=D for a relative change
+        auto assignKey = [](const QString& as) {
+            QString k = as.section('=', 0, 0).trimmed();
+            if (k.endsWith('+') || k.endsWith('-'))
+                k.chop(1);
+            return k.trimmed().replace('-', '_');
+        };
         for (const auto& as : assigns) {
-            QString k = as.section('=', 0, 0).replace('-', '_');
-            const ParamDef* p = findParam(k);
-            labels << (p ? QStringLiteral("%1 %2").arg(QString::fromUtf8(p->label), as.section('=', 1)) : as);
+            QString k = as.section('=', 0, 0).trimmed();
+            QString rel = k.endsWith('+') ? QStringLiteral("+") : k.endsWith('-') ? QStringLiteral("-") : QString();
+            const ParamDef* p = findParam(assignKey(as));
+            labels << (p ? QStringLiteral("%1 %2%3").arg(QString::fromUtf8(p->label), rel, as.section('=', 1)) : as);
         }
         QString label = a.value("label", labels.join(", "));
         QJsonArray results;
@@ -544,8 +552,8 @@ std::map<QString, Command> commands()
             DevelopSettings s = DevelopSettings::fromJsonString(b->settings(p.id));
             bool touchesWb = false, setsTemp = false, setsTint = false;
             for (const auto& as : assigns) {
-                setsTemp |= as.startsWith(QLatin1String("temperature="));
-                setsTint |= as.startsWith(QLatin1String("tint="));
+                setsTemp |= assignKey(as) == QLatin1String("temperature");
+                setsTint |= assignKey(as) == QLatin1String("tint");
             }
             touchesWb = setsTemp || setsTint;
             if (touchesWb && s.wbMode != WbMode::Custom) {
@@ -889,6 +897,58 @@ std::map<QString, Command> commands()
                 aspect = s.crop.width() * cs.width() / (s.crop.height() * cs.height());
             s.crop = autoCropRect(g, aspect);
             b->pushHistory(p.id, "Auto Crop", s.toJsonString());
+            arr.append(QJsonObject{{"id", p.id}, {"crop", QJsonArray{s.crop.x(), s.crop.y(), s.crop.width(), s.crop.height()}}});
+            if (!json)
+                out() << p.fileName << ": crop " << s.crop.x() << ',' << s.crop.y() << ',' << s.crop.width() << ',' << s.crop.height() << '\n';
+        }
+        if (json)
+            printJson(arr);
+    }};
+
+    m["crop"] = {"crop PHOTO... X,Y,W,H [--aspect W:H]", "Crop to a part of the current crop (0..1, as 'render' shows it); --aspect shrinks it about its centre",
+                 {"aspect", "import"}, {}, true, [](const Args& a, Batch* b, bool json) {
+        QStringList refs;
+        QString rect;
+        for (const auto& x : a.positional()) {
+            if (x.count(',') == 3)
+                rect = x;
+            else
+                refs << x;
+        }
+        auto r = rect.split(',');
+        if (r.size() != 4)
+            fail("crop needs X,Y,W,H (normalized, of the current crop)");
+        QRectF rel(r[0].toDouble(), r[1].toDouble(), r[2].toDouble(), r[3].toDouble());
+        rel = rel.intersected(QRectF(0, 0, 1, 1));
+        if (rel.width() < 0.01 || rel.height() < 0.01)
+            fail("crop rectangle too small or outside the image");
+        double aspect = 0;
+        if (QString as = a.value("aspect"); !as.isEmpty()) {
+            aspect = as.section(':', 0, 0).toDouble() / std::max(1e-6, as.section(':', 1, 1).toDouble());
+            if (!as.contains(':') || aspect <= 0)
+                fail("--aspect needs W:H");
+        }
+        auto ps = resolvePhotos(*b, refs, a.value("import"));
+        QJsonArray arr;
+        for (const auto& p : ps) {
+            DevelopSettings s = DevelopSettings::fromJsonString(b->settings(p.id));
+            DevelopEngine e(p.path, {.halfSize = true});
+            const QSizeF cs = e.geometry(s, true).canvasSize();
+            const QRectF c = s.crop;
+            QRectF n = rel;
+            if (aspect > 0) {
+                const double w = n.width() * c.width() * cs.width(), h = n.height() * c.height() * cs.height();
+                if (w / h > aspect)
+                    n.setWidth(n.width() * aspect * h / w);
+                else
+                    n.setHeight(n.height() * w / aspect / h);
+                n.moveCenter(rel.center());
+            }
+            const DevelopSettings before = s;
+            s.crop = QRectF(c.x() + n.x() * c.width(), c.y() + n.y() * c.height(), n.width() * c.width(), n.height() * c.height());
+            if (cropConstraintApplies(before, s))
+                s = constrainedCrop(e, before, s);
+            b->pushHistory(p.id, "Crop", s.toJsonString());
             arr.append(QJsonObject{{"id", p.id}, {"crop", QJsonArray{s.crop.x(), s.crop.y(), s.crop.width(), s.crop.height()}}});
             if (!json)
                 out() << p.fileName << ": crop " << s.crop.x() << ',' << s.crop.y() << ',' << s.crop.width() << ',' << s.crop.height() << '\n';

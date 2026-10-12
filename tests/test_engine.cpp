@@ -392,6 +392,17 @@ private slots:
         DevelopSettings r2 = DevelopSettings::fromJsonString(r.toJsonString());
         QCOMPARE(r2.dehaze, 35.0);
         QCOMPARE(r2.texture, -20.0);
+        // Relative changes, clamped to the range.
+        QVERIFY(applyAssignment(r, "shadows+=15").isEmpty());
+        QCOMPARE(r.shadows, 55.0);
+        QVERIFY(applyAssignment(r, "texture -= 90").isEmpty());
+        QCOMPARE(r.texture, -100.0);
+        QVERIFY(applyAssignment(r, "exposure+=0.3").isEmpty());
+        QVERIFY(applyAssignment(r, "temperature-=300").isEmpty());
+        QCOMPARE(r.temperature, 4000.0);
+        QVERIFY(r.wbMode == WbMode::Custom);
+        QVERIFY(!applyAssignment(r, "crop+=0.1").isEmpty());
+        QVERIFY(!applyAssignment(r, "shadows+=x").isEmpty());
     }
 
     void renderSamples()

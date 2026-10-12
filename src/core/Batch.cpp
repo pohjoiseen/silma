@@ -408,13 +408,20 @@ void Batch::replaceHistory(qint64 photoId, const QString& label, const QString& 
 
 QString Batch::setHistoryPos(qint64 photoId, int pos)
 {
-    auto chk = m_db.prepare("SELECT settings FROM history WHERE photo_id = ? AND seq = ?");
-    chk.bind(1, photoId).bind(2, pos);
-    if (!chk.step())
-        throw DbError("No such history entry");
-    QString s = chk.str(0);
+    // Read and write in one immediate transaction: upgrading a read to a write fails at once
+    // (no busy wait) when another process has written in between.
+    Transaction tx(m_db);
+    QString s;
+    {
+        auto chk = m_db.prepare("SELECT settings FROM history WHERE photo_id = ? AND seq = ?");
+        chk.bind(1, photoId).bind(2, pos);
+        if (!chk.step())
+            throw DbError("No such history entry");
+        s = chk.str(0);
+    }
     auto up = m_db.prepare("UPDATE photos SET history_pos = ? WHERE id = ?");
     up.bind(1, pos).bind(2, photoId).exec();
+    tx.commit();
     return s;
 }
 

@@ -264,8 +264,15 @@ QString applyAssignment(DevelopSettings& s, const QString& assignment)
     int eq = assignment.indexOf('=');
     if (eq <= 0)
         return QStringLiteral("expected key=value, got '%1'").arg(assignment);
-    QString key = assignment.left(eq).trimmed().replace('-', '_');
+    QString key = assignment.left(eq).trimmed();
     QString val = assignment.mid(eq + 1).trimmed();
+    // key+=d / key-=d: relative change of a numeric setting
+    int sign = key.endsWith('+') ? 1 : key.endsWith('-') ? -1 : 0;
+    if (sign)
+        key.chop(1);
+    key = key.trimmed().replace('-', '_');
+    if (sign && !findParam(key))
+        return QStringLiteral("'%1' cannot be changed with += or -=").arg(key);
 
     if (key == QLatin1String("wb")) {
         auto m = wbModeFromName(val);
@@ -332,6 +339,8 @@ QString applyAssignment(DevelopSettings& s, const QString& assignment)
     double v = val.toDouble(&ok);
     if (!ok)
         return QStringLiteral("'%1' is not a number").arg(val);
+    if (sign) // relative changes stop at the range ends instead of failing
+        v = std::clamp(s.*p->field + sign * v, p->min, p->max);
     if (v < p->min || v > p->max)
         return QStringLiteral("%1 must be within %2..%3").arg(key).arg(p->min).arg(p->max);
     s.*p->field = v;
