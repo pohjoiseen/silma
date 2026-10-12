@@ -46,7 +46,13 @@ export SILMA_BATCH=/path/to/New.silma WORK=<scratchpad>/develop SIL=/home/agent/
 Run the loops in **bash** (`bash -c '...'` or script files): the interactive shell is zsh, which
 does not word-split `$VAR` lists and expands `!`.
 
-Create the batch next to (not inside) the user's folders and import - this *copies* the raws:
+**Working in the user's own batch** (e.g. "process day 1 of this .silma"): first
+`sqlite3 X.silma ".backup '~/silma-work-NAME/backup/before.silma'"`, check which photos already have
+history beyond "Import" (`history` table), touch only the asked-for photos, and at the end diff
+`file_name|rejected|history_pos|count(history)` of the other photos against the backup. Keep work files in
+a home-directory folder (the session scratchpad can disappear on a restart).
+
+Otherwise create the batch next to (not inside) the user's folders and import - this *copies* the raws:
 `$SIL create X.silma && $SIL -b X.silma import FILES... [--into NAME]`. Pick files by
 `exiftool -T -FileName -DateTimeOriginal` when only one day is wanted. Raw paths in a batch are
 relative to the `.silma` file: a copy of the batch (for experiments) must sit in the same folder
@@ -56,6 +62,9 @@ relative to the `.silma` file: a copy of the batch (for experiments) must sit in
 
 1. **Look at everything first**: `$SK/sheets.sh r0 list.txt` (3x3 labelled sheets, 900 px renders)
    and Read each sheet. Note bursts, duplicates, odd angles, subjects.
+   `$SIL list` shows capture times: frames seconds apart at the same focal length are bursts or
+   pano sweeps. Preview a suspected pano with `pano P... --preview out.jpg` (seconds) before
+   stitching; the stitched DNG is added to the batch, and the source frames get rejected.
 2. **Cull**: for bursts render the subject at 1:1 (`render P out.jpg --size full --roi x,y,w,h`)
    side by side and compare sharpness *and* expression. `reject` the rest.
 3. **Auto tone**: `$SIL auto --tone P...` (keeps as-shot WB). Since a239564 it already gives about
@@ -63,7 +72,13 @@ relative to the `.silma` file: a copy of the batch (for experiments) must sit in
    (a blanket `highlights-=10` caused the blue-sky patches). Use relative per-photo tweaks:
    `$SIL set P contrast+=10 shadows+=15 temperature+=150` (clamped to range).
    Warmth: at most ~+150..200 K, skip it for already warm light and greenery.
-4. **Perspective**, for every photo with verticals:
+4. **Perspective**, for every photo with verticals. For a whole day:
+   `xargs -P8 -n1 $SK/persp.sh < list.txt > persp.log` does upright, measures, falls back to vfix
+   and keeps the straighter one (about 10 min for 130 photos); then look at the large values
+   (`settings`: |rotate| > 2.5, |vertical| > 35) and at photos where both methods scored badly.
+   Shots angled down at a small object (bin, grave, signpost) or tree-only scenes get rotation only:
+   `set P rotate=0 vertical=0` then `vfix.sh P --no-keystone`. Panoramas: `vfix.sh PANO --no-keystone`.
+   Per photo:
    - `$SIL upright P --mode vertical`, then **measure, don't eyeball**: render at 2400 px and run
      `$SK/vfit.sh img.jpg` -> `r` = residual rotation (deg), `k` = residual keystone (deg across
      the width). Aim for |r| < 0.2 and |k| < 0.7. Upright sometimes makes it worse (it took the
