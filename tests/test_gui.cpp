@@ -699,6 +699,38 @@ private slots:
         QSettings().remove("paste/excluded");
     }
 
+    void spaceTogglesZoom()
+    {
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowActive(&w));
+        QVERIFY(w.openBatch(freshBatch("spaceTogglesZoom", 1)));
+        ImagePane* pane = w.mainPane();
+        QTRY_VERIFY_WITH_TIMEOUT(pane->engine() != nullptr, 15000);
+        QVERIFY(pane->viewState().fit);
+
+        // With the filmstrip focused, Space toggles between fit and 1:1, like Z.
+        auto* film = w.findChild<Filmstrip*>();
+        film->setFocus();
+        QTest::keyClick(film, Qt::Key_Space);
+        QVERIFY(!pane->viewState().fit);
+        QTest::keyClick(film, Qt::Key_Space);
+        QVERIFY(pane->viewState().fit);
+
+        // A focused button gets the Space itself.
+        QToolButton* autoTone = nullptr;
+        for (auto* b : w.findChildren<QToolButton*>())
+            if (b->text().remove('&') == "Auto" && b->isVisible())
+                autoTone = b;
+        QVERIFY(autoTone);
+        QSignalSpy clicked(autoTone, &QToolButton::clicked);
+        autoTone->setFocus();
+        QTest::keyClick(autoTone, Qt::Key_Space);
+        QCOMPARE(clicked.count(), 1);
+        QVERIFY(pane->viewState().fit);
+    }
+
     void loupeCursorAndDistortionGuides()
     {
         MainWindow w;

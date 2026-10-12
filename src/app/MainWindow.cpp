@@ -23,6 +23,7 @@
 #include "Metadata.h"
 #include "RawDecoder.h"
 
+#include <QAbstractButton>
 #include <QActionGroup>
 #include <QApplication>
 #include <QBuffer>
@@ -372,7 +373,10 @@ void MainWindow::createActions()
     photo->addAction(tr("&Previous Photo"), QKeySequence(Qt::Key_Left), this, [this] { navigate(-1); });
 
     auto* view = menuBar()->addMenu(tr("&View"));
-    view->addAction(tr("Toggle &Zoom (Fit / 1:1)"), QKeySequence(Qt::Key_Z), this, [this] { m_pane->toggleZoom(m_pane->rect().center()); });
+    QAction* actToggleZoom = view->addAction(tr("Toggle &Zoom (Fit / 1:1)"), this, [this] { m_pane->toggleZoom(m_pane->rect().center()); });
+    // Space too, unless a button or combo box has focus (see eventFilter).
+    actToggleZoom->setShortcuts({QKeySequence(Qt::Key_Z), QKeySequence(Qt::Key_Space)});
+    qApp->installEventFilter(this);
     view->addAction(tr("Zoom &In"), QKeySequence::ZoomIn, this, [this] { m_pane->zoomTo(m_pane->currentZoom() * 1.5, m_pane->rect().center()); });
     view->addAction(tr("Zoom &Out"), QKeySequence::ZoomOut, this, [this] { m_pane->zoomTo(m_pane->currentZoom() / 1.5, m_pane->rect().center()); });
     view->addSeparator();
@@ -1986,6 +1990,16 @@ void MainWindow::resizeEvent(QResizeEvent* e)
 bool MainWindow::eventFilter(QObject* o, QEvent* e)
 {
     switch (e->type()) {
+    case QEvent::ShortcutOverride:
+        // Space presses a focused button or opens a focused combo box rather than toggling
+        // the zoom (text fields claim it themselves).
+        if (auto* k = static_cast<QKeyEvent*>(e); k->key() == Qt::Key_Space && k->modifiers() == Qt::NoModifier
+                                                  && (qobject_cast<QAbstractButton*>(o) || qobject_cast<QComboBox*>(o))
+                                                  && static_cast<QWidget*>(o)->window() == this) {
+            e->accept();
+            return true;
+        }
+        break;
     case QEvent::Resize:
     case QEvent::Move:
     case QEvent::Show:
