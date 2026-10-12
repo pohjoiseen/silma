@@ -1868,9 +1868,9 @@ void MainWindow::updatePanes()
     static const QStringList guideKeys = {"vertical", "horizontal", "rotate", "scale", "lens_distortion"};
     if (guideKeys.contains(m_activeSlider)) {
         m_pane->setOverlay([](QPainter& p, const std::function<QPointF(QPointF)>&, const QRectF& r) {
-            p.setPen(QPen(QColor(255, 255, 255, 90), 1));
-            const int n = 10;
-            double step = std::max(r.width(), r.height()) / n;
+            p.setPen(QPen(QColor(255, 255, 255, 70), 1));
+            // About 30 across the long edge, but neither crowded nor sparse on screen.
+            const double step = std::clamp(std::max(r.width(), r.height()) / 30, 24.0, 64.0);
             for (double x = r.left() + step / 2; x < r.right(); x += step)
                 p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()));
             for (double y = r.top() + step / 2; y < r.bottom(); y += step)
