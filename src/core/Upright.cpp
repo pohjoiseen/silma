@@ -361,6 +361,34 @@ QRectF maskedCropRect(const Geometry& g, double aspect)
 
 } // namespace
 
+namespace {
+
+// Whether the rectangle (normalized canvas coordinates) holds only valid image data,
+// checked along its edges.
+bool rectValid(const Geometry& g, const QRectF& r)
+{
+    const int n = 48;
+    for (int i = 0; i <= n; ++i) {
+        const double u = double(i) / n;
+        const QPointF pts[4] = {{r.left() + r.width() * u, r.top()}, {r.left() + r.width() * u, r.bottom()},
+                                {r.left(), r.top() + r.height() * u}, {r.right(), r.top() + r.height() * u}};
+        for (const auto& p : pts)
+            if (!g.canvasValid(p))
+                return false;
+    }
+    return true;
+}
+
+// The rectangle scaled by `t` about its centre.
+QRectF scaledAboutCentre(const QRectF& r, double t)
+{
+    QRectF s(0, 0, r.width() * t, r.height() * t);
+    s.moveCenter(r.center());
+    return s;
+}
+
+} // namespace
+
 QRectF autoCropRect(const Geometry& g, double aspect)
 {
     if (g.hasValidMask())
@@ -373,28 +401,52 @@ QRectF autoCropRect(const Geometry& g, double aspect)
         hN = canvasAspect / aspect;
     else
         wN = aspect / canvasAspect;
-    auto valid = [&](double t) {
-        double hw = wN * t / 2, hh = hN * t / 2;
-        const int n = 48;
-        for (int i = 0; i <= n; ++i) {
-            double u = double(i) / n;
-            const QPointF pts[4] = {{0.5 - hw + 2 * hw * u, 0.5 - hh}, {0.5 - hw + 2 * hw * u, 0.5 + hh}, {0.5 - hw, 0.5 - hh + 2 * hh * u}, {0.5 + hw, 0.5 - hh + 2 * hh * u}};
-            for (const auto& p : pts)
-                if (!g.canvasValid(p))
-                    return false;
-        }
-        return true;
-    };
+    const QRectF full(0.5 - wN / 2, 0.5 - hN / 2, wN, hN);
     double lo = 0.05, hi = 1.0;
-    if (valid(1.0))
+    if (rectValid(g, full))
         lo = 1.0;
     else
         for (int it = 0; it < 30; ++it) {
             double mid = 0.5 * (lo + hi);
-            (valid(mid) ? lo : hi) = mid;
+            (rectValid(g, scaledAboutCentre(full, mid)) ? lo : hi) = mid;
         }
-    double hw = wN * lo / 2, hh = hN * lo / 2;
-    return QRectF(0.5 - hw, 0.5 - hh, 2 * hw, 2 * hh);
+    return scaledAboutCentre(full, lo);
+}
+
+bool cropConstraintApplies(const DevelopSettings& before, const DevelopSettings& after)
+{
+    if (!after.constrainCrop || after.crop != before.crop || after.quarterTurns != before.quarterTurns)
+        return false;
+    const bool geometryChanged = after.perspVertical != before.perspVertical || after.perspHorizontal != before.perspHorizontal
+                                 || after.rotate != before.rotate || after.scale != before.scale
+                                 || after.lensDistortion != before.lensDistortion;
+    return geometryChanged || !before.constrainCrop;
+}
+
+DevelopSettings constrainedCrop(const DevelopEngine& engine, const DevelopSettings& before, DevelopSettings after)
+{
+    if (!cropConstraintApplies(before, after))
+        return after;
+    const Geometry gBefore = engine.geometry(before, true), gAfter = engine.geometry(after, true);
+    const QSizeF cs = gAfter.canvasSize();
+    const QRectF crop = before.crop;
+    const double aspect = crop.width() * cs.width() / (crop.height() * cs.height());
+    auto near = [](const QRectF& a, const QRectF& b) {
+        return std::abs(a.left() - b.left()) < 1e-3 && std::abs(a.top() - b.top()) < 1e-3 && std::abs(a.right() - b.right()) < 1e-3
+               && std::abs(a.bottom() - b.bottom()) < 1e-3;
+    };
+    if (crop == QRectF(0, 0, 1, 1) || near(crop, autoCropRect(gBefore, aspect))) {
+        after.crop = autoCropRect(gAfter, aspect);
+    } else if (!rectValid(gAfter, crop)) {
+        double lo = 0, hi = 1;
+        for (int it = 0; it < 30; ++it) {
+            double mid = 0.5 * (lo + hi);
+            (rectValid(gAfter, scaledAboutCentre(crop, mid)) ? lo : hi) = mid;
+        }
+        // The centre itself is outside the image: start over from the automatic crop.
+        after.crop = lo > 0.05 ? scaledAboutCentre(crop, lo) : autoCropRect(gAfter, aspect);
+    }
+    return after;
 }
 
 } // namespace silma

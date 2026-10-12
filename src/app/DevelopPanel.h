@@ -72,6 +72,7 @@ private:
     QLabel* m_lensInfo;
     QToolButton* m_cropTool;
     QCheckBox* m_cropLock;
+    QCheckBox* m_constrainCrop;
     QToolButton* m_healTool;
     QToolButton* m_wbPicker;
     QSlider* m_healSize;

@@ -38,4 +38,13 @@ UprightResult autoUpright(const DevelopEngine& engine, const DevelopSettings& s,
 // source has a validity mask (panoramas), where aspect <= 0 means any aspect ratio.
 QRectF autoCropRect(const Geometry& canvasGeometry, double aspect);
 
+// `after` with its crop kept within the image when it changes the geometry of `before`
+// (transform, lens distortion) or turns constrainCrop on, and constrainCrop is set: an
+// automatic crop (the whole canvas, or autoCropRect's) is redone for the new geometry, so it
+// also grows back; a crop set by hand stays as long as it shows no empty borders, else it
+// shrinks about its centre. A change that sets the crop itself is left alone.
+DevelopSettings constrainedCrop(const DevelopEngine& engine, const DevelopSettings& before, DevelopSettings after);
+// Whether constrainedCrop may change anything (cheap; no engine needed).
+bool cropConstraintApplies(const DevelopSettings& before, const DevelopSettings& after);
+
 } // namespace silma

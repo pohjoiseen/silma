@@ -115,6 +115,8 @@ private:
     // A commit with the same `mergeKey` as the previous one, soon after it, replaces that
     // history step instead of adding one (Up pressed five times: one step).
     void commit(const DevelopSettings& s, const QString& label, const QString& mergeKey = {});
+    // `s` with the crop constrained to the image after a geometry change (constrainCrop).
+    DevelopSettings withConstrainedCrop(const DevelopSettings& s) const;
     void applySettingsToUi();
     void reloadHistory();
     void undo();

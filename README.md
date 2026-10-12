@@ -66,6 +66,9 @@ The binary is `build/src/app/silma`.
 - **Import**: a folder (by default `YYYY-MM-DD` next to the batch file) into which photos are copied.
 - Editing is non-destructive. Every change is a history step; undo/redo moves within it. Quick repeated
   edits of one slider (arrow keys, wheel, typing) make a single step.
+- Transforms (Upright, perspective, rotation, scale, lens distortion) keep the crop within the
+  image while *Constrain crop* (Transform panel, on by default) is set: an automatic crop follows
+  the transform, a crop set by hand only shrinks when it would show empty borders.
 
 ## GUI
 
@@ -94,7 +97,7 @@ a unique file name, or `all`.
     silma reject 15; silma delete-rejected --yes
     silma export --import 2026-07-05 --to ~/Pictures/out --long-edge 2048
     silma show 12                           # make a running GUI jump to photo 12
-    silma upright 12 --mode vertical        # auto perspective (+ constrained crop)
+    silma upright 12 --mode vertical        # auto perspective (crop constrained to the image)
     silma turn 12 13 right                  # rotate 90° (left, right, 180)
     silma exclude 14                        # remove from the batch, keep the file
     silma delete 15 --yes                   # file to the trash, remove from the batch

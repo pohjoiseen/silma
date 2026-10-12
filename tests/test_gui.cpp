@@ -696,6 +696,40 @@ private slots:
         QSettings().remove("paste/excluded");
     }
 
+    void transformsConstrainCrop()
+    {
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QVERIFY(w.openBatch(freshBatch("constrainCrop", 1)));
+        QTRY_VERIFY_WITH_TIMEOUT(w.mainPane()->engine() != nullptr, 15000);
+        auto* rotate = slider(w, "rotate")->findChild<QDoubleSpinBox*>();
+        QCheckBox* constrain = nullptr;
+        for (auto* c : w.developPanel()->findChildren<QCheckBox*>())
+            if (c->text() == "Constrain crop")
+                constrain = c;
+        QVERIFY(constrain && constrain->isChecked());
+
+        // On by default: rotating crops the empty corners away, rotating back undoes it.
+        rotate->setValue(4);
+        QVERIFY(w.currentSettings().crop.width() < 0.95);
+        rotate->setValue(0);
+        QCOMPARE(w.currentSettings().crop, QRectF(0, 0, 1, 1));
+        // Off: the crop stays; on again: cropped right away.
+        constrain->click();
+        QVERIFY(!w.currentSettings().constrainCrop);
+        rotate->setValue(4);
+        QCOMPARE(w.currentSettings().crop, QRectF(0, 0, 1, 1));
+        constrain->click();
+        QVERIFY(w.currentSettings().constrainCrop);
+        QVERIFY(w.currentSettings().crop.width() < 0.95);
+        // Undo takes back both.
+        w.testUndo();
+        QVERIFY(!w.currentSettings().constrainCrop);
+        QCOMPARE(w.currentSettings().crop, QRectF(0, 0, 1, 1));
+    }
+
     void repeatedEditsMergeInHistory()
     {
         MainWindow w;

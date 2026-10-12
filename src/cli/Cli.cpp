@@ -555,9 +555,12 @@ std::map<QString, Command> commands()
                 s.temperature = std::round(wb.temperature);
                 s.tint = std::round(wb.tint);
             }
+            const DevelopSettings before = s;
             for (const auto& as : assigns)
                 if (QString e = applyAssignment(s, as); !e.isEmpty())
                     fail(e);
+            if (cropConstraintApplies(before, s))
+                s = constrainedCrop(DevelopEngine(p.path, {.halfSize = true}), before, s);
             int pos = b->pushHistory(p.id, label, s.toJsonString());
             results.append(QJsonObject{{"id", p.id}, {"history_pos", pos}, {"settings", s.toJson()}});
         }
@@ -704,6 +707,7 @@ std::map<QString, Command> commands()
         out() << "wb                as-shot | auto | custom\n"
                  "crop              x,y,w,h (normalized, of the transformed image) | none\n"
                  "crop_lock_aspect  true | false\n"
+                 "constrain_crop    true | false (transforms keep the crop within the image)\n"
                  "quarter_turns     0..3 (clockwise 90 degree turns; see also: turn)\n"
                  "curve, curve_r, curve_g, curve_b   x:y,x:y,... (0..1, display-encoded) | linear\n";
     }};
@@ -827,13 +831,14 @@ std::map<QString, Command> commands()
             throw CliError(QStringLiteral("%1 export(s) failed").arg(errors.size()).toStdString());
     }};
 
-    m["upright"] = {"upright PHOTO... [--mode vertical|horizontal|both] [--no-crop]", "Automatic perspective correction (+ constrained crop)", {"mode", "import"}, {"no-crop"}, true, [](const Args& a, Batch* b, bool json) {
+    m["upright"] = {"upright PHOTO... [--mode vertical|horizontal|both] [--no-crop]", "Automatic perspective correction (crop constrained unless constrain_crop=off)", {"mode", "import"}, {"no-crop"}, true, [](const Args& a, Batch* b, bool json) {
         auto ps = resolvePhotos(*b, a.positional(), a.value("import"));
         QString m = a.value("mode", "both");
         UprightMode mode = m == QLatin1String("vertical") ? UprightMode::Vertical : m == QLatin1String("horizontal") ? UprightMode::Horizontal : UprightMode::Both;
         QJsonArray arr;
         for (const auto& p : ps) {
-            DevelopSettings s = DevelopSettings::fromJsonString(b->settings(p.id));
+            const DevelopSettings before = DevelopSettings::fromJsonString(b->settings(p.id));
+            DevelopSettings s = before;
             DevelopEngine e(p.path, {.halfSize = true});
             UprightResult r = autoUpright(e, s, mode);
             if (!r.ok) {
@@ -844,10 +849,8 @@ std::map<QString, Command> commands()
             s.perspVertical = r.vertical;
             s.perspHorizontal = r.horizontal;
             s.rotate = r.rotate;
-            if (!a.has("no-crop")) {
-                QSizeF cs = e.geometry(s, true).canvasSize();
-                s.crop = autoCropRect(e.geometry(s, true), cs.width() / cs.height());
-            }
+            if (!a.has("no-crop"))
+                s = constrainedCrop(e, before, s);
             b->pushHistory(p.id, "Upright (" + m + ")", s.toJsonString());
             arr.append(QJsonObject{{"id", p.id}, {"vertical", r.vertical}, {"horizontal", r.horizontal}, {"rotate", r.rotate}, {"segments", r.segmentsUsed}});
             if (!json)

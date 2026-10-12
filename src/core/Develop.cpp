@@ -122,6 +122,7 @@ DevelopSettings copySettingsParts(const DevelopSettings& target, const DevelopSe
         } else if (key == QLatin1String("crop")) {
             s.crop = source.crop;
             s.cropLockAspect = source.cropLockAspect;
+            s.constrainCrop = source.constrainCrop;
         } else if (const ParamDef* p = findParam(key)) {
             s.*p->field = source.*p->field;
         }
@@ -195,6 +196,8 @@ QJsonObject DevelopSettings::toJson() const
         o["crop"] = QJsonArray{crop.x(), crop.y(), crop.width(), crop.height()};
     if (cropLockAspect != def.cropLockAspect)
         o["crop_lock_aspect"] = cropLockAspect;
+    if (constrainCrop != def.constrainCrop)
+        o["constrain_crop"] = constrainCrop;
     if (!heals.isEmpty()) {
         QJsonArray a;
         for (const auto& h : heals) {
@@ -232,6 +235,7 @@ DevelopSettings DevelopSettings::fromJson(const QJsonObject& o)
     if (s.crop.width() < 0.01 || s.crop.height() < 0.01)
         s.crop = QRectF(0, 0, 1, 1);
     s.cropLockAspect = o.value("crop_lock_aspect").toBool(true);
+    s.constrainCrop = o.value("constrain_crop").toBool(true);
     for (const auto& v : o.value("heal").toArray()) {
         auto a = v.toArray();
         if (a.size() < 4)
@@ -295,6 +299,10 @@ QString applyAssignment(DevelopSettings& s, const QString& assignment)
     }
     if (key == QLatin1String("crop_lock_aspect")) {
         s.cropLockAspect = val == QLatin1String("1") || val == QLatin1String("true") || val == QLatin1String("on");
+        return {};
+    }
+    if (key == QLatin1String("constrain_crop")) {
+        s.constrainCrop = val == QLatin1String("1") || val == QLatin1String("true") || val == QLatin1String("on");
         return {};
     }
     if (key.startsWith(QLatin1String("curve"))) {

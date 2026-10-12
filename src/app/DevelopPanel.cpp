@@ -174,6 +174,15 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
         transform->contentLayout()->addLayout(turns);
     }
     addSliders(transform, "transform");
+    m_constrainCrop = new QCheckBox(tr("Constrain crop"), transform);
+    m_constrainCrop->setToolTip(tr("Crop away the empty borders that transforms and lens corrections bring in"));
+    transform->contentLayout()->addWidget(m_constrainCrop);
+    connect(m_constrainCrop, &QCheckBox::toggled, this, [this](bool on) {
+        if (m_updating)
+            return;
+        m_settings.constrainCrop = on;
+        emitEdit(on ? tr("Constrain Crop") : tr("Don't Constrain Crop"), true);
+    });
 
     // Crop
     auto* crop = addSection(layout, "crop", tr("Crop"), false);
@@ -332,6 +341,7 @@ void DevelopPanel::setSettings(const DevelopSettings& s)
     }
     m_curve->setSettings(s);
     m_cropLock->setChecked(s.cropLockAspect);
+    m_constrainCrop->setChecked(s.constrainCrop);
     m_updating = false;
 }
 

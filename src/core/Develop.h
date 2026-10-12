@@ -68,6 +68,8 @@ struct DevelopSettings {
     double perspHorizontal = 0; // -100..100
     double rotate = 0;          // degrees, -45..45
     double scale = 100;         // percent, 50..150
+    // Geometry changes keep the crop within the image (see constrainedCrop).
+    bool constrainCrop = true;
 
     // Quarter turns clockwise (0..3) on top of the file's orientation
     int quarterTurns = 0;

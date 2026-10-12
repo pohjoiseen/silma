@@ -505,6 +505,62 @@ private slots:
         QVERIFY2(r.vertical <= -45, qPrintable(QString::number(r.vertical)));
     }
 
+    void constrainedCrop()
+    {
+        const QString f = testRaw("upright/DSC_0160.NEF");
+        if (f.isEmpty())
+            QSKIP("test raws not available");
+        DevelopEngine e(f, {.halfSize = true});
+        const QRectF full(0, 0, 1, 1);
+        auto noBorders = [&](const DevelopSettings& s) {
+            const Geometry g = e.geometry(s, true);
+            for (QPointF p : {s.crop.topLeft(), s.crop.topRight(), s.crop.bottomLeft(), s.crop.bottomRight()})
+                if (!g.canvasValid(p))
+                    return false;
+            return true;
+        };
+        // The whole frame: cropped to the largest valid area, and back when undone.
+        DevelopSettings a;
+        DevelopSettings b = a;
+        b.rotate = 5;
+        b = silma::constrainedCrop(e, a, b);
+        QVERIFY(b.crop != full && b.crop.width() > 0.85 && noBorders(b));
+        QVERIFY(std::abs(b.crop.width() - b.crop.height()) < 1e-6); // same aspect as the frame
+        DevelopSettings c = b;
+        c.perspVertical = 20; // an automatic crop follows further changes
+        c = silma::constrainedCrop(e, b, c);
+        QVERIFY(c.crop != b.crop && noBorders(c));
+        DevelopSettings d = c;
+        d.rotate = 0;
+        d.perspVertical = 0;
+        QCOMPARE(silma::constrainedCrop(e, c, d).crop, full);
+        // A crop set by hand stays while it is valid, and shrinks about its centre otherwise.
+        a.crop = QRectF(0.1, 0.1, 0.5, 0.5);
+        b = a;
+        b.rotate = 2;
+        QCOMPARE(silma::constrainedCrop(e, a, b).crop, a.crop);
+        b.rotate = -30;
+        b = silma::constrainedCrop(e, a, b);
+        QVERIFY(b.crop.width() < 0.5 && noBorders(b));
+        QVERIFY(std::abs(b.crop.center().x() - 0.35) < 1e-9 && std::abs(b.crop.center().y() - 0.35) < 1e-9);
+        // Off: nothing changes; turning it on applies it.
+        a = DevelopSettings{};
+        a.constrainCrop = false;
+        b = a;
+        b.rotate = 5;
+        QCOMPARE(silma::constrainedCrop(e, a, b).crop, full);
+        c = b;
+        c.constrainCrop = true;
+        QVERIFY(silma::constrainedCrop(e, b, c).crop != full);
+        // Edits of the crop itself are left alone.
+        c = a;
+        c.constrainCrop = true;
+        d = c;
+        d.rotate = 5;
+        d.crop = QRectF(0, 0, 0.5, 0.5);
+        QCOMPARE(silma::constrainedCrop(e, c, d).crop, d.crop);
+    }
+
     void autoToneSparesBlownSkies()
     {
         const QString blownSky = testRaw("auto-tone/DSC_0251.NEF"), brightSky = testRaw("auto-tone/DSC_0160.NEF");

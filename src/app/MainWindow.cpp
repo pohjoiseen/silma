@@ -125,10 +125,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
             commit(m_settings, tr("Crop"));
     });
     connect(m_cropToolObj, &CropTool::rotationChanged, this, [this](double deg, bool final) {
-        m_settings.rotate = deg;
+        DevelopSettings s = m_settings;
+        s.rotate = deg;
+        if (final) {
+            commit(s, tr("Rotate %1°").arg(deg), QStringLiteral("rotate"));
+            return;
+        }
+        m_settings = withConstrainedCrop(s);
+        m_cropToolObj->setRect(m_settings.crop);
         m_pane->setSettings(m_settings);
-        if (final)
-            commit(m_settings, tr("Rotate %1°").arg(deg), QStringLiteral("rotate"));
     });
 
     m_healToolObj = new HealTool(this);
@@ -805,16 +810,25 @@ void MainWindow::onPanelEdited(const DevelopSettings& s, const QString& label, b
 {
     if (!m_photo)
         return;
-    m_settings = s;
-    m_pane->setSettings(m_settings);
-    if (final)
+    if (final) {
         commit(s, label, mergeKey);
+        return;
+    }
+    m_settings = withConstrainedCrop(s);
+    m_pane->setSettings(m_settings);
 }
 
-void MainWindow::commit(const DevelopSettings& s, const QString& label, const QString& mergeKey)
+DevelopSettings MainWindow::withConstrainedCrop(const DevelopSettings& s) const
+{
+    auto e = m_pane->engine();
+    return e ? constrainedCrop(*e, m_committed, s) : s;
+}
+
+void MainWindow::commit(const DevelopSettings& edited, const QString& label, const QString& mergeKey)
 {
     if (!m_photo)
         return;
+    const DevelopSettings s = withConstrainedCrop(edited);
     m_settings = s;
     if (s == m_committed) {
         applySettingsToUi();
@@ -931,10 +945,6 @@ void MainWindow::autoUpright(int mode)
     s.perspVertical = r.vertical;
     s.perspHorizontal = r.horizontal;
     s.rotate = r.rotate;
-    // Constrain the crop to the valid area, keeping the original aspect ratio.
-    Geometry g = e->geometry(s, true);
-    QSizeF cs = g.canvasSize();
-    s.crop = autoCropRect(g, cs.width() / cs.height());
     const char* names[] = {"Vertical", "Horizontal", "Both"};
     commit(s, tr("Upright (%1)").arg(tr(names[std::clamp(mode, 0, 2)])));
 }
