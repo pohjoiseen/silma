@@ -406,6 +406,13 @@ void DevelopEngine::colorStage(ImageF& img, const DevelopSettings& s, const WbVa
 
 ImageF DevelopEngine::contextImage(const DevelopSettings& s, const WbValues& wb, bool ignoreCrop) const
 {
+    ImageF ctx = *contextCamera(s, ignoreCrop);
+    colorStage(ctx, s, wb);
+    return ctx;
+}
+
+std::shared_ptr<const ImageF> DevelopEngine::contextCamera(const DevelopSettings& s, bool ignoreCrop) const
+{
     Geometry g = geometry(s, ignoreCrop);
     QSizeF cs = g.cropSize();
     double k = kContextLongEdge / std::max(cs.width(), cs.height());
@@ -423,9 +430,7 @@ ImageF DevelopEngine::contextImage(const DevelopSettings& s, const WbValues& wb,
         std::lock_guard lock(m_mutex);
         m_ctxCache = {key, cam};
     }
-    ImageF ctx = *cam;
-    colorStage(ctx, s, wb);
-    return ctx;
+    return cam;
 }
 
 namespace {
@@ -988,13 +993,20 @@ DevelopSettings DevelopEngine::autoTone(const DevelopSettings& in) const
     if (s.dehaze != 0)
         applyDehaze(ctx, computeDehaze(ctx, s.dehaze / 100.0), QRectF(0, 0, 1, 1));
     PlaneF L = luminanceLog(ctx);
+    const auto cam = contextCamera(s, false);
     std::vector<float> v;
     v.reserve(L.data.size());
+    size_t blown = 0;
     for (size_t i = 0; i < L.data.size(); ++i) {
         const float* p = ctx.data.data() + i * 3;
         if (p[0] == 0 && p[1] == 0 && p[2] == 0)
             continue; // outside the image (transform borders)
         v.push_back(L.data[i]);
+        const float* c = cam->data.data() + i * 3;
+        // Clipped in the raw: a channel at the clip plateau (1.0). Merged HDRs are scaled so
+        // that only their brightest value reaches 1.0, so large areas there are rare.
+        if (std::max({c[0], c[1], c[2]}) >= 0.98f)
+            ++blown;
     }
     if (v.size() < 64)
         return in;
@@ -1016,7 +1028,11 @@ DevelopSettings DevelopEngine::autoTone(const DevelopSettings& in) const
     double lo = pct(0.01) + s.exposure - logGrey;
     double spread = pct(0.95) - pct(0.05);
     // Highlights: pull down when the bright end goes past the white point.
-    s.highlights = std::round(std::clamp(-(hi - 2.0) * 40.0, -100.0, 0.0));
+    double highlights = std::clamp(-(hi - 2.0) * 40.0, -100.0, 0.0);
+    // Blown areas (an overcast sky) only turn grey when pulled down, so the more of the
+    // image is blown, the less: about 0.6x with 12% blown. Small clipped specks hardly count.
+    highlights /= 1.0 + double(blown) / v.size() / 0.18;
+    s.highlights = std::round(highlights);
     // Shadows: lift when a lot of the image sits deep in the shadows.
     s.shadows = std::round(std::clamp(-(lo + 4.0) * 18.0, 0.0, 70.0));
     // Whites/blacks: set the end points.

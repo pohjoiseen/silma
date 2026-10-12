@@ -512,6 +512,22 @@ private slots:
         QVERIFY2(r.vertical <= -45, qPrintable(QString::number(r.vertical)));
     }
 
+    void autoToneSparesBlownSkies()
+    {
+        QDir d(QString(SILMA_SAMPLES) + "/2026-10-10_11");
+        if (!d.exists("DSC_0251.NEF") || !d.exists("DSC_0160.NEF"))
+            QSKIP("samples not available");
+        // An overcast sky, about 11% blown: highlights pulled down only moderately (a full
+        // pull turns the sky grey). Was -91.
+        DevelopEngine blown(d.filePath("DSC_0251.NEF"), {.halfSize = true});
+        const double hi = blown.autoTone({}).highlights;
+        QVERIFY2(hi >= -65 && hi <= -45, qPrintable(QString::number(hi)));
+        // Bright but nothing clipped: unaffected (-48).
+        DevelopEngine bright(d.filePath("DSC_0160.NEF"), {.halfSize = true});
+        const double hi2 = bright.autoTone({}).highlights;
+        QVERIFY2(hi2 >= -55 && hi2 <= -40, qPrintable(QString::number(hi2)));
+    }
+
     void textureAndDehaze()
     {
         QString f = sample("2026-05-17"); // drone landscape with some haze
