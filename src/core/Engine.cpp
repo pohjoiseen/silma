@@ -1031,19 +1031,20 @@ DevelopSettings DevelopEngine::autoTone(const DevelopSettings& in) const
     double lo = pct(0.01) + s.exposure - logGrey;
     double spread = pct(0.95) - pct(0.05);
     // Highlights: pull down when the bright end goes past the white point.
-    double highlights = std::clamp(-(hi - 2.0) * 40.0, -100.0, 0.0);
-    // Blown areas (an overcast sky) only turn grey when pulled down, so the more of the
-    // image is blown, the less: about 0.6x with 12% blown. Small clipped specks hardly count.
-    highlights /= 1.0 + double(blown) / v.size() / 0.18;
+    double highlights = std::clamp(-(hi - 2.0) * 30.0, -70.0, 0.0);
+    // Blown areas (a white sky) have nothing to recover and only turn into flat grey or blue
+    // patches when pulled down, even small ones: about 0.5x with 1.5% blown, 0.2x with 6%.
+    highlights /= 1.0 + double(blown) / v.size() / 0.015;
     s.highlights = std::round(highlights);
-    // Shadows: lift when a lot of the image sits deep in the shadows.
-    s.shadows = std::round(std::clamp(-(lo + 4.0) * 18.0, 0.0, 70.0));
+    // Shadows: lift when a lot of the image sits deep in the shadows, or the darkest tenth
+    // is well below grey (a shaded foreground).
+    s.shadows = std::round(std::max(std::clamp(-(lo + 4.0) * 18.0, 0.0, 70.0), std::clamp((-(pct(0.10) + s.exposure - logGrey) - 1.5) * 25.0, 0.0, 50.0)));
     // Whites/blacks: set the end points.
     double hiAfter = hi + s.highlights / 100.0 * 1.6;
     s.whites = std::round(std::clamp((2.3 - hiAfter) * 25.0, -40.0, 40.0));
     s.blacks = std::round(std::clamp((-5.5 - lo) * 12.0, -40.0, 30.0));
-    // Contrast: flat scenes get some, contrasty ones less.
-    s.contrast = std::round(std::clamp((6.0 - spread) * 6.0, -20.0, 30.0));
+    // Contrast: flat scenes get more, contrasty ones less; most look flat without some.
+    s.contrast = std::round(std::clamp((6.0 - spread) * 6.0 + 18.0, -5.0, 45.0));
     return s;
 }
 

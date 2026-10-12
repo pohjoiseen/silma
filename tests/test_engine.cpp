@@ -617,15 +617,16 @@ private slots:
         const QString blownSky = testRaw("auto-tone/DSC_0251.NEF"), brightSky = testRaw("auto-tone/DSC_0160.NEF");
         if (blownSky.isEmpty() || brightSky.isEmpty())
             QSKIP("test raws not available");
-        // An overcast sky, about 11% blown: highlights pulled down only moderately (a full
-        // pull turns the sky grey). Was -91.
+        // An overcast sky, about 11% blown: highlights hardly pulled down (a pull turns the
+        // sky into a flat grey or blue patch). Was -91, then -55.
         DevelopEngine blown(blownSky, {.halfSize = true});
         const double hi = blown.autoTone({}).highlights;
-        QVERIFY2(hi >= -65 && hi <= -45, qPrintable(QString::number(hi)));
-        // Bright but nothing clipped: unaffected (-48).
+        QVERIFY2(hi >= -20 && hi <= 0, qPrintable(QString::number(hi)));
+        // Bright but nothing clipped: a moderate pull (-36), and some contrast.
         DevelopEngine bright(brightSky, {.halfSize = true});
-        const double hi2 = bright.autoTone({}).highlights;
-        QVERIFY2(hi2 >= -55 && hi2 <= -40, qPrintable(QString::number(hi2)));
+        const DevelopSettings b = bright.autoTone({});
+        QVERIFY2(b.highlights >= -45 && b.highlights <= -28, qPrintable(QString::number(b.highlights)));
+        QVERIFY2(b.contrast >= 10, qPrintable(QString::number(b.contrast)));
     }
 
     void textureAndDehaze()

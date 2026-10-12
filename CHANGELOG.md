@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Develop
+- Auto tone, tuned on a reviewed edit of a whole day's shoot: highlights are pulled down
+  less, and hardly at all where the sky is blown (it turned into flat grey or blue patches);
+  shaded foregrounds get their shadows lifted; more contrast throughout.
+
 ### Command line
 - `set` takes relative changes: `KEY+=D` and `KEY-=D` (clamped to the setting's range).
 - New `crop PHOTO... X,Y,W,H [--aspect W:H]`: crop to a part of the current crop, in the
