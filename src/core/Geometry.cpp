@@ -71,8 +71,9 @@ Geometry::Geometry(const GeometrySource& src, const DevelopSettings& s, bool ign
 {
     m_src.orientation = turnedOrientation(src.orientation, s.quarterTurns);
     bool swap = m_src.orientation >= 5 && m_src.orientation <= 8;
-    m_wo = swap ? src.sensorHeight : src.sensorWidth;
-    m_ho = swap ? src.sensorWidth : src.sensorHeight;
+    const double fw = src.sensorWidth * src.frame.width(), fh = src.sensorHeight * src.frame.height();
+    m_wo = swap ? fh : fw;
+    m_ho = swap ? fw : fh;
     m_crop = ignoreCrop ? QRectF(0, 0, 1, 1) : s.crop;
     m_distAmount = float(s.lensDistortion / 100.0);
     m_vigAmount = float(s.lensVignetting / 100.0);
@@ -107,11 +108,13 @@ QPointF Geometry::frameToCanvas(QPointF f) const
 bool Geometry::mapCanvas(double cu, double cv, float* srcXY, float* gain) const
 {
     QPointF f = canvasToFrame({cu, cv});
-    // Lens auto-zoom: the visible frame is the centre part of the corrected image.
-    double fx = (f.x() - 0.5) / m_lensZoom, fy = (f.y() - 0.5) / m_lensZoom;
     double sx, sy;
-    unorient(m_src.orientation, fx, fy, sx, sy);
-    float u = float(sx + 0.5), v = float(sy + 0.5);
+    unorient(m_src.orientation, f.x() - 0.5, f.y() - 0.5, sx, sy);
+    // The default crop's part of the sensor; lens auto-zoom: the visible frame is the centre
+    // part of the corrected image.
+    const QRectF& fr = m_src.frame;
+    const double ux = fr.x() + (sx + 0.5) * fr.width(), uy = fr.y() + (sy + 0.5) * fr.height();
+    float u = float(0.5 + (ux - 0.5) / m_lensZoom), v = float(0.5 + (uy - 0.5) / m_lensZoom);
     if (m_src.lens) {
         m_src.lens->map(u, v, m_distAmount, m_vigAmount, srcXY, gain);
     } else {

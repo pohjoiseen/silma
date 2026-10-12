@@ -694,6 +694,7 @@ LinearDngInfo panoramaDngInfo(const Stitched& st)
     LinearDngInfo info = dngInfoFromRaw(st.refRaw, st.photos[st.ref].path, QString());
     info.orientation = 1;
     info.lensCorrected = true;
+    info.defaultCrop = {}; // a new image: all of it
     info.whiteScale = float(std::max(1.0, mx / st.nativeClip));
     info.baselineExposure += std::log2(info.whiteScale);
     // Coverage, so auto crop can find the stitched area later (e.g. with --no-crop).

@@ -624,6 +624,31 @@ private slots:
         QVERIFY(stats(s).detail < base.detail * 0.9);
     }
 
+    void nefDefaultCrop()
+    {
+        // NEFs carry no default crop: 8 pixels are left out on each side, like Lightroom
+        // and the camera's JPEGs (D5600: 6016x4016 -> 6000x4000).
+        QString f = testRaw("batch/DSC_0001.NEF");
+        if (f.isEmpty())
+            QSKIP("test raws not available");
+        DevelopEngine e(f, {.halfSize = true});
+        QCOMPARE(e.raw().fullWidth, 6016);
+        QCOMPARE(QRect(e.raw().cropX, e.raw().cropY, e.raw().cropW, e.raw().cropH), QRect(8, 8, 6000, 4000));
+        QCOMPARE(e.outputSize(DevelopSettings()), QSize(6000, 4000));
+        DevelopSettings turned;
+        turned.quarterTurns = 1;
+        QCOMPARE(e.outputSize(turned), QSize(4000, 6000));
+        // The frame's corners are 8 pixels in from the sensor's (and the lens auto-zoom).
+        float src[6], gain[3];
+        DevelopSettings noLens;
+        noLens.lensDistortion = 0;
+        const Geometry g = e.geometry(noLens);
+        QVERIFY(g.mapCrop(0, 0, src, gain));
+        const double x = (0.5 + (8.0 / 6016 - 0.5) / g.lensZoom()) * 6016, y = (0.5 + (8.0 / 4016 - 0.5) / g.lensZoom()) * 4016;
+        QVERIFY2(std::abs(src[2] * 6016 - x) < 0.5 && std::abs(src[3] * 4016 - y) < 0.5,
+                 qPrintable(QStringLiteral("%1 %2 / %3 %4").arg(src[2] * 6016).arg(src[3] * 4016).arg(x).arg(y)));
+    }
+
     void exportJpeg()
     {
         QString f = testRaw("batch/DSC_0001.NEF");

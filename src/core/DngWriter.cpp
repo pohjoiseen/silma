@@ -104,6 +104,9 @@ LinearDngInfo dngInfoFromRaw(const RawImage& raw, const QString& sourcePath, con
     i.exifSource = sourcePath;
     i.lens = lens;
     i.software = QStringLiteral("Silmä " SILMA_VERSION);
+    // The same pixels: the same image area (keeps the crop of copied settings in place).
+    if (raw.cropW > 0 && raw.cropH > 0 && (raw.cropW != raw.fullWidth || raw.cropH != raw.fullHeight))
+        i.defaultCrop = QRect(raw.cropX, raw.cropY, raw.cropW, raw.cropH);
     return i;
 }
 
@@ -163,6 +166,12 @@ void writeLinearDng(const QString& path, const ImageF& img, const LinearDngInfo&
     float neutral[3] = {float(1.0 / c.asShotMul[0]), float(1.0 / c.asShotMul[1]), float(1.0 / c.asShotMul[2])};
     TIFFSetField(tif, TIFFTAG_ASSHOTNEUTRAL, uint16_t(3), neutral);
     setRational(tif, TIFFTAG_BASELINEEXPOSURE, info.baselineExposure);
+    if (!info.defaultCrop.isEmpty() && QRect(0, 0, img.width, img.height).contains(info.defaultCrop)) {
+        const float origin[2] = {float(info.defaultCrop.x()), float(info.defaultCrop.y())};
+        const float size[2] = {float(info.defaultCrop.width()), float(info.defaultCrop.height())};
+        TIFFSetField(tif, TIFFTAG_DEFAULTCROPORIGIN, origin);
+        TIFFSetField(tif, TIFFTAG_DEFAULTCROPSIZE, size);
+    }
     (void)floatingPoint;
     if (!info.opcodeList3.isEmpty() && !info.lensCorrected)
         TIFFSetField(tif, kTagOpcodeList3, uint32_t(info.opcodeList3.size()), info.opcodeList3.constData());

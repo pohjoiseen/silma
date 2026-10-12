@@ -337,15 +337,22 @@ RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts)
     out.cropY = 0;
     out.cropW = fullW;
     out.cropH = fullH;
+    // The default crop (DNG DefaultCrop, or the maker's when LibRaw knows it), relative to the
+    // raw frame: translated to the visible area.
+    const auto& ic = S.raw_inset_crops[0];
+    if (ic.cwidth > 0 && ic.cheight > 0 && ic.cwidth <= fullW && ic.cheight <= fullH && ic.cleft != 0xffff && ic.ctop != 0xffff) {
+        out.cropX = std::max(0, int(ic.cleft) - int(S.left_margin));
+        out.cropY = std::max(0, int(ic.ctop) - int(S.top_margin));
+        out.cropW = std::min(int(ic.cwidth), fullW - out.cropX);
+        out.cropH = std::min(int(ic.cheight), fullH - out.cropY);
+    } else if (!out.isDng && fullW > 64 && fullH > 64) {
+        // Otherwise the outermost pixels (demosaiced with fewer neighbours) are left out, as
+        // Adobe and the cameras' own JPEGs do; most often 8 on each side (6016x4016 -> 6000x4000).
+        out.cropX = out.cropY = 8;
+        out.cropW = fullW - 16;
+        out.cropH = fullH - 16;
+    }
     if (out.isDng) {
-        const auto& ic = S.raw_inset_crops[0];
-        // raw_inset_crops are relative to the raw frame; translate to the visible area.
-        if (ic.cwidth > 0 && ic.cheight > 0 && ic.cwidth <= fullW && ic.cheight <= fullH) {
-            out.cropX = std::max(0, int(ic.cleft) - int(S.left_margin));
-            out.cropY = std::max(0, int(ic.ctop) - int(S.top_margin));
-            out.cropW = std::min(int(ic.cwidth), fullW - out.cropX);
-            out.cropH = std::min(int(ic.cheight), fullH - out.cropY);
-        }
         collectOpcodes(dngFile, out.opcodes);
         if (!out.valid)
             out.valid = readTransparencyMask(path, dngFile, fullW, fullH);

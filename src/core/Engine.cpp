@@ -133,6 +133,9 @@ DevelopEngine::DevelopEngine(const QString& path, const EngineLoadOptions& opts)
     m_lens = LensCorrection::build(*m_raw, q);
     m_geoSrc.sensorWidth = m_raw->fullWidth;
     m_geoSrc.sensorHeight = m_raw->fullHeight;
+    if (m_raw->cropW > 0 && m_raw->cropH > 0)
+        m_geoSrc.frame = QRectF(double(m_raw->cropX) / m_raw->fullWidth, double(m_raw->cropY) / m_raw->fullHeight,
+                                double(m_raw->cropW) / m_raw->fullWidth, double(m_raw->cropH) / m_raw->fullHeight);
     m_geoSrc.orientation = m_raw->orientation;
     m_geoSrc.focalLength35 = focal35;
     m_geoSrc.lens = m_lens;

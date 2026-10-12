@@ -3,7 +3,7 @@
 // back to source sensor coordinates:
 //
 //   crop (normalized) -> canvas (transformed frame) -> [perspective/rotate/scale]^-1
-//   -> oriented frame -> [lens auto-zoom] -> [EXIF orientation]^-1 -> sensor frame
+//   -> oriented frame -> [EXIF orientation]^-1 -> sensor frame (default crop) -> [lens auto-zoom]
 //   -> lens correction (distortion, CA per channel) -> source position
 //
 // All images are resampled once.
@@ -26,6 +26,7 @@ struct GeometrySource {
     double focalLength35 = 0; // for perspective; 0 = unknown
     std::shared_ptr<const LensCorrection> lens;
     std::shared_ptr<const ValidMask> valid; // in sensor coordinates; null = all valid
+    QRectF frame{0, 0, 1, 1}; // the part of the sensor making up the image (default crop), normalized
 };
 
 // The EXIF orientation of the display turned by further clockwise quarter turns.

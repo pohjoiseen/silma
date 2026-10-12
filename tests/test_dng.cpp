@@ -42,6 +42,28 @@ private slots:
         QVERIFY2(std::abs(mean - 0.25) < 0.01, qPrintable(QString::number(mean)));
     }
 
+    void defaultCropRoundTrip()
+    {
+        // DNGs made from a raw keep its image area, so its crop applies to them unchanged.
+        QTemporaryDir tmp;
+        ImageF img(616, 416);
+        LinearDngInfo info;
+        info.make = "Test";
+        info.model = "Cam";
+        info.color.xyzToCam = {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
+        info.defaultCrop = QRect(8, 8, 600, 400);
+        QString f = tmp.filePath("c.dng");
+        writeLinearDng(f, img, info);
+        RawImage r = decodeRaw(f);
+        QCOMPARE(QRect(r.cropX, r.cropY, r.cropW, r.cropH), info.defaultCrop);
+        QCOMPARE(DevelopEngine(f).outputSize(DevelopSettings()), QSize(600, 400));
+        // Without one: all of it (no 8 pixel inset for DNGs).
+        info.defaultCrop = {};
+        writeLinearDng(f, img, info);
+        r = decodeRaw(f);
+        QCOMPARE(QRect(r.cropX, r.cropY, r.cropW, r.cropH), QRect(0, 0, 616, 416));
+    }
+
     void transparencyMaskRoundTrip()
     {
         // Our own panoramas store their coverage as a DNG transparency mask.
