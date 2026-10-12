@@ -3,6 +3,7 @@
 #include "Importer.h"
 #include "RawDecoder.h"
 #include "Upright.h"
+#include "TestRaws.h"
 
 #include <QTemporaryDir>
 #include <QtTest>
@@ -76,9 +77,9 @@ private slots:
     void jpegXlDng()
     {
         // Lightroom panorama: DNG 1.7, JPEG XL compressed linear raw with a transparency mask.
-        const QString f = QString(SILMA_SAMPLES) + "/DSC_0785-Pano.dng";
-        if (!QFileInfo::exists(f))
-            QSKIP("DSC_0785-Pano.dng sample not present");
+        const QString f = testRaw("dng/DSC_0785-Pano.dng");
+        if (f.isEmpty())
+            QSKIP("test raw dng/DSC_0785-Pano.dng not present");
         RawImage r = decodeRaw(f);
         QCOMPARE(r.image.width, 12147);
         QCOMPARE(r.image.height, 4453);

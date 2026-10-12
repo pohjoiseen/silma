@@ -1,0 +1,23 @@
+# Test raws
+
+Raw files the tests in `tests/` use (through `tests/TestRaws.h`). They are too big for git, so
+only this file is tracked; tests that need a missing file are skipped. Each file is an
+unmodified copy from the shoot named below.
+
+| Path | What it is | Used by |
+|---|---|---|
+| `batch/DSC_0001.NEF` … `DSC_0010.NEF` | Nikon D5600, 2026-08-08: ten consecutive photos, daylight | GUI tests (`freshBatch()` takes the first *n*); `DSC_0001` as a typical NEF: WB picker, Bayer mosaic, JPEG export, JPEG/HEIC import |
+| `other-day/DSC_0001.NEF` | Nikon D5600, 2026-07-05 | import split by date (with the drone DNG), sample renders |
+| `drone/DJI_0488.DNG` | DJI FC7303 (drone) DNG, 2026-05-17: landscape with some haze | texture/dehaze, RawNIND denoise, Bayer mosaic of a DNG, hot pixels (a daylight photo has almost none), sample renders, import split by date |
+| `denoise/DSC_0036.NEF` | Nikon D5600, 2026-09-01: ISO 1600, a stuck red pixel at (2412, 3936) | hot pixel removal |
+| `upright/DSC_0154.NEF` | 2026-09-01: lighthouse shot looking up | Upright: strong vertical correction |
+| `upright/DSC_0160.NEF` | 2026-09-01: walls with many verticals | Upright: vertical 14, rotate −0.9 |
+| `upright/DSC_0164.NEF` | 2026-09-01: harbour with a mast, few building lines | Upright: level horizon |
+| `merge/sequence/DSC_0010.NEF` … `DSC_0012.NEF` | 2026-08-08: handheld sequence (same as in `batch/` for `DSC_0010`) | HDR and panorama merges, merge dialog |
+| `merge/apart/DSC_0153.NEF`, `DSC_0160.NEF` | 2026-09-01: two photos that do not overlap | panorama preview refuses them |
+| `auto-tone/DSC_0251.NEF` | 2026-10-10 (Jakobstad): overcast sky, about 11% blown | auto tone spares blown skies |
+| `auto-tone/DSC_0160.NEF` | 2026-10-10 (Jakobstad): bright, nothing clipped | auto tone highlights unaffected |
+| `dng/DSC_0785-Pano.dng` | Lightroom panorama: DNG 1.7, JPEG XL compressed linear raw with a transparency mask | JPEG XL DNG decoding |
+
+The AI tests also need the models: run them with `SILMA_MODEL_DIR` pointing at the installed
+models, else they are skipped.

@@ -6,6 +6,7 @@
 #include "MainWindow.h"
 #include "Widgets.h"
 #include "TaskbarProgress.h"
+#include "TestRaws.h"
 #include <QProgressDialog>
 #include <QThread>
 #include "HealTool.h"
@@ -55,13 +56,9 @@ class TestGui : public QObject {
     // A new batch with three sample photos, for tests that must not see other tests' edits.
     QString freshBatch(const QString& name, int count = 3)
     {
-        QDir d(QString(SILMA_SAMPLES) + "/2026-08-08");
-        auto files = d.entryList(QDir::Files, QDir::Name).mid(0, count);
-        if (files.size() < count)
+        const QStringList paths = testRaws("batch").mid(0, count);
+        if (paths.size() < count)
             return {};
-        QStringList paths;
-        for (const auto& f : files)
-            paths << d.filePath(f);
         QDir(m_tmp.path()).mkpath(name);
         QString file = m_tmp.filePath(name + "/" + name + ".silma");
         Batch b;
@@ -76,7 +73,7 @@ private slots:
         QSettings().clear();
         m_batchFile = freshBatch("gui");
         if (m_batchFile.isEmpty())
-            QSKIP("samples not available");
+            QSKIP("test raws not available");
     }
 
     void filmstripPicksUpLateThumbnails()
@@ -477,14 +474,14 @@ private slots:
 
     void mergePreviews()
     {
-        // DSC_0010..0012 of 2026-08-08 are a handheld sequence.
-        QDir d(QString(SILMA_SAMPLES) + "/2026-08-08");
-        if (!d.exists("DSC_0012.NEF"))
-            QSKIP("samples not available");
+        // A handheld sequence.
+        const QStringList sequence = testRaws("merge/sequence");
+        if (sequence.size() < 3)
+            QSKIP("test raws not available");
         QDir(m_tmp.path()).mkpath("pano");
         Batch b;
         b.create(m_tmp.filePath("pano/pano.silma"));
-        const QList<MergeSource> photos = mergeSources(b, importFiles(b, {d.filePath("DSC_0010.NEF"), d.filePath("DSC_0011.NEF"), d.filePath("DSC_0012.NEF")}, {}).added);
+        const QList<MergeSource> photos = mergeSources(b, importFiles(b, sequence, {}).added);
         QCOMPARE(photos.size(), 3);
         MergeDialog dlg(MergeDialog::Panorama, photos);
         dlg.show();

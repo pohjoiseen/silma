@@ -4,6 +4,7 @@
 #include "Develop.h"
 #include "Importer.h"
 #include "RawDecoder.h"
+#include "TestRaws.h"
 
 #include <QImage>
 #include <QProcess>
@@ -107,16 +108,10 @@ private slots:
 
     void importSamples()
     {
-        QDir samples(SILMA_SAMPLES);
-        QStringList files;
-        for (const char* sub : {"2026-07-05", "2026-05-17"}) {
-            QDir d(samples.filePath(sub));
-            auto list = d.entryList(QDir::Files, QDir::Name);
-            if (!list.isEmpty())
-                files << d.filePath(list.first());
-        }
-        if (files.size() < 2)
-            QSKIP("sample raws not available");
+        // Taken on different days.
+        const QStringList files = {testRaw("other-day/DSC_0001.NEF"), testRaw("drone/DJI_0488.DNG")};
+        if (files.contains(QString()))
+            QSKIP("test raws not available");
         QTemporaryDir tmp;
         Batch b;
         b.create(tmp.filePath("t.silma"));
@@ -138,15 +133,14 @@ private slots:
 
     void importJpegAndHeic()
     {
-        QDir d(QString(SILMA_SAMPLES) + "/2026-08-08");
-        const auto raws = d.entryList(QDir::Files, QDir::Name);
-        if (raws.isEmpty())
-            QSKIP("sample raws not available");
+        const QString nef = testRaw("batch/DSC_0001.NEF");
+        if (nef.isEmpty())
+            QSKIP("test raws not available");
         QTemporaryDir tmp;
         QDir src(tmp.filePath("card"));
         QVERIFY(src.mkpath("."));
         const QString raw = src.filePath("DSC_0001.NEF");
-        QVERIFY(QFile::copy(d.filePath(raws.first()), raw));
+        QVERIFY(QFile::copy(nef, raw));
         QImage img(300, 200, QImage::Format_RGB888);
         img.fill(QColor(200, 120, 60));
         QVERIFY(img.save(src.filePath("DSC_0001.JPG"), "JPEG", 90)); // the raw's sidecar

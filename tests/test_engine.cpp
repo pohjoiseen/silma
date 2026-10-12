@@ -6,19 +6,13 @@
 #include "RawDecoder.h"
 #include "Upright.h"
 #include "Geometry.h"
+#include "TestRaws.h"
 
 #include <QDir>
 #include <QTemporaryDir>
 #include <QtTest>
 
 using namespace silma;
-
-static QString sample(const char* sub)
-{
-    QDir d(QString(SILMA_SAMPLES) + "/" + sub);
-    auto l = d.entryList(QDir::Files, QDir::Name);
-    return l.isEmpty() ? QString() : d.filePath(l.first());
-}
 
 class TestEngine : public QObject {
     Q_OBJECT
@@ -64,9 +58,9 @@ private slots:
 
     void whiteBalancePicker()
     {
-        const QString f = sample("2026-08-08");
+        const QString f = testRaw("batch/DSC_0001.NEF");
         if (f.isEmpty())
-            QSKIP("samples not available");
+            QSKIP("test raws not available");
         DevelopEngine e(f, {.halfSize = true});
         DevelopSettings s;
         const QSize out(1800, 1200); // a 3x3 block covers about the picker's sample patch
@@ -207,13 +201,13 @@ private slots:
 
         // The stuck red pixel of the denoise test photo (if available); a daylight photo has
         // almost none.
-        const QString nef = QString(SILMA_SAMPLES) + "/denoise/DSC_0036.NEF";
-        if (QFile::exists(nef)) {
+        const QString nef = testRaw("denoise/DSC_0036.NEF");
+        if (!nef.isEmpty()) {
             const BayerMosaic m = decodeBayerMosaic(nef);
             QVERIFY(m.data[size_t(3936) * m.width + 2412] < 0.2f); // was at white level
             QVERIFY(decodeRaw(nef).hotPixels > 20);
         }
-        const QString day = sample("2026-05-17");
+        const QString day = testRaw("drone/DJI_0488.DNG");
         if (!day.isEmpty())
             QVERIFY(decodeRaw(day).hotPixels <= 2);
     }
@@ -221,10 +215,10 @@ private slots:
     void bayerMosaic()
     {
         // The mosaic matches LibRaw's demosaiced image per colour (without white balance).
-        for (const char* dir : {"2026-08-08", "2026-05-17"}) {
-            const QString f = sample(dir);
+        for (const char* name : {"batch/DSC_0001.NEF", "drone/DJI_0488.DNG"}) {
+            const QString f = testRaw(name);
             if (f.isEmpty())
-                QSKIP("samples not available");
+                QSKIP("test raws not available");
             const BayerMosaic m = decodeBayerMosaic(f);
             const RawImage raw = decodeRaw(f);
             QCOMPARE(m.width, raw.image.width);
@@ -253,9 +247,9 @@ private slots:
         // Needs the downloaded model (run with SILMA_MODEL_DIR pointing at installed models).
         if (!aiModelInstalled("rawnind"))
             QSKIP("RawNIND model not installed");
-        const QString f = sample("2026-05-17");
+        const QString f = testRaw("drone/DJI_0488.DNG");
         if (f.isEmpty())
-            QSKIP("samples not available");
+            QSKIP("test raws not available");
         const RawImage raw = decodeRaw(f);
         // Fine-scale variation (difference to a 3x3 box mean) and mean of a channel.
         auto stats = [&](const ImageF& img, int c, double& mean, double& detail) {
@@ -402,10 +396,10 @@ private slots:
 
     void renderSamples()
     {
-        for (const char* sub : {"2026-07-05", "2026-05-17"}) {
-            QString f = sample(sub);
+        for (const char* name : {"other-day/DSC_0001.NEF", "drone/DJI_0488.DNG"}) {
+            QString f = testRaw(name);
             if (f.isEmpty())
-                QSKIP("samples not available");
+                QSKIP("test raws not available");
             DevelopEngine e(f, {.halfSize = true});
             WbValues as = e.asShotWb();
             // Multipliers -> temperature -> multipliers is consistent.
@@ -491,11 +485,10 @@ private slots:
     {
         // Walls with many verticals: the hand-tuned correction is vertical 14, rotate -0.9
         // (a fixed penalty on the correction used to stop at 10).
-        const QString dir = QString(SILMA_SAMPLES) + "/2026-09-01/";
-        if (!QFileInfo::exists(dir + "DSC_0160.NEF"))
-            QSKIP("samples not available");
+        if (testRaws("upright").size() < 3)
+            QSKIP("test raws not available");
         auto upright = [&](const char* name) {
-            DevelopEngine e(dir + name, {.halfSize = true});
+            DevelopEngine e(testRaw(QStringLiteral("upright/") + name), {.halfSize = true});
             return autoUpright(e, DevelopSettings{}, UprightMode::Vertical);
         };
         UprightResult r = upright("DSC_0160.NEF");
@@ -514,25 +507,25 @@ private slots:
 
     void autoToneSparesBlownSkies()
     {
-        QDir d(QString(SILMA_SAMPLES) + "/2026-10-10_11");
-        if (!d.exists("DSC_0251.NEF") || !d.exists("DSC_0160.NEF"))
-            QSKIP("samples not available");
+        const QString blownSky = testRaw("auto-tone/DSC_0251.NEF"), brightSky = testRaw("auto-tone/DSC_0160.NEF");
+        if (blownSky.isEmpty() || brightSky.isEmpty())
+            QSKIP("test raws not available");
         // An overcast sky, about 11% blown: highlights pulled down only moderately (a full
         // pull turns the sky grey). Was -91.
-        DevelopEngine blown(d.filePath("DSC_0251.NEF"), {.halfSize = true});
+        DevelopEngine blown(blownSky, {.halfSize = true});
         const double hi = blown.autoTone({}).highlights;
         QVERIFY2(hi >= -65 && hi <= -45, qPrintable(QString::number(hi)));
         // Bright but nothing clipped: unaffected (-48).
-        DevelopEngine bright(d.filePath("DSC_0160.NEF"), {.halfSize = true});
+        DevelopEngine bright(brightSky, {.halfSize = true});
         const double hi2 = bright.autoTone({}).highlights;
         QVERIFY2(hi2 >= -55 && hi2 <= -40, qPrintable(QString::number(hi2)));
     }
 
     void textureAndDehaze()
     {
-        QString f = sample("2026-05-17"); // drone landscape with some haze
+        QString f = testRaw("drone/DJI_0488.DNG"); // drone landscape with some haze
         if (f.isEmpty())
-            QSKIP("samples not available");
+            QSKIP("test raws not available");
         DevelopEngine e(f, {.halfSize = true});
         const RenderRequest req{.width = 600, .height = 450};
         // Luminance statistics of a render: mean, standard deviation, mean chroma and
@@ -577,9 +570,9 @@ private slots:
 
     void exportJpeg()
     {
-        QString f = sample("2026-08-08");
+        QString f = testRaw("batch/DSC_0001.NEF");
         if (f.isEmpty())
-            QSKIP("samples not available");
+            QSKIP("test raws not available");
         QTemporaryDir tmp;
         PhotoInfo p;
         p.path = f;

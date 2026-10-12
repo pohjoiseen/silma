@@ -1,4 +1,6 @@
 example-raws
+test-raws/*
+!test-raws/README.md
 build/
 build-*/
 .cache/

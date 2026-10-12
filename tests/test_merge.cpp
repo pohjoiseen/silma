@@ -3,6 +3,7 @@
 #include "Importer.h"
 #include "Merge.h"
 #include "Upright.h"
+#include "TestRaws.h"
 
 #include <QDir>
 #include <QElapsedTimer>
@@ -21,14 +22,10 @@ class TestMerge : public QObject {
 private slots:
     void initTestCase()
     {
-        // DSC_0010..0012 of 2026-08-08 are a handheld sequence.
-        QDir d(QString(SILMA_SAMPLES) + "/2026-08-08");
-        QStringList files;
-        for (const char* f : {"DSC_0010.NEF", "DSC_0011.NEF", "DSC_0012.NEF"})
-            if (d.exists(f))
-                files << d.filePath(f);
+        // A handheld sequence.
+        const QStringList files = testRaws("merge/sequence");
         if (files.size() < 3)
-            QSKIP("samples not available");
+            QSKIP("test raws not available");
         m_batch.create(m_tmp.filePath("m.silma"));
         m_ids = importFiles(m_batch, files, {}).added;
         QCOMPARE(m_ids.size(), 3);
@@ -93,11 +90,10 @@ private slots:
         const QSize ts = PanoramaPreview(turned).size();
         QVERIFY2(ts.height() > ts.width(), qPrintable(QStringLiteral("%1x%2").arg(ts.width()).arg(ts.height())));
         // Photos that do not overlap: the preview says so.
-        QDir d(QString(SILMA_SAMPLES) + "/2026-09-01");
-        if (d.exists("DSC_0153.NEF") && d.exists("DSC_0160.NEF")) {
+        if (const QStringList pair = testRaws("merge/apart"); pair.size() == 2) {
             Batch b2;
             b2.create(m_tmp.filePath("apart.silma"));
-            const QList<MergeSource> apart = mergeSources(b2, importFiles(b2, {d.filePath("DSC_0153.NEF"), d.filePath("DSC_0160.NEF")}, {}).added);
+            const QList<MergeSource> apart = mergeSources(b2, importFiles(b2, pair, {}).added);
             QVERIFY_THROWS_EXCEPTION(std::runtime_error, PanoramaPreview{apart});
         }
     }
