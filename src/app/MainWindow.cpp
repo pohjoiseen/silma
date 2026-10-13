@@ -1376,11 +1376,29 @@ void MainWindow::exportPhotos()
         QString import;
         int seq;
         QMap<qint64, HealPatch> patches;
+        QString path; // output file
     };
     QList<Job> jobs;
     for (int i = 0; i < photos.size(); ++i) {
         DevelopSettings js = DevelopSettings::fromJsonString(m_batch.settings(photos[i].id));
-        jobs.append({photos[i], js, importNames.value(photos[i].importId), i + 1, loadHealPatches(m_batch, js)});
+        jobs.append({photos[i], js, importNames.value(photos[i].importId), i + 1, loadHealPatches(m_batch, js), {}});
+    }
+    // Files that are there already: ask what to do (once for all, if the user wants).
+    QStringList planned;
+    for (const Job& j : jobs)
+        planned << exportPlannedPath(j.p, j.import, j.seq, o);
+    const auto paths = resolveExportPaths(planned, [this](const QString& path, int left) { return askExistingExportFile(path, left); });
+    if (!paths)
+        return;
+    for (int i = int(jobs.size()) - 1; i >= 0; --i) {
+        if ((*paths)[i].isEmpty())
+            jobs.removeAt(i);
+        else
+            jobs[i].path = (*paths)[i];
+    }
+    if (jobs.isEmpty()) {
+        statusBar()->showMessage(tr("Nothing exported: every photo was skipped"), 5000);
+        return;
     }
 
     auto* progress = new QProgressDialog(tr("Exporting..."), tr("Cancel"), 0, int(jobs.size()), this);
@@ -1402,7 +1420,9 @@ void MainWindow::exportPhotos()
         if (*cancelled)
             return r;
         try {
-            r.path = exportPhoto(j.p, j.s, j.import, j.seq, o, j.patches, &r.warnings);
+            ExportOptions jo = o;
+            jo.path = j.path;
+            r.path = exportPhoto(j.p, j.s, j.import, j.seq, jo, j.patches, &r.warnings);
         } catch (const std::exception& e) {
             r.error = j.p.fileName + ": " + QString::fromUtf8(e.what());
         }
@@ -1433,6 +1453,34 @@ void MainWindow::exportPhotos()
             showInFileManager(files);
     });
     watcher->setFuture(future);
+}
+
+ExistingFileAnswer MainWindow::askExistingExportFile(const QString& path, int left)
+{
+    const QFileInfo fi(path);
+    QMessageBox box(QMessageBox::Question, tr("Export"),
+                    tr("%1 already exists in %2.").arg(fi.fileName(), QDir::toNativeSeparators(fi.absolutePath())), QMessageBox::NoButton, this);
+    auto* overwrite = box.addButton(tr("&Overwrite"), QMessageBox::DestructiveRole);
+    auto* rename = box.addButton(tr("Use &Another Name"), QMessageBox::AcceptRole);
+    auto* skip = box.addButton(tr("&Skip"), QMessageBox::RejectRole);
+    auto* cancel = box.addButton(tr("Cancel Export"), QMessageBox::RejectRole);
+    rename->setToolTip(tr("Save as %1-2.%2 (or the next free number)").arg(fi.completeBaseName(), fi.suffix()));
+    box.setDefaultButton(rename);
+    box.setEscapeButton(cancel);
+    QCheckBox* all = nullptr;
+    if (left > 1) {
+        all = new QCheckBox(tr("Do the same for the other %n file(s) that exist", nullptr, left - 1), &box);
+        box.setCheckBox(all);
+    }
+    box.exec();
+    ExistingFileAnswer a;
+    a.applyToAll = all && all->isChecked();
+    QAbstractButton* b = box.clickedButton();
+    a.choice = b == overwrite ? ExistingFileChoice::Overwrite
+               : b == rename  ? ExistingFileChoice::Rename
+               : b == skip    ? ExistingFileChoice::Skip
+                              : ExistingFileChoice::Cancel;
+    return a;
 }
 
 void MainWindow::showExportProblems(const QStringList& errors, const QStringList& warnings)

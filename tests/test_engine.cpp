@@ -765,6 +765,49 @@ private slots:
         QVERIFY2(std::max(mx[0], mx[2]) > 1.2f, qPrintable(QString("%1 %2").arg(mx[0]).arg(mx[2])));
     }
 
+    void exportAsksAboutExistingFiles()
+    {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        auto f = [&](const QString& n) { return tmp.filePath(n); };
+        for (const char* n : {"a.jpg", "b.jpg"}) {
+            QFile file(f(n));
+            QVERIFY(file.open(QIODevice::WriteOnly));
+        }
+        // a and b exist; c does not; the second a is the same name again in this export.
+        const QStringList planned = {f("a.jpg"), f("b.jpg"), f("c.jpg"), f("a.jpg")};
+        QList<int> asked;
+        auto always = [&](ExistingFileChoice c) {
+            return [&, c](const QString&, int left) {
+                asked << left;
+                return ExistingFileAnswer{c, true};
+            };
+        };
+        auto r = resolveExportPaths(planned, always(ExistingFileChoice::Rename));
+        QCOMPARE(*r, QStringList({f("a-2.jpg"), f("b-2.jpg"), f("c.jpg"), f("a-3.jpg")}));
+        QCOMPARE(asked, QList<int>({3})); // asked once (3 existing), then applied to all
+        asked.clear();
+        r = resolveExportPaths(planned, always(ExistingFileChoice::Overwrite));
+        QCOMPARE(*r, QStringList({f("a.jpg"), f("b.jpg"), f("c.jpg"), f("a-2.jpg")})); // never twice into one file
+        r = resolveExportPaths(planned, always(ExistingFileChoice::Skip));
+        QCOMPARE(*r, QStringList({QString(), QString(), f("c.jpg"), QString()}));
+        QVERIFY(!resolveExportPaths(planned, always(ExistingFileChoice::Cancel)));
+        // Without "apply to all" every existing file is asked about.
+        asked.clear();
+        int k = 0;
+        r = resolveExportPaths(planned, [&](const QString&, int left) {
+            asked << left;
+            return ExistingFileAnswer{k++ == 0 ? ExistingFileChoice::Skip : ExistingFileChoice::Overwrite, false};
+        });
+        QCOMPARE(asked, QList<int>({3, 2, 1}));
+        QCOMPARE(*r, QStringList({QString(), f("b.jpg"), f("c.jpg"), f("a.jpg")}));
+        // Nothing exists: no questions, names unchanged.
+        asked.clear();
+        r = resolveExportPaths({f("x.jpg"), f("y.jpg")}, always(ExistingFileChoice::Cancel));
+        QCOMPARE(*r, QStringList({f("x.jpg"), f("y.jpg")}));
+        QVERIFY(asked.isEmpty());
+    }
+
     void highlightsKeepBlownAreasWhite()
     {
         const QString f = testRaw("auto-tone/DSC_0251.NEF"); // overcast sky, about 11% blown

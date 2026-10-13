@@ -622,6 +622,31 @@ private slots:
         QCOMPARE(w.testSelectedIds(), QList<qint64>{picked});
     }
 
+    void exportAsksAboutExistingFile()
+    {
+        MainWindow w;
+        auto answer = [&](const QString& button, bool all, int left) {
+            QTimer::singleShot(100, [&, button, all] {
+                auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget());
+                QVERIFY(box);
+                if (box->checkBox())
+                    box->checkBox()->setChecked(all);
+                for (QAbstractButton* b : box->buttons())
+                    if (b->text().remove('&') == button)
+                        b->click();
+            });
+            return w.testAskExistingExportFile("/tmp/x/20261010-DSC_0027.jpg", left);
+        };
+        ExistingFileAnswer a = answer("Overwrite", true, 3);
+        QCOMPARE(a.choice, ExistingFileChoice::Overwrite);
+        QVERIFY(a.applyToAll);
+        a = answer("Use Another Name", false, 3);
+        QCOMPARE(a.choice, ExistingFileChoice::Rename);
+        QVERIFY(!a.applyToAll);
+        QCOMPARE(answer("Skip", false, 1).choice, ExistingFileChoice::Skip);
+        QCOMPARE(answer("Cancel Export", false, 1).choice, ExistingFileChoice::Cancel);
+    }
+
     void pastedThumbnailsRenderOnce()
     {
         MainWindow w;

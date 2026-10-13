@@ -34,6 +34,9 @@
   to the batch at the same time.
 
 ### Export
+- When an exported file is there already, asks: Overwrite, Use Another Name ("-2"), Skip or
+  Cancel Export, optionally for all such files. (Two photos of one export with the same
+  name: the second gets another name, as before.)
 - Warns about photos set to a camera profile that is not installed (they are exported with
   Silmä's own colour).
 

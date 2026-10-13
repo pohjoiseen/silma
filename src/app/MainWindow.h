@@ -3,6 +3,7 @@
 #include "Batch.h"
 #include "Develop.h"
 #include "EngineCache.h"
+#include "Export.h"
 #include "ImagePane.h"
 
 #include <QElapsedTimer>
@@ -75,6 +76,7 @@ public:
     void testCommit(const DevelopSettings& s, const QString& label) { commit(s, label); }
     void testCropTool(bool on) { setCropTool(on); }
     bool cropToolActive() const { return m_cropTool; }
+    ExistingFileAnswer testAskExistingExportFile(const QString& path, int left) { return askExistingExportFile(path, left); }
     void testShowExportProblems(const QStringList& errors, const QStringList& warnings) { showExportProblems(errors, warnings); }
     void testWbPicker(bool on) { setWbPicker(on); }
     void testHealTool(bool on) { setHealTool(on); }
@@ -148,6 +150,7 @@ private:
     void importPhotos();
     void exportPhotos();
     // After an export: photos that failed, and warnings about exported ones.
+    ExistingFileAnswer askExistingExportFile(const QString& path, int left);
     void showExportProblems(const QStringList& errors, const QStringList& warnings);
     void deleteRejected();
     void installCameraProfiles();

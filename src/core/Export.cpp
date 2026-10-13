@@ -9,6 +9,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QSaveFile>
+#include <QSet>
 #include <cstdio>
 #include <exiv2/exiv2.hpp>
 #include <jpeglib.h>
@@ -208,14 +209,70 @@ QString exportPhoto(const PhotoInfo& p, const DevelopSettings& s, const QString&
     }
     outputSharpen(img, o.sharpening);
 
-    QDir().mkpath(o.folder);
-    QString base = expandExportPattern(o.pattern, p, importName, seq);
-    QString path = QDir(o.folder).filePath(base + ".jpg");
-    if (!o.overwrite)
-        for (int i = 2; QFileInfo::exists(path); ++i)
-            path = QDir(o.folder).filePath(QStringLiteral("%1-%2.jpg").arg(base).arg(i));
+    QString path = o.path;
+    if (path.isEmpty()) {
+        const QString base = expandExportPattern(o.pattern, p, importName, seq);
+        path = QDir(o.folder).filePath(base + ".jpg");
+        if (!o.overwrite)
+            for (int i = 2; QFileInfo::exists(path); ++i)
+                path = QDir(o.folder).filePath(QStringLiteral("%1-%2.jpg").arg(base).arg(i));
+    }
+    QDir().mkpath(QFileInfo(path).absolutePath());
     writeJpeg(path, img, o.quality, p.path, p.lens);
     return path;
+}
+
+QString exportPlannedPath(const PhotoInfo& p, const QString& importName, int seq, const ExportOptions& o)
+{
+    return QDir(o.folder).filePath(expandExportPattern(o.pattern, p, importName, seq) + ".jpg");
+}
+
+std::optional<QStringList> resolveExportPaths(const QStringList& planned,
+                                              const std::function<ExistingFileAnswer(const QString& path, int left)>& ask)
+{
+    QStringList out;
+    QSet<QString> taken; // by earlier photos of this export
+    auto key = [](const QString& path) { return QFileInfo(path).absoluteFilePath(); };
+    auto freeName = [&](const QString& path) {
+        const QFileInfo fi(path);
+        const QString base = fi.dir().filePath(fi.completeBaseName());
+        QString p = path;
+        for (int i = 2; QFileInfo::exists(p) || taken.contains(key(p)); ++i)
+            p = QStringLiteral("%1-%2.%3").arg(base).arg(i).arg(fi.suffix());
+        return p;
+    };
+    int left = 0;
+    for (const QString& p : planned)
+        left += QFileInfo::exists(p);
+    std::optional<ExistingFileChoice> forAll;
+    for (const QString& p : planned) {
+        QString path = p;
+        if (QFileInfo::exists(p)) {
+            ExistingFileChoice c;
+            if (forAll) {
+                c = *forAll;
+            } else {
+                const ExistingFileAnswer a = ask(p, left);
+                c = a.choice;
+                if (a.applyToAll)
+                    forAll = c;
+            }
+            --left;
+            if (c == ExistingFileChoice::Cancel)
+                return std::nullopt;
+            if (c == ExistingFileChoice::Skip) {
+                out << QString();
+                continue;
+            }
+            if (c == ExistingFileChoice::Rename || taken.contains(key(p)))
+                path = freeName(p);
+        } else if (taken.contains(key(p))) {
+            path = freeName(p);
+        }
+        taken.insert(key(path));
+        out << path;
+    }
+    return out;
 }
 
 } // namespace silma
