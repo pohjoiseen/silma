@@ -31,8 +31,8 @@ public:
     void setDefaults(const DevelopSettings& d);
     void setEffectiveWb(const WbValues& wb);
     void setLensInfo(const QString& text);
-    // Camera profiles that can be chosen for the photo (empty: only the built-in colour).
-    void setProfiles(const QStringList& names);
+    // Camera profiles for the photo (empty: only the built-in colour).
+    void setProfiles(const QList<ProfileChoice>& choices);
     void setHistogram(const Histogram& h);
     void setPhotoInfo(const QString& text);
     void setCropToolActive(bool on);
@@ -71,7 +71,7 @@ private:
     QHash<QString, ParamSlider*> m_sliders;
     QComboBox* m_wbMode;
     QComboBox* m_profile;
-    QStringList m_profiles;
+    QList<ProfileChoice> m_profiles;
     void fillProfiles();
     QComboBox* m_curveChannel;
     CurveWidget* m_curve;

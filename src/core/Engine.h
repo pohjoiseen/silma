@@ -104,6 +104,8 @@ public:
     ResolvedProfile profile(const DevelopSettings& s) const;
     // Profile names that can be chosen for this photo.
     QStringList availableProfiles() const;
+    // The profile menu for this photo (with looks that miss their base profile).
+    QList<ProfileChoice> profileChoices() const;
 
 private:
     std::shared_ptr<const ImageF> level(int lvl) const;

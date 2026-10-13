@@ -1043,10 +1043,10 @@ std::map<QString, Command> commands()
             if (ps.size() != 1)
                 fail("profiles takes one photo");
             DevelopEngine e(ps[0].path, {.halfSize = true});
-            for (const QString& n : e.availableProfiles()) {
-                arr.append(n);
+            for (const ProfileChoice& c : e.profileChoices()) {
+                arr.append(QJsonObject{{"name", c.name}, {"usable", c.usable}, {"needs", c.needs}, {"description", c.description}});
                 if (!json)
-                    out() << n << '\n';
+                    out() << (c.usable ? c.name : QStringLiteral("(%1: needs \"%2\")").arg(c.name, c.needs)) << '\n';
             }
             if (json)
                 printJson(arr);

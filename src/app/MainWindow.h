@@ -9,6 +9,7 @@
 #include <QHash>
 #include <QMainWindow>
 #include <QPointer>
+#include <QThreadPool>
 #include <QTimer>
 #include <atomic>
 #include <functional>
@@ -58,6 +59,7 @@ public:
     void testPasteSettings(bool ask = true) { pasteSettings(ask); }
     void testSetViewMode(ViewMode m) { setViewMode(m); }
     void testPoll() { pollDatabase(); }
+    int testPendingThumbnails() const { return int(m_thumbQueue.size()) + m_thumbsRunning; }
     void testResetSettings() { resetSettings(); }
     void testRunDerivedJob(const QString& title, std::function<QList<qint64>(Batch&, const std::function<void(const QString&, int, int)>&, const std::atomic<bool>*)> job)
     {
@@ -137,7 +139,9 @@ private:
     void pasteSettings(bool ask = true);
     void scheduleThumbnail();
     void historyChanged(qint64 id);
+    // Queues a thumbnail update (visible photos and the current one first; a few cores only).
     void renderThumbnail(qint64 id);
+    void pumpThumbnails();
 
     // culling / files
     void setRejected(bool rejected);
@@ -231,6 +235,9 @@ private:
     QShortcut* m_cropAccept[2] = {}; // Return, Enter: close the crop tool
     QString m_activeSlider;
     QTimer m_thumbTimer;
+    QList<qint64> m_thumbQueue;
+    int m_thumbsRunning = 0;
+    QThreadPool m_thumbPool;
     QTimer m_pollTimer;
     qint64 m_dataVersion = -1;
     bool m_restoring = false;

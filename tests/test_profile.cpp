@@ -278,6 +278,23 @@ private slots:
         QVERIFY(!resolveProfile("Missing", "Test", "Cam").valid());
     }
 
+    void choicesShowWhatALookNeeds()
+    {
+        // Run after installAndResolve: "Grey" (DCP) and "Test Look" over it, for "Test Cam".
+        const QString dir = m_dir.filePath("orphan");
+        QDir().mkpath(dir);
+        writeLook(dir + "/orphan.xmp", "Orphan Look", "Missing Base", 0.5f, false);
+        installProfiles({dir});
+        const QList<ProfileChoice> c = profileChoices("Test", "Cam");
+        QStringList names;
+        for (const auto& x : c)
+            names << x.name + (x.usable ? "" : " needs " + x.needs);
+        QVERIFY2(names.contains("Grey") && names.contains("Test Look") && names.contains("Orphan Look needs Missing Base"), qPrintable(names.join(", ")));
+        QVERIFY(!profilesForCamera("Test", "Cam").contains("Orphan Look"));
+        QVERIFY(looksMissingBase().join('\n').contains("Orphan Look: needs a camera profile \"Missing Base\""));
+        QFile::remove(profileDir() + "/orphan.xmp");
+    }
+
     void settingsKeepTheProfile()
     {
         DevelopSettings s;

@@ -1088,6 +1088,11 @@ QStringList DevelopEngine::availableProfiles() const
     return m_raw->rendered ? QStringList() : profilesForCamera(m_raw->make, m_raw->model);
 }
 
+QList<ProfileChoice> DevelopEngine::profileChoices() const
+{
+    return m_raw->rendered ? QList<ProfileChoice>() : silma::profileChoices(m_raw->make, m_raw->model);
+}
+
 DevelopSettings DevelopEngine::autoTone(const DevelopSettings& in) const
 {
     DevelopSettings s = in;

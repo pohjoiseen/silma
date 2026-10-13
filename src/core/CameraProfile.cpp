@@ -8,6 +8,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QSet>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QtEndian>
@@ -543,6 +544,52 @@ QStringList profilesForCamera(const QString& make, const QString& model)
     }
     names.sort(Qt::CaseInsensitive);
     return names;
+}
+
+QList<ProfileChoice> profileChoices(const QString& make, const QString& model)
+{
+    QList<ProfileChoice> out;
+    QSet<QString> seen;
+    const QString camera = (make + ' ' + model).simplified();
+    for (const auto& p : installedProfiles()) {
+        if (seen.contains(p->name))
+            continue;
+        ProfileChoice c;
+        c.name = p->name;
+        if (p->kind == CameraProfile::Kind::Dcp) {
+            if (!p->matchesCamera(make, model))
+                continue;
+            c.usable = true;
+            c.description = QStringLiteral("Camera profile for the %1 (%2)").arg(p->cameraModel, p->file);
+        } else {
+            if (!p->modelRestriction.isEmpty() && normalizedModel(p->modelRestriction) != normalizedModel(camera))
+                continue;
+            c.usable = resolveProfile(p->name, make, model).valid();
+            if (!c.usable)
+                c.needs = p->baseProfile;
+            c.description = c.usable ? QStringLiteral("A look over \"%1\" (%2)").arg(p->baseProfile, p->file)
+                                     : QStringLiteral("Needs the camera profile \"%1\" for the %2: install its .dcp file (e.g. \"%2 %1.dcp\")")
+                                           .arg(p->baseProfile, camera);
+        }
+        seen.insert(p->name);
+        out << c;
+    }
+    std::sort(out.begin(), out.end(), [](const ProfileChoice& a, const ProfileChoice& b) { return a.name.compare(b.name, Qt::CaseInsensitive) < 0; });
+    return out;
+}
+
+QStringList looksMissingBase()
+{
+    const auto all = installedProfiles();
+    QStringList out;
+    for (const auto& p : all) {
+        if (p->kind != CameraProfile::Kind::Look)
+            continue;
+        const bool found = std::any_of(all.begin(), all.end(), [&](const auto& d) { return d->kind == CameraProfile::Kind::Dcp && d->name == p->baseProfile; });
+        if (!found)
+            out << QStringLiteral("%1: needs a camera profile \"%2\" (.dcp) for your camera").arg(p->name, p->baseProfile);
+    }
+    return out;
 }
 
 // ---- Transform --------------------------------------------------------------------------

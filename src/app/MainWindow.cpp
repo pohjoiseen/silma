@@ -59,6 +59,7 @@
 #include <QStatusBar>
 #include <QTabWidget>
 #include <QThreadPool>
+#include <omp.h>
 #include <QToolBar>
 #include <QToolButton>
 #include <QtConcurrent>
@@ -622,6 +623,7 @@ void MainWindow::closeBatch()
         return;
     saveSession();
     m_thumbTimer.stop();
+    m_thumbQueue.clear();
     m_photo.reset();
     m_comparePhoto.reset();
     m_engines.clear();
@@ -790,7 +792,7 @@ void MainWindow::showCurrentPhoto()
     m_pane->setMessage(engine ? QString() : error.isEmpty() ? tr("Loading…") : tr("Cannot decode: %1").arg(error));
     if (engine) {
         m_panel->setLensInfo(engine->lensDescription());
-        m_panel->setProfiles(engine->availableProfiles());
+        m_panel->setProfiles(engine->profileChoices());
     }
     updatePanes();
 }
@@ -809,14 +811,17 @@ void MainWindow::installCameraProfiles()
     QString text = names.isEmpty() ? tr("No profiles were installed.") : tr("Installed:\n%1").arg(names.join('\n'));
     if (!errors.isEmpty())
         text += tr("\n\nSkipped:\n%1").arg(errors.join('\n'));
+    const QStringList missing = looksMissingBase();
+    if (!missing.isEmpty())
+        text += tr("\n\nNot usable yet:\n%1\n(Camera Raw keeps the camera profiles in CameraRaw/CameraProfiles/Adobe Standard.)").arg(missing.join('\n'));
     text += tr("\n\nProfiles are kept in %1").arg(profileDir());
-    if (errors.isEmpty())
+    if (errors.isEmpty() && missing.isEmpty())
         QMessageBox::information(this, tr("Install Camera Profiles"), text);
     else
         QMessageBox::warning(this, tr("Install Camera Profiles"), text);
     if (m_photo)
         if (auto e = m_engines.get(m_photo->path)) {
-            m_panel->setProfiles(e->availableProfiles());
+            m_panel->setProfiles(e->profileChoices());
             m_pane->refresh();
         }
 }
@@ -843,7 +848,7 @@ void MainWindow::onEngineReady(const QString& path)
         m_pane->setMessage(QString());
         if (e) {
             m_panel->setLensInfo(e->lensDescription());
-            m_panel->setProfiles(e->availableProfiles());
+            m_panel->setProfiles(e->profileChoices());
         }
         if (m_viewMode == ViewMode::BeforeAfter)
             m_pane2->setEngine(e);
@@ -1126,6 +1131,7 @@ void MainWindow::pasteSettings(bool ask)
         if (after == before)
             continue;
         m_batch.pushHistory(id, tr("Paste Settings"), after.toJsonString());
+        historyChanged(id);
         renderThumbnail(id);
     }
     if (m_photo && (ids.contains(m_photo->id) || ids.isEmpty()))
@@ -1136,39 +1142,80 @@ void MainWindow::pasteSettings(bool ask)
 
 void MainWindow::scheduleThumbnail() { m_thumbTimer.start(); }
 
-void MainWindow::historyChanged(qint64 id) { m_model->setHistoryPos(id, m_batch.historyPos(id)); }
+void MainWindow::historyChanged(qint64 id)
+{
+    const int pos = m_batch.historyPos(id);
+    m_model->setHistoryPos(id, pos);
+    m_knownHistory[id] = pos; // our own change: not one to pick up from another process
+}
+
+// Thumbnail updates run one or two at a time with few threads each, so that pasting settings to
+// hundreds of photos does not take every core; visible photos and the current one go first.
+constexpr int kThumbJobs = 2;
 
 void MainWindow::renderThumbnail(qint64 id)
 {
-    auto p = m_batch.photo(id);
-    if (!p)
-        return;
-    DevelopSettings s = DevelopSettings::fromJsonString(m_batch.settings(id));
-    QString path = p->path;
-    auto engine = m_engines.get(path, false);
-    auto patches = loadHealPatches(m_batch, s);
-    QPointer<MainWindow> self(this);
-    QThreadPool::globalInstance()->start([self, id, s, path, engine, patches] {
-        QByteArray jpeg;
-        try {
-            auto e = engine ? engine : std::make_shared<DevelopEngine>(path, EngineLoadOptions{.halfSize = true});
-            addHealPatches(*e, patches);
-            QSize full = e->outputSize(s);
-            double k = 512.0 / std::max(full.width(), full.height());
-            RenderResult r = e->render(s, {.width = std::max(1, int(full.width() * k)), .height = std::max(1, int(full.height() * k))});
-            QBuffer buf(&jpeg);
-            buf.open(QIODevice::WriteOnly);
-            r.image.save(&buf, "JPEG", 85);
-        } catch (...) {
-            return;
+    m_thumbQueue.removeOne(id);
+    if (m_photo && id == m_photo->id)
+        m_thumbQueue.prepend(id);
+    else
+        m_thumbQueue.append(id);
+    pumpThumbnails();
+}
+
+void MainWindow::pumpThumbnails()
+{
+    while (m_thumbsRunning < kThumbJobs && !m_thumbQueue.isEmpty() && m_batch.isOpen()) {
+        // The current photo, else the first one in view, else the oldest request.
+        qsizetype pick = 0;
+        if (!(m_photo && m_thumbQueue.first() == m_photo->id)) {
+            const QRect view = m_filmstrip->viewport()->rect();
+            for (qsizetype k = 0; k < m_thumbQueue.size(); ++k) {
+                const int row = m_model->rowOf(m_thumbQueue[k]);
+                if (row >= 0 && m_filmstrip->visualRect(m_model->index(row)).intersects(view)) {
+                    pick = k;
+                    break;
+                }
+            }
         }
-        QMetaObject::invokeMethod(qApp, [self, id, jpeg] {
-            if (!self || !self->m_batch.isOpen())
-                return;
-            self->m_batch.setThumbnail(id, jpeg, kThumbVersionRendered);
-            self->m_model->invalidateThumbnail(id);
+        const qint64 id = m_thumbQueue.takeAt(pick);
+        auto p = m_batch.photo(id);
+        if (!p)
+            continue;
+        DevelopSettings s = DevelopSettings::fromJsonString(m_batch.settings(id));
+        QString path = p->path;
+        auto engine = m_engines.get(path, false);
+        auto patches = loadHealPatches(m_batch, s);
+        QPointer<MainWindow> self(this);
+        const QString batchFile = m_batch.file();
+        ++m_thumbsRunning;
+        m_thumbPool.start([self, id, s, path, engine, patches, batchFile] {
+            // Each job's own parallel loops use a few threads only.
+            omp_set_num_threads(std::max(1, QThread::idealThreadCount() / 4));
+            QByteArray jpeg;
+            try {
+                auto e = engine ? engine : std::make_shared<DevelopEngine>(path, EngineLoadOptions{.halfSize = true});
+                addHealPatches(*e, patches);
+                QSize full = e->outputSize(s);
+                double k = 512.0 / std::max(full.width(), full.height());
+                RenderResult r = e->render(s, {.width = std::max(1, int(full.width() * k)), .height = std::max(1, int(full.height() * k))});
+                QBuffer buf(&jpeg);
+                buf.open(QIODevice::WriteOnly);
+                r.image.save(&buf, "JPEG", 85);
+            } catch (...) {
+            }
+            QMetaObject::invokeMethod(qApp, [self, id, jpeg, batchFile] {
+                if (!self)
+                    return;
+                --self->m_thumbsRunning;
+                if (!jpeg.isEmpty() && self->m_batch.isOpen() && self->m_batch.file() == batchFile) {
+                    self->m_batch.setThumbnail(id, jpeg, kThumbVersionRendered);
+                    self->m_model->invalidateThumbnail(id);
+                }
+                self->pumpThumbnails();
+            });
         });
-    });
+    }
 }
 
 // ---- culling / files -----------------------------------------------------------
@@ -2234,8 +2281,9 @@ void MainWindow::closeEvent(QCloseEvent* e)
 {
     if (m_thumbTimer.isActive() && m_photo) {
         m_thumbTimer.stop();
+        m_thumbQueue.clear();
         renderThumbnail(m_photo->id);
-        QThreadPool::globalInstance()->waitForDone(5000);
+        m_thumbPool.waitForDone(5000);
         QCoreApplication::processEvents();
     }
     saveSession();

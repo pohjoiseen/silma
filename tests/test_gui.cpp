@@ -622,6 +622,34 @@ private slots:
         QCOMPARE(w.testSelectedIds(), QList<qint64>{picked});
     }
 
+    void pastedThumbnailsRenderOnce()
+    {
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        const QString file = freshBatch("pastedThumbnailsRenderOnce", 4);
+        QVERIFY(w.openBatch(file));
+        auto* strip = w.findChild<Filmstrip*>();
+        QVERIFY(strip && strip->model()->rowCount() == 4);
+        QTRY_VERIFY(w.currentPhoto());
+        emit slider(w, "exposure")->edited(0.5, true);
+        w.testCopySettings();
+        strip->selectAll();
+        w.testPasteSettings(false);
+        QVERIFY(w.testPendingThumbnails() > 0);
+        QTRY_COMPARE_WITH_TIMEOUT(w.testPendingThumbnails(), 0, 120000);
+        // Another process writing to the batch (e.g. AI denoise's worker) must not make the
+        // GUI take its own pasted edits for external ones and render them all again.
+        {
+            Batch other;
+            other.open(file);
+            other.setState("test.touch", "1");
+        }
+        w.testPoll();
+        QCOMPARE(w.testPendingThumbnails(), 0);
+    }
+
     void pasteSettingsDialog()
     {
         QSettings().remove("paste/excluded");

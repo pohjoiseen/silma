@@ -84,6 +84,17 @@ struct ResolvedProfile {
 ResolvedProfile resolveProfile(const QString& name, const QString& make, const QString& model);
 // Profile names usable for a camera, sorted (DCPs and looks whose base DCP is installed).
 QStringList profilesForCamera(const QString& make, const QString& model);
+// Every installed profile that concerns a camera, for a profile menu: usable ones and looks
+// that are missing their base DCP (with what to install), sorted by name.
+struct ProfileChoice {
+    QString name;
+    bool usable = false;
+    QString needs;       // a look's base profile when that is not installed for the camera
+    QString description; // what it is, or what it needs
+};
+QList<ProfileChoice> profileChoices(const QString& make, const QString& model);
+// Installed looks whose base DCP is not installed for any camera: "look: needs base".
+QStringList looksMissingBase();
 
 // The colour transform of a resolved profile for one white balance.
 class ProfileTransform {

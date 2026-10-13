@@ -9,6 +9,7 @@
 #include <QLabel>
 #include <QScrollArea>
 #include <QSlider>
+#include <QStandardItemModel>
 #include <QSettings>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -382,9 +383,9 @@ void DevelopPanel::setEffectiveWb(const WbValues& wb)
     m_updating = false;
 }
 
-void DevelopPanel::setProfiles(const QStringList& names)
+void DevelopPanel::setProfiles(const QList<ProfileChoice>& choices)
 {
-    m_profiles = names;
+    m_profiles = choices;
     fillProfiles();
 }
 
@@ -394,13 +395,35 @@ void DevelopPanel::fillProfiles()
     m_updating = true;
     m_profile->clear();
     m_profile->addItem(tr("Silmä"), QString());
-    for (const QString& n : m_profiles)
-        m_profile->addItem(n, n);
-    if (!m_settings.profile.isEmpty() && !m_profiles.contains(m_settings.profile))
+    m_profile->setItemData(0, tr("Silmä's own colour: the raw's colour matrix"), Qt::ToolTipRole);
+    bool current = m_settings.profile.isEmpty();
+    for (const ProfileChoice& c : m_profiles) {
+        m_profile->addItem(c.usable ? c.name : tr("%1 (needs %2)").arg(c.name, c.needs), c.name);
+        const int i = m_profile->count() - 1;
+        m_profile->setItemData(i, c.description, Qt::ToolTipRole);
+        if (auto* model = qobject_cast<QStandardItemModel*>(m_profile->model()); model && !c.usable)
+            model->item(i)->setEnabled(false); // shown with what it needs, not selectable
+        current = current || (c.usable && c.name == m_settings.profile);
+    }
+    if (!current) {
         m_profile->addItem(tr("%1 (not installed)").arg(m_settings.profile), m_settings.profile);
+        m_profile->setItemData(m_profile->count() - 1, tr("Rendered with Silmä's own colour until the profile is installed"), Qt::ToolTipRole);
+    }
     m_profile->insertSeparator(m_profile->count());
     m_profile->addItem(tr("Install Profiles…"));
-    m_profile->setCurrentIndex(std::max(0, m_profile->findData(m_settings.profile)));
+    m_profile->setItemData(m_profile->count() - 1,
+                           tr("Install camera profiles (.dcp) and looks such as Adobe Color (.xmp) from Lightroom or Adobe DNG Converter.\n"
+                              "A look needs the camera profile it is based on (e.g. Adobe Standard for your camera)."),
+                           Qt::ToolTipRole);
+    // The enabled item holding the photo's profile (Silmä, a usable one or "not installed").
+    int sel = 0;
+    auto* model = qobject_cast<QStandardItemModel*>(m_profile->model());
+    for (int i = 0; i < m_profile->count(); ++i)
+        if (m_profile->itemData(i).isValid() && m_profile->itemData(i).toString() == m_settings.profile && (!model || model->item(i)->isEnabled())) {
+            sel = i;
+            break;
+        }
+    m_profile->setCurrentIndex(sel);
     m_updating = updating;
 }
 

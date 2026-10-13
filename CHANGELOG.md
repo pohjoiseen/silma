@@ -16,7 +16,14 @@
 - Camera profiles: Lightroom / Camera Raw profiles (Adobe Standard `.dcp`, look profiles such
   as Adobe Color `.xmp`) installed from your own copy can be chosen per photo (Profile in the
   White Balance panel). File › Install Camera Profiles copies them to
-  `~/.local/share/silma/profiles`. New photos (and Reset) get the profile chosen last.
+  `~/.local/share/silma/profiles`. New photos (and Reset) get the profile chosen last. A look
+  without its base camera profile shows in the menu with what it needs.
+
+### Performance
+- Thumbnail updates (e.g. after pasting settings to hundreds of photos) run in the background
+  on a few cores, visible photos first, instead of all at once on every core.
+- Pasted edits are no longer rendered a second time when another process writes to the batch
+  (e.g. after AI Denoise).
 
 ### Command line
 - `install-profiles FILE|DIR...`, `profiles [PHOTO]`, and `set PHOTO profile=NAME`.
