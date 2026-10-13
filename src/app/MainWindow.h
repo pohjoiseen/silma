@@ -146,6 +146,7 @@ private:
     // After an export: photos that failed, and warnings about exported ones.
     void showExportProblems(const QStringList& errors, const QStringList& warnings);
     void deleteRejected();
+    void installCameraProfiles();
     // Removes the selected photos from the batch, moving their files to the trash unless
     // `excludeOnly` (asks first; the dialog also offers the other choice).
     void removePhotos(bool excludeOnly);

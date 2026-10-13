@@ -74,6 +74,7 @@ std::span<const ParamDef> paramDefs() { return kParams; }
 
 namespace {
 const SettingsPart kParts[] = {
+    {"profile", "Profile", "wb"},
     {"wb", "White Balance", "wb"},
     {"exposure", "Exposure", "tone"},
     {"contrast", "Contrast", "tone"},
@@ -114,6 +115,8 @@ DevelopSettings copySettingsParts(const DevelopSettings& target, const DevelopSe
             s.wbMode = source.wbMode;
             s.temperature = source.temperature;
             s.tint = source.tint;
+        } else if (key == QLatin1String("profile")) {
+            s.profile = source.profile;
         } else if (key == QLatin1String("curve")) {
             s.curveRgb = source.curveRgb;
             s.curveR = source.curveR;
@@ -175,6 +178,8 @@ QJsonObject DevelopSettings::toJson() const
     o["pv"] = processVersion;
     if (wbMode != def.wbMode)
         o["wb"] = wbModeName(wbMode);
+    if (!profile.isEmpty())
+        o["profile"] = profile;
     for (const auto& p : kParams) {
         if ((p.field == &S::temperature || p.field == &S::tint) && wbMode != WbMode::Custom)
             continue;
@@ -221,6 +226,7 @@ DevelopSettings DevelopSettings::fromJson(const QJsonObject& o)
     s.processVersion = o.value("pv").toInt(kProcessVersion);
     if (auto m = wbModeFromName(o.value("wb").toString()))
         s.wbMode = *m;
+    s.profile = o.value("profile").toString();
     for (const auto& p : kParams)
         if (o.contains(p.key))
             s.*p.field = std::clamp(o.value(p.key).toDouble(p.def), p.min, p.max);
@@ -279,6 +285,10 @@ QString applyAssignment(DevelopSettings& s, const QString& assignment)
         if (!m)
             return QStringLiteral("wb must be as-shot, auto or custom");
         s.wbMode = *m;
+        return {};
+    }
+    if (key == QLatin1String("profile")) {
+        s.profile = val == QLatin1String("none") || val == QLatin1String("default") ? QString() : val;
         return {};
     }
     if (key == QLatin1String("crop")) {

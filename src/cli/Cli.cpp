@@ -1,5 +1,7 @@
 #include "Cli.h"
 
+#include "CameraProfile.h"
+
 #include "Batch.h"
 #include "Develop.h"
 #include "Engine.h"
@@ -480,7 +482,7 @@ std::map<QString, Command> commands()
         DevelopEngine e(ps[0].path, {.halfSize = true});
         WbValues wb = e.effectiveWb(s);
         QJsonObject o{{"stored", s.toJson()}, {"wb_mode", wbModeName(s.wbMode)}, {"temperature", qRound(wb.temperature)}, {"tint", qRound(wb.tint)},
-                      {"lens_profile", e.lensDescription()}};
+                      {"lens_profile", e.lensDescription()}, {"profile", s.profile}, {"profile_found", e.profile(s).valid()}};
         QJsonObject all;
         for (const auto& p : paramDefs())
             all[p.key] = s.*p.field;
@@ -494,6 +496,10 @@ std::map<QString, Command> commands()
             return;
         }
         out() << "White balance: " << wbModeName(s.wbMode) << " (" << qRound(wb.temperature) << " K, tint " << qRound(wb.tint) << ")\n";
+        out() << "Profile:       "
+              << (s.profile.isEmpty() ? QStringLiteral("Silmä (built-in)")
+                                      : e.profile(s).valid() ? s.profile : s.profile + QStringLiteral(" (not installed: rendered with the built-in colour)"))
+              << '\n';
         out() << "Lens profile:  " << (e.lensDescription().isEmpty() ? QStringLiteral("none") : e.lensDescription()) << '\n';
         out() << "Output size:   " << sz.width() << "x" << sz.height() << '\n';
         QString group;
@@ -659,7 +665,9 @@ std::map<QString, Command> commands()
                         s.wbMode = from.wbMode;
                         s.temperature = from.temperature;
                         s.tint = from.tint;
-                    } else if (k == QLatin1String("crop"))
+                    } else if (k == QLatin1String("profile"))
+                        s.profile = from.profile;
+                    else if (k == QLatin1String("crop"))
                         s.crop = from.crop;
                     else if (k == QLatin1String("curve")) {
                         s.curveRgb = from.curveRgb;
@@ -713,6 +721,7 @@ std::map<QString, Command> commands()
             return;
         }
         out() << "wb                as-shot | auto | custom\n"
+                 "profile           NAME of an installed camera profile (see: profiles) | none\n"
                  "crop              x,y,w,h (normalized, of the transformed image) | none\n"
                  "crop_lock_aspect  true | false\n"
                  "constrain_crop    true | false (transforms keep the crop within the image)\n"
@@ -1025,6 +1034,54 @@ std::map<QString, Command> commands()
             printJson(arr);
     }};
 
+    m["profiles"] = {"profiles [PHOTO]", "List installed camera profiles (or those usable for a photo)", {}, {}, false, [](const Args& a, Batch* b, bool json) {
+        QJsonArray arr;
+        if (!a.positional().isEmpty()) {
+            if (!b)
+                fail("a photo needs a batch (-b or SILMA_BATCH)");
+            auto ps = resolvePhotos(*b, a.positional());
+            if (ps.size() != 1)
+                fail("profiles takes one photo");
+            DevelopEngine e(ps[0].path, {.halfSize = true});
+            for (const QString& n : e.availableProfiles()) {
+                arr.append(n);
+                if (!json)
+                    out() << n << '\n';
+            }
+            if (json)
+                printJson(arr);
+            return;
+        }
+        for (const auto& p : installedProfiles()) {
+            const bool dcp = p->kind == CameraProfile::Kind::Dcp;
+            arr.append(QJsonObject{{"name", p->name}, {"kind", dcp ? "dcp" : "look"}, {"camera", dcp ? p->cameraModel : p->modelRestriction},
+                                   {"base", p->baseProfile}, {"file", p->file}});
+            if (!json)
+                out() << p->name.leftJustified(28) << (dcp ? p->cameraModel : QStringLiteral("look over \"%1\"").arg(p->baseProfile)).leftJustified(32) << p->file << '\n';
+        }
+        if (json)
+            printJson(QJsonObject{{"profiles", arr}, {"profile_dir", profileDir()}});
+        else
+            out() << "Profile directory: " << profileDir() << '\n';
+    }};
+
+    m["install-profiles"] = {"install-profiles FILE|DIR...", "Install camera profiles (.dcp, Camera Raw look .xmp; directories are searched)", {}, {}, false,
+                             [](const Args& a, Batch*, bool json) {
+        if (a.positional().isEmpty())
+            fail("install-profiles needs .dcp/.xmp files or directories");
+        QStringList errors;
+        const QStringList names = installProfiles(a.positional(), &errors);
+        if (json) {
+            printJson(QJsonObject{{"installed", QJsonArray::fromStringList(names)}, {"skipped", QJsonArray::fromStringList(errors)}, {"profile_dir", profileDir()}});
+            return;
+        }
+        for (const QString& n : names)
+            out() << "Installed " << n << '\n';
+        for (const QString& e : errors)
+            err() << "Skipped " << e << '\n';
+        out() << names.size() << " profile(s) in " << profileDir() << '\n';
+    }};
+
     m["ai-models"] = {"ai-models [--download ID]", "List AI models and execution providers", {"download"}, {}, false, [](const Args& a, Batch*, bool json) {
         if (a.has("download"))
             downloadAiModel(a.value("download"), [](qint64 r, qint64 t) { err() << "\r" << r / 1048576 << "/" << t / 1048576 << " MB" << Qt::flush; });
@@ -1257,12 +1314,14 @@ int runCli(const QStringList& argsIn)
             if (!c.valueOptions.contains(o) && !c.flags.contains(o) && o != QLatin1String("json") && o != QLatin1String("batch"))
                 fail("Unknown option --" + o + " for " + args[0] + ". Usage: silma " + c.usage);
         Batch batch;
-        if (c.needsBatch) {
+        // `profiles PHOTO` uses a batch when it has a photo argument.
+        const bool wantsBatch = c.needsBatch || (args[0] == QLatin1String("profiles") && !a.positional().isEmpty());
+        if (wantsBatch) {
             if (batchFile.isEmpty())
                 fail("No batch given (use -b FILE or SILMA_BATCH)");
             batch.open(batchFile);
         }
-        c.run(a, c.needsBatch ? &batch : nullptr, json);
+        c.run(a, wantsBatch ? &batch : nullptr, json);
         out().flush();
         return 0;
     } catch (const std::exception& e) {

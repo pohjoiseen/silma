@@ -11,6 +11,7 @@
 //   -> vibrance / saturation (OkLab) -> point tone curve (display-encoded)
 //   -> Rec.2020 -> sRGB gamut mapping -> sharpening -> encode
 
+#include "CameraProfile.h"
 #include "Color.h"
 #include "Develop.h"
 #include "Geometry.h"
@@ -97,6 +98,12 @@ public:
 
     // Automatic tone: returns settings with exposure/contrast/highlights/shadows/whites/blacks set.
     DevelopSettings autoTone(const DevelopSettings& s) const;
+
+    // The installed camera profile that `s.profile` names for this photo; invalid when it is
+    // empty, not installed (the photo then renders with Silmä's own colour) or a JPEG/HEIC.
+    ResolvedProfile profile(const DevelopSettings& s) const;
+    // Profile names that can be chosen for this photo.
+    QStringList availableProfiles() const;
 
 private:
     std::shared_ptr<const ImageF> level(int lvl) const;

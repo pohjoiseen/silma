@@ -31,6 +31,8 @@ public:
     void setDefaults(const DevelopSettings& d);
     void setEffectiveWb(const WbValues& wb);
     void setLensInfo(const QString& text);
+    // Camera profiles that can be chosen for the photo (empty: only the built-in colour).
+    void setProfiles(const QStringList& names);
     void setHistogram(const Histogram& h);
     void setPhotoInfo(const QString& text);
     void setCropToolActive(bool on);
@@ -44,6 +46,7 @@ signals:
     // `mergeKey` (the parameter) lets quick repeated edits of one slider make one history step.
     void edited(const DevelopSettings& s, const QString& label, bool final, const QString& mergeKey);
     void autoToneRequested();
+    void installProfilesRequested();
     void autoUprightRequested(int mode); // 0 vertical, 1 horizontal, 2 both
     void transformResetRequested();
     void turnRequested(int quarterTurnsCw); // 1 clockwise, -1 counter-clockwise
@@ -67,6 +70,9 @@ private:
     QHash<QString, CollapsibleSection*> m_sections;
     QHash<QString, ParamSlider*> m_sliders;
     QComboBox* m_wbMode;
+    QComboBox* m_profile;
+    QStringList m_profiles;
+    void fillProfiles();
     QComboBox* m_curveChannel;
     CurveWidget* m_curve;
     QLabel* m_lensInfo;

@@ -389,8 +389,35 @@ void DevelopEngine::colorStage(ImageF& img, const DevelopSettings& s, const WbVa
     // Normalize so that the lowest-ratio channel keeps its scale (white stays at 1.0).
     for (float& r : ratio)
         r /= clip;
-    Mat3 m = m_color->camToRec2020(wb.mul);
     double ev = s.exposure + m_raw->color.baselineExposure + defaultBaselineExposure(*m_raw);
+    if (const ResolvedProfile prof = profile(s); prof.valid()) {
+        // DNG profile: forward matrix to ProPhoto, hue/saturation map, exposure, look tables.
+        const ProfileTransform pt(prof, m_raw->color, wb.mul);
+        const float gain = float(std::pow(2.0, ev + pt.baselineExposureOffset()));
+        float A[9], B[9];
+        for (int i = 0; i < 9; ++i) {
+            A[i] = float(pt.camToProPhoto()[i / 3][i % 3]);
+            B[i] = float(color::proPhotoToRec2020()[i / 3][i % 3]);
+        }
+#pragma omp parallel for schedule(static)
+        for (int y = 0; y < img.height; ++y) {
+            float* p = img.row(y);
+            for (int x = 0; x < img.width; ++x, p += 3) {
+                float r = std::min(p[0] * ratio[0], 1.0f), g = std::min(p[1] * ratio[1], 1.0f), b = std::min(p[2] * ratio[2], 1.0f);
+                float q[3] = {A[0] * r + A[1] * g + A[2] * b, A[3] * r + A[4] * g + A[5] * b, A[6] * r + A[7] * g + A[8] * b};
+                pt.applyHueSatMap(q);
+                q[0] *= gain;
+                q[1] *= gain;
+                q[2] *= gain;
+                pt.applyLook(q);
+                p[0] = B[0] * q[0] + B[1] * q[1] + B[2] * q[2];
+                p[1] = B[3] * q[0] + B[4] * q[1] + B[5] * q[2];
+                p[2] = B[6] * q[0] + B[7] * q[1] + B[8] * q[2];
+            }
+        }
+        return;
+    }
+    Mat3 m = m_color->camToRec2020(wb.mul);
     float gain = float(std::pow(2.0, ev));
     float M[9];
     for (int i = 0; i < 9; ++i)
@@ -717,7 +744,8 @@ void toneStage(ImageF& img, const LocalTone& lt, const QRectF& roi, const Develo
 // The base look adds some chroma, like camera profiles do over a plain colour matrix.
 constexpr float kBaseChroma = 1.12f;
 
-void presenceStage(ImageF& img, const DevelopSettings& s)
+// `baseChroma`: kBaseChroma for Silmä's own colour, 1 with a camera profile (it has its own).
+void presenceStage(ImageF& img, const DevelopSettings& s, float baseChroma)
 {
     const float sat = float(s.saturation / 100.0), vib = float(s.vibrance / 100.0);
 #pragma omp parallel for schedule(static)
@@ -730,7 +758,7 @@ void presenceStage(ImageF& img, const DevelopSettings& s)
             float C = std::hypot(lab[1], lab[2]);
             if (C < 1e-6f)
                 continue;
-            float k = kBaseChroma * (1.0f + sat);
+            float k = baseChroma * (1.0f + sat);
             if (vib > 0) {
                 // Boost muted colours most; protect skin tones (orange hues).
                 float h = std::atan2(lab[2], lab[1]);
@@ -750,10 +778,11 @@ void presenceStage(ImageF& img, const DevelopSettings& s)
 }
 
 // Point curves in display-encoded space, then Rec.2020 -> sRGB with gamut mapping; output encoded.
-void outputStage(ImageF& img, const DevelopSettings& s)
+// `profileCurve`: a look profile's tone curve, applied before the user's curves.
+void outputStage(ImageF& img, const DevelopSettings& s, const CurvePoints& profileCurve = {})
 {
-    const CurveLut master(s.curveRgb.points), cr(s.curveR.points), cg(s.curveG.points), cb(s.curveB.points);
-    const bool anyCurve = !master.identity() || !cr.identity() || !cg.identity() || !cb.identity();
+    const CurveLut master(s.curveRgb.points), cr(s.curveR.points), cg(s.curveG.points), cb(s.curveB.points), pc(profileCurve.points);
+    const bool anyCurve = !master.identity() || !cr.identity() || !cg.identity() || !cb.identity() || !pc.identity();
     float M[9];
     for (int i = 0; i < 9; ++i)
         M[i] = float(color::kRec2020ToSrgb[i / 3][i % 3]);
@@ -785,9 +814,9 @@ void outputStage(ImageF& img, const DevelopSettings& s)
             }
             float e[3] = {srgbEncode(std::clamp(r, 0.0f, 1.0f)), srgbEncode(std::clamp(g, 0.0f, 1.0f)), srgbEncode(std::clamp(b, 0.0f, 1.0f))};
             if (anyCurve) {
-                e[0] = cr(master(e[0]));
-                e[1] = cg(master(e[1]));
-                e[2] = cb(master(e[2]));
+                e[0] = cr(master(pc(e[0])));
+                e[1] = cg(master(pc(e[1])));
+                e[2] = cb(master(pc(e[2])));
             }
             p[0] = e[0];
             p[1] = e[1];
@@ -939,8 +968,9 @@ ImageF DevelopEngine::renderEncoded(const DevelopSettings& s, const RenderReques
     if (localTone)
         lt = computeLocalTone(ctx, s);
     toneStage(img, lt, req.roi, s);
-    presenceStage(img, s);
-    outputStage(img, s);
+    const ResolvedProfile prof = profile(s);
+    presenceStage(img, s, prof.valid() ? 1.0f : kBaseChroma);
+    outputStage(img, s, prof.look ? prof.look->toneCurve : CurvePoints{});
     sharpenStage(img, s, 1.0 / pxPer);
     if (req.outputSharpening > 0 && pxPer > 1)
         outputSharpen(img, req.outputSharpening * float(std::min(pxPer - 1.0, 1.0)));
@@ -984,6 +1014,18 @@ QImage toQImage(const ImageF& enc, Histogram* hist)
         }
     }
     return img;
+}
+
+ResolvedProfile DevelopEngine::profile(const DevelopSettings& s) const
+{
+    if (s.profile.isEmpty() || m_raw->rendered)
+        return {};
+    return resolveProfile(s.profile, m_raw->make, m_raw->model);
+}
+
+QStringList DevelopEngine::availableProfiles() const
+{
+    return m_raw->rendered ? QStringList() : profilesForCamera(m_raw->make, m_raw->model);
 }
 
 DevelopSettings DevelopEngine::autoTone(const DevelopSettings& in) const

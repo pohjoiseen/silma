@@ -47,9 +47,12 @@ public:
     void tempTintFor(const Vec3& mul, double& temperature, double& tint) const;
     // Matrix mapping white-balanced camera RGB (neutral = 1,1,1) to linear Rec.2020 (D65).
     Mat3 camToRec2020(const Vec3& mul) const;
+    // Chromaticity of the illuminant that `mul` neutralizes.
+    XY whiteXyFor(const Vec3& mul) const;
+    // Weight of the first calibration illuminant's data at a temperature (1 for a single matrix).
+    double matrixWeight(double temperature) const;
 
 private:
-    XY whiteXyFor(const Vec3& mul) const;
     RawColorInfo m_info;
     bool m_dual = false;
     double m_t1 = 0, m_t2 = 0;

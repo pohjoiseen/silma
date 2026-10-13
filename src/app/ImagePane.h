@@ -44,6 +44,8 @@ public:
 
     void setEngine(std::shared_ptr<DevelopEngine> engine);
     void setSettings(const DevelopSettings& s);
+    // Renders again with the same settings (e.g. after camera profiles were installed).
+    void refresh();
     void setPlaceholder(const QImage& img);
     void setLabel(const QString& label);
     void setMessage(const QString& msg);

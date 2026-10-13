@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "AutoHidePanel.h"
+#include "CameraProfile.h"
 #include "ColorScheme.h"
 #include "CropTool.h"
 #include "Heal.h"
@@ -263,6 +264,7 @@ void MainWindow::createDocks()
     m_panel->setEnabled(false);
     connect(m_panel, &DevelopPanel::edited, this, &MainWindow::onPanelEdited);
     connect(m_panel, &DevelopPanel::autoToneRequested, this, &MainWindow::autoTone);
+    connect(m_panel, &DevelopPanel::installProfilesRequested, this, &MainWindow::installCameraProfiles);
     connect(m_panel, &DevelopPanel::autoUprightRequested, this, &MainWindow::autoUpright);
     connect(m_panel, &DevelopPanel::autoCropRequested, this, &MainWindow::autoCrop);
     connect(m_panel, &DevelopPanel::transformResetRequested, this, &MainWindow::resetTransform);
@@ -335,6 +337,8 @@ void MainWindow::createActions()
     QAction* actExport = file->addAction(tr("&Export..."), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E), this, &MainWindow::exportPhotos);
     file->addSeparator();
     file->addAction(tr("&Delete Rejected Photos..."), this, &MainWindow::deleteRejected);
+    file->addSeparator();
+    file->addAction(tr("Install &Camera Profiles..."), this, &MainWindow::installCameraProfiles);
     file->addSeparator();
     file->addAction(tr("&Quit"), QKeySequence::Quit, this, &QWidget::close);
 
@@ -784,9 +788,37 @@ void MainWindow::showCurrentPhoto()
     // A failed decode is remembered (and reported) once: show it again when coming back.
     const QString error = engine ? QString() : m_engines.errorFor(p.path);
     m_pane->setMessage(engine ? QString() : error.isEmpty() ? tr("Loading…") : tr("Cannot decode: %1").arg(error));
-    if (engine)
+    if (engine) {
         m_panel->setLensInfo(engine->lensDescription());
+        m_panel->setProfiles(engine->availableProfiles());
+    }
     updatePanes();
+}
+
+void MainWindow::installCameraProfiles()
+{
+    QSettings qs;
+    const QStringList files = QFileDialog::getOpenFileNames(
+        this, tr("Install Camera Profiles"), qs.value("profiles/lastDir", QDir::homePath()).toString(),
+        tr("Camera profiles (*.dcp *.DCP *.xmp *.XMP)"));
+    if (files.isEmpty())
+        return;
+    qs.setValue("profiles/lastDir", QFileInfo(files.first()).absolutePath());
+    QStringList errors;
+    const QStringList names = installProfiles(files, &errors);
+    QString text = names.isEmpty() ? tr("No profiles were installed.") : tr("Installed:\n%1").arg(names.join('\n'));
+    if (!errors.isEmpty())
+        text += tr("\n\nSkipped:\n%1").arg(errors.join('\n'));
+    text += tr("\n\nProfiles are kept in %1").arg(profileDir());
+    if (errors.isEmpty())
+        QMessageBox::information(this, tr("Install Camera Profiles"), text);
+    else
+        QMessageBox::warning(this, tr("Install Camera Profiles"), text);
+    if (m_photo)
+        if (auto e = m_engines.get(m_photo->path)) {
+            m_panel->setProfiles(e->availableProfiles());
+            m_pane->refresh();
+        }
 }
 
 void MainWindow::navigate(int delta)
@@ -809,8 +841,10 @@ void MainWindow::onEngineReady(const QString& path)
         if (m_healTool)
             updateHealOverlay();
         m_pane->setMessage(QString());
-        if (e)
+        if (e) {
             m_panel->setLensInfo(e->lensDescription());
+            m_panel->setProfiles(e->availableProfiles());
+        }
         if (m_viewMode == ViewMode::BeforeAfter)
             m_pane2->setEngine(e);
     }

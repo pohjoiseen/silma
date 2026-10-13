@@ -109,6 +109,12 @@ void ImagePane::setSettings(const DevelopSettings& s)
     scheduleDetail();
 }
 
+void ImagePane::refresh()
+{
+    scheduleBase();
+    scheduleDetail();
+}
+
 void ImagePane::setPlaceholder(const QImage& img)
 {
     m_placeholder = img;

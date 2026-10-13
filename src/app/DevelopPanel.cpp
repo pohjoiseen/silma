@@ -65,6 +65,29 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
     auto* wb = addSection(layout, "wb", tr("White Balance"), true);
     {
         auto* row = new QHBoxLayout();
+        row->addWidget(new QLabel(tr("Profile:"), wb));
+        m_profile = new QComboBox(wb);
+        m_profile->setToolTip(tr("Camera profile: Silmä's own colour, or a profile installed from Lightroom / Adobe DNG Converter"));
+        row->addWidget(m_profile, 1);
+        wb->contentLayout()->addLayout(row);
+        connect(m_profile, &QComboBox::activated, this, [this](int index) {
+            if (m_updating)
+                return;
+            const QVariant d = m_profile->itemData(index);
+            if (!d.isValid()) { // "Install Profiles…"
+                fillProfiles();
+                emit installProfilesRequested();
+                return;
+            }
+            if (d.toString() == m_settings.profile)
+                return;
+            m_settings.profile = d.toString();
+            emitEdit(tr("Profile: %1").arg(m_settings.profile.isEmpty() ? tr("Silmä") : m_settings.profile), true);
+        });
+        fillProfiles();
+    }
+    {
+        auto* row = new QHBoxLayout();
         row->addWidget(new QLabel(tr("WB:"), wb));
         m_wbMode = new QComboBox(wb);
         m_wbMode->addItem(tr("As Shot"), int(WbMode::AsShot));
@@ -335,6 +358,7 @@ void DevelopPanel::setSettings(const DevelopSettings& s)
         it.value()->setValue(s.*d.field);
     }
     m_wbMode->setCurrentIndex(int(s.wbMode));
+    fillProfiles();
     if (s.wbMode == WbMode::Custom) {
         m_sliders["temperature"]->setValue(s.temperature);
         m_sliders["tint"]->setValue(s.tint);
@@ -354,6 +378,28 @@ void DevelopPanel::setEffectiveWb(const WbValues& wb)
     m_sliders["temperature"]->setValue(std::round(wb.temperature / 50) * 50);
     m_sliders["tint"]->setValue(std::round(wb.tint));
     m_updating = false;
+}
+
+void DevelopPanel::setProfiles(const QStringList& names)
+{
+    m_profiles = names;
+    fillProfiles();
+}
+
+void DevelopPanel::fillProfiles()
+{
+    const bool updating = m_updating;
+    m_updating = true;
+    m_profile->clear();
+    m_profile->addItem(tr("Silmä"), QString());
+    for (const QString& n : m_profiles)
+        m_profile->addItem(n, n);
+    if (!m_settings.profile.isEmpty() && !m_profiles.contains(m_settings.profile))
+        m_profile->addItem(tr("%1 (not installed)").arg(m_settings.profile), m_settings.profile);
+    m_profile->insertSeparator(m_profile->count());
+    m_profile->addItem(tr("Install Profiles…"));
+    m_profile->setCurrentIndex(std::max(0, m_profile->findData(m_settings.profile)));
+    m_updating = updating;
 }
 
 void DevelopPanel::setLensInfo(const QString& text)

@@ -6,8 +6,13 @@
 - Auto tone, tuned on a reviewed edit of a whole day's shoot: highlights are pulled down
   less, and hardly at all where the sky is blown (it turned into flat grey or blue patches);
   shaded foregrounds get their shadows lifted; more contrast throughout.
+- Camera profiles: Lightroom / Camera Raw profiles (Adobe Standard `.dcp`, look profiles such
+  as Adobe Color `.xmp`) installed from your own copy can be chosen per photo (Profile in the
+  White Balance panel). File › Install Camera Profiles copies them to
+  `~/.local/share/silma/profiles`.
 
 ### Command line
+- `install-profiles FILE|DIR...`, `profiles [PHOTO]`, and `set PHOTO profile=NAME`.
 - `set` takes relative changes: `KEY+=D` and `KEY-=D` (clamped to the setting's range).
 - New `crop PHOTO... X,Y,W,H [--aspect W:H]`: crop to a part of the current crop, in the
   coordinates of what `render` shows.

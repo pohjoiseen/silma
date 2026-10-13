@@ -41,6 +41,10 @@ struct DevelopSettings {
     double temperature = 5500; // K, used when wbMode == Custom
     double tint = 0;
 
+    // Camera profile: the name of an installed profile (CameraProfile.h); empty = Silmä's own
+    // colour (the raw's colour matrix and the base look). Raw photos only.
+    QString profile;
+
     // Tone
     double exposure = 0;   // EV, -5..5
     double contrast = 0;   // -100..100
@@ -115,7 +119,7 @@ std::span<const ParamDef> paramDefs();
 const ParamDef* findParam(const QString& key);
 
 // Parts of the settings that can be pasted separately, in panel order. Keys are "wb"
-// (mode, temperature and tint), "curve", "crop" and the scalar param keys otherwise.
+// (mode, temperature and tint), "profile", "curve", "crop" and the scalar param keys otherwise.
 // Heal spots are not among them: their fills are made from the source photo's pixels.
 struct SettingsPart {
     const char* key;
@@ -130,7 +134,7 @@ DevelopSettings copySettingsParts(const DevelopSettings& target, const DevelopSe
 QString wbModeName(WbMode m);
 std::optional<WbMode> wbModeFromName(const QString& s);
 
-// Parses "a=b" assignments (scalar params, wb=as-shot|auto|custom, crop=x,y,w,h,
+// Parses "a=b" assignments (scalar params, wb=as-shot|auto|custom, profile=NAME, crop=x,y,w,h,
 // curve=x:y,x:y,...) into settings; returns an error message or empty on success.
 QString applyAssignment(DevelopSettings& s, const QString& assignment);
 

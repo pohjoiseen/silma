@@ -52,7 +52,7 @@ private slots:
         // Every part key is handled (scalar keys must name a param).
         for (const SettingsPart& p : settingsParts()) {
             const QString k = QString::fromLatin1(p.key);
-            QVERIFY2(k == "wb" || k == "curve" || k == "crop" || findParam(k), p.key);
+            QVERIFY2(k == "wb" || k == "profile" || k == "curve" || k == "crop" || findParam(k), p.key);
         }
     }
 

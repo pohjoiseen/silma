@@ -216,18 +216,23 @@ CameraColor::CameraColor(const RawColorInfo& info) : m_info(info)
     }
 }
 
+double CameraColor::matrixWeight(double temperature) const
+{
+    if (!m_dual)
+        return 1.0;
+    // Linear in inverse temperature, as the DNG specification describes.
+    if (temperature <= m_t1)
+        return 1.0;
+    if (temperature >= m_t2)
+        return 0.0;
+    return (1.0 / temperature - 1.0 / m_t2) / (1.0 / m_t1 - 1.0 / m_t2);
+}
+
 Mat3 CameraColor::xyzToCam(double temperature) const
 {
     if (!m_dual)
         return m_info.xyzToCam;
-    // Interpolate linearly in inverse temperature, as the DNG specification describes.
-    double g;
-    if (temperature <= m_t1)
-        g = 1.0;
-    else if (temperature >= m_t2)
-        g = 0.0;
-    else
-        g = (1.0 / temperature - 1.0 / m_t2) / (1.0 / m_t1 - 1.0 / m_t2);
+    const double g = matrixWeight(temperature);
     Mat3 r;
     for (int i = 0; i < 3; ++i)
         for (int j = 0; j < 3; ++j)

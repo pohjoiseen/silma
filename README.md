@@ -106,6 +106,8 @@ a unique file name, or `all`.
     silma pano 30 31 32 33                  # cylindrical panorama DNG
     silma ai-models                         # models, download state, GPU providers
     silma heal 12 0.31,0.62,0.03            # generative heal at a spot of the rendered output
+    silma install-profiles ~/lr-profiles    # camera profiles (.dcp, look .xmp), see below
+    silma profiles 12                       # profiles usable for photo 12; set 12 profile=NAME
 
 The GUI picks up changes made through the CLI within a second.
 
@@ -127,6 +129,25 @@ Hot and stuck sensor pixels are removed from the raw mosaic of every photo befor
 demosaicing (and before AI denoise): a sample far above all of its 16 nearest samples is
 replaced with the median of its own colour's neighbours. `silma probe` reports how many;
 `SILMA_KEEP_HOT_PIXELS=1` keeps them (for comparing).
+
+## Camera profiles
+
+By default raws are rendered with Silmä's own colour: the raw's colour matrix and a little
+extra saturation. Camera profiles from Lightroom / Camera Raw can be used instead (Profile in
+the White Balance panel, or `set PHOTO profile=NAME`); Silmä cannot ship them, so they are
+installed from your own copy (File › Install Camera Profiles, or `silma install-profiles`),
+into `~/.local/share/silma/profiles`:
+
+- DNG camera profiles (`.dcp`), e.g. `Nikon D5600 Adobe Standard.dcp`. Camera Raw keeps them
+  under `CameraRaw/CameraProfiles` (Windows: `C:\ProgramData\Adobe`, macOS:
+  `/Library/Application Support/Adobe`); the free Adobe DNG Converter installs them too.
+- Camera Raw look profiles (`.xmp`) such as Adobe Color, Vivid, Landscape...: a look table and
+  a tone curve over a base `.dcp` (Adobe Standard), so both need to be installed. Creative
+  profiles with RGB tables and monochrome profiles are not supported.
+
+A profile is rendered as the DNG specification describes (forward matrix, hue/saturation
+map and look table in linear ProPhoto RGB); Silmä's tone controls stay the same. A photo set
+to a profile that is not installed renders with Silmä's own colour.
 
 ## Export
 
