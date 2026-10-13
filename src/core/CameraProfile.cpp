@@ -282,6 +282,13 @@ CurvePoints xmpCurve(const QString& text, const QString& name)
     return c;
 }
 
+// Little-endian uint32 at `o` (the caller checks the size). Byte by byte: some GCC versions
+// flag reading from constData() as out of bounds, taking it for the empty array's storage.
+quint32 le32(const QByteArray& b, qsizetype o)
+{
+    return quint32(uchar(b.at(o))) | quint32(uchar(b.at(o + 1))) << 8 | quint32(uchar(b.at(o + 2))) << 16 | quint32(uchar(b.at(o + 3))) << 24;
+}
+
 // Camera Raw's encoding of large tables in XMP (dng_big_table): base 85 with its own alphabet
 // (4 bytes, little-endian, per 5 characters), holding a 32-bit little-endian uncompressed
 // size and a zlib stream.
@@ -324,10 +331,9 @@ QByteArray decodeBigTable(const QString& s)
     if (bytes.size() < 8)
         throw std::runtime_error("encoded table too short");
     // qUncompress wants a big-endian size in front of the zlib stream.
-    const quint32 size = qFromLittleEndian<quint32>(bytes.constData());
-    char be[4];
-    qToBigEndian(size, be);
-    std::memcpy(bytes.data(), be, 4);
+    const quint32 size = le32(bytes, 0);
+    for (int k = 0; k < 4; ++k)
+        bytes[k] = char(size >> (24 - 8 * k));
     QByteArray out = qUncompress(bytes);
     if (out.size() != qsizetype(size))
         throw std::runtime_error("cannot decompress an encoded table");
@@ -340,7 +346,7 @@ HueSatTable parseLookTableStream(const QByteArray& b)
     // float triples; uint32 value encoding (0 linear, 1 sRGB).
     if (b.size() < 20)
         throw std::runtime_error("look table too short");
-    auto u32 = [&](qsizetype o) { return qFromLittleEndian<quint32>(b.constData() + o); };
+    auto u32 = [&](qsizetype o) { return le32(b, o); };
     HueSatTable t;
     t.hues = int(u32(8));
     t.sats = int(u32(12));
@@ -351,7 +357,10 @@ HueSatTable parseLookTableStream(const QByteArray& b)
     if (b.size() < 20 + n * 4)
         throw std::runtime_error("look table too short");
     t.data.resize(n);
-    std::memcpy(t.data.data(), b.constData() + 20, n * 4);
+    for (qsizetype i = 0; i < n; ++i) {
+        const quint32 bits = le32(b, 20 + 4 * i);
+        std::memcpy(&t.data[i], &bits, 4);
+    }
     if (b.size() >= 20 + n * 4 + 4)
         t.srgbValues = u32(20 + n * 4) == 1;
     return t;
