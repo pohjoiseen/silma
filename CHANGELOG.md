@@ -6,6 +6,9 @@
 - Auto tone, tuned on a reviewed edit of a whole day's shoot: highlights are pulled down
   less, and hardly at all where the sky is blown (it turned into flat grey or blue patches);
   shaded foregrounds get their shadows lifted; more contrast throughout.
+- Highlights (pulled down) work like Lightroom's: skies and clouds come down about evenly,
+  blown areas stay near white instead of turning flat grey, and clouds keep their brightness
+  against the sky. Existing edits render with the new curve.
 - Camera profiles: Lightroom / Camera Raw profiles (Adobe Standard `.dcp`, look profiles such
   as Adobe Color `.xmp`) installed from your own copy can be chosen per photo (Profile in the
   White Balance panel). File › Install Camera Profiles copies them to
@@ -18,6 +21,10 @@
   coordinates of what `render` shows.
 - `undo`/`redo` no longer fail with "database is locked" when another `silma` process writes
   to the batch at the same time.
+
+### Export
+- Warns about photos set to a camera profile that is not installed (they are exported with
+  Silmä's own colour).
 
 ## 1.0.1 (2026-10-12)
 

@@ -173,6 +173,8 @@ QString exportPhoto(const PhotoInfo& p, const DevelopSettings& s, const QString&
                                                  : QStringLiteral("about %1% of the image").arg(empty * 100, 0, 'f', empty < 0.1 ? 1 : 0);
             *warnings << p.fileName + QStringLiteral(": empty (black) borders in the crop, ") + amount;
         }
+        if (!s.profile.isEmpty() && !engine.raw().rendered && !engine.profile(s).valid())
+            *warnings << p.fileName + QStringLiteral(": camera profile \"%1\" is not installed, exported with Silmä's own colour").arg(s.profile);
     }
     QSize full = engine.outputSize(s);
     int w = full.width(), h = full.height();

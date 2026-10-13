@@ -739,6 +739,50 @@ private slots:
         rotated.crop = autoCropRect(g, g.canvasSize().width() / g.canvasSize().height());
         exportPhoto(p, rotated, "x", 1, o, {}, &warnings);
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+        // So is a camera profile that is not installed.
+        DevelopSettings withProfile;
+        withProfile.profile = "No Such Profile";
+        exportPhoto(p, withProfile, "x", 1, o, {}, &warnings);
+        QCOMPARE(warnings.size(), 1);
+        QVERIFY2(warnings[0].startsWith(p.fileName + ": camera profile \"No Such Profile\" is not installed"), qPrintable(warnings[0]));
+    }
+
+    void highlightsKeepBlownAreasWhite()
+    {
+        const QString f = testRaw("auto-tone/DSC_0251.NEF"); // overcast sky, about 11% blown
+        if (f.isEmpty())
+            QSKIP("test raws not available");
+        DevelopEngine e(f, {.halfSize = true});
+        const RenderRequest req{.width = 600, .height = 400};
+        const ImageF base = e.renderEncoded(DevelopSettings(), req);
+        // Mean of the pixels that are white / in the midtones at default settings.
+        auto means = [&](const DevelopSettings& s) {
+            const ImageF img = e.renderEncoded(s, req);
+            double white = 0, mid = 0;
+            int nw = 0, nm = 0;
+            for (size_t i = 0; i < img.pixelCount(); ++i) {
+                const float* b = base.data.data() + i * 3;
+                const float* p = img.data.data() + i * 3;
+                const float v = (p[0] + p[1] + p[2]) / 3, bv = (b[0] + b[1] + b[2]) / 3;
+                if (std::min({b[0], b[1], b[2]}) > 0.98f) {
+                    white += v;
+                    ++nw;
+                } else if (bv > 0.2f && bv < 0.45f) {
+                    mid += v;
+                    ++nm;
+                }
+            }
+            return std::pair{white / std::max(nw, 1), mid / std::max(nm, 1)};
+        };
+        const auto [white0, mid0] = means(DevelopSettings());
+        DevelopSettings s;
+        s.highlights = -100;
+        const auto [white2, mid2] = means(s);
+        const QString info = QString("white %1 / %2, mid %3 / %4").arg(white0).arg(white2).arg(mid0).arg(mid2);
+        // The blown sky stays nearly white (the earlier curve turned it grey: 0.65).
+        QVERIFY2(white2 > 0.85, qPrintable(info));
+        // Midtones hardly change.
+        QVERIFY2(std::abs(mid2 - mid0) < 0.04, qPrintable(info));
     }
 };
 

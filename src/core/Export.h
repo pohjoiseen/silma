@@ -37,7 +37,8 @@ void outputSharpen(ImageF& encoded, OutputSharpening level);
 float outputSharpeningAmount(OutputSharpening level);
 
 // Renders and writes one photo; returns the written path. Problems with the result that do
-// not stop the export (empty borders in the crop) are added to `warnings`.
+// not stop the export (empty borders in the crop, a camera profile that is not installed) are
+// added to `warnings`.
 QString exportPhoto(const PhotoInfo& p, const DevelopSettings& s, const QString& importName, int seq, const ExportOptions& o,
                     const QMap<qint64, HealPatch>& patches = {}, QStringList* warnings = nullptr);
 

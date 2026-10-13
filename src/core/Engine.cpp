@@ -706,10 +706,14 @@ void toneStage(ImageF& img, const LocalTone& lt, const QRectF& roi, const Develo
                     float ws = 1.0f - smoothstep(0.0f, 0.62f, t);
                     float wh = smoothstep(0.38f, 1.0f, t);
                     dL += sh * 1.7f * ws;
-                    if (hl < 0)
-                        dL += hl * wh * (1.3f + 0.9f * std::max(0.0f, B - logWhite + 0.5f));
-                    else
+                    if (hl < 0) {
+                        // About an even pull from the upper midtones up, so that blown areas stay
+                        // near white and clouds keep their brightness against the sky (fitted to
+                        // Lightroom's Highlights -100: 1 EV on skies and clouds, none on grass).
+                        dL += hl * smoothstep(-2.2f, -0.7f, B - logWhite);
+                    } else {
                         dL += hl * wh * 0.9f;
+                    }
                 }
                 if (clar) {
                     float Bc = sampleNormalized(lt.clarA, u, v) * L + sampleNormalized(lt.clarB, u, v);
@@ -1082,7 +1086,8 @@ DevelopSettings DevelopEngine::autoTone(const DevelopSettings& in) const
     // is well below grey (a shaded foreground).
     s.shadows = std::round(std::max(std::clamp(-(lo + 4.0) * 18.0, 0.0, 70.0), std::clamp((-(pct(0.10) + s.exposure - logGrey) - 1.5) * 25.0, 0.0, 50.0)));
     // Whites/blacks: set the end points.
-    double hiAfter = hi + s.highlights / 100.0 * 1.6;
+    // (Highlights -100 brings the bright end down by about 1 EV.)
+    double hiAfter = hi + s.highlights / 100.0;
     s.whites = std::round(std::clamp((2.3 - hiAfter) * 25.0, -40.0, 40.0));
     s.blacks = std::round(std::clamp((-5.5 - lo) * 12.0, -40.0, 30.0));
     // Contrast: flat scenes get more, contrasty ones less; most look flat without some.
