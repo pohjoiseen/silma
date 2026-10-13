@@ -1,23 +1,29 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 (2026-10-13)
+
+Lightroom's camera profiles, highlights that behave like Lightroom's, and fixes found while
+developing a whole trip with Silmä (by hand and by an AI agent through the CLI).
+
+### Camera profiles
+- Lightroom / Camera Raw profiles installed from your own copy (Silmä cannot ship them) can be
+  chosen per photo: Profile in the White Balance panel. DNG camera profiles (`.dcp`, e.g. Adobe
+  Standard) and look profiles over them (`.xmp`, e.g. Adobe Color) are rendered as the DNG
+  specification describes; with Adobe Color, colours come close to Lightroom's.
+- File › Install Camera Profiles (or `silma install-profiles`) copies them to
+  `~/.local/share/silma/profiles`. A look without its base camera profile shows in the menu
+  with what it needs.
+- New photos (and Reset) get the profile chosen last.
 
 ### Develop
-- Auto tone, tuned on a reviewed edit of a whole day's shoot: highlights are pulled down
-  less, and hardly at all where the sky is blown (it turned into flat grey or blue patches);
-  shaded foregrounds get their shadows lifted; more contrast throughout.
 - Highlights (pulled down) work like Lightroom's: skies and clouds come down about evenly,
   blown areas stay near white instead of turning flat grey, and clouds keep their brightness
   against the sky. Existing edits render with the new curve.
-- Auto tone holds highlights back less on blown skies (they now keep detail or stay white).
 - Highlight reconstruction: where only some channels are clipped (often green in white clouds)
   the others' detail is kept instead of everything being cut at the first clipped channel, so
   pulling highlights down brings back cloud detail like Lightroom does.
-- Camera profiles: Lightroom / Camera Raw profiles (Adobe Standard `.dcp`, look profiles such
-  as Adobe Color `.xmp`) installed from your own copy can be chosen per photo (Profile in the
-  White Balance panel). File › Install Camera Profiles copies them to
-  `~/.local/share/silma/profiles`. New photos (and Reset) get the profile chosen last. A look
-  without its base camera profile shows in the menu with what it needs.
+- Auto tone, tuned on a reviewed edit of a whole day's shoot: shaded foregrounds get their
+  shadows lifted, more contrast throughout, and a moderate highlights pull, less on blown skies.
 
 ### Performance
 - Thumbnail updates (e.g. after pasting settings to hundreds of photos) run in the background
