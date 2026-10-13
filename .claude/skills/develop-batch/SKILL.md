@@ -17,8 +17,11 @@ controlling Silmä is fine (commit those separately, with tests, as usual).
 - **Documentary, realistic, not artsy.** Good contrast (slightly exaggerated is fine when it helps),
   highlight detail brought back *only as far as it stays natural*. White balance may lean a little
   warm, very slightly.
-- **Highlights: don't overdo it.** Pulling highlights down on a blown (white) sky makes flat grey or
-  unnaturally blue patches - the worst artefact of the first edit. A white overcast sky stays white.
+- **Highlights: don't overdo it.** A white overcast sky stays white. (Before 4e7e30b pulling
+  highlights down turned blown skies into flat grey or blue patches, the worst artefact of the
+  first edit; the slider now keeps blown areas near white, like Lightroom's.)
+- **Profile:** the user uses Lightroom's Adobe Color; when it is installed (`silma profiles PHOTO`),
+  `set P profile="Adobe Color"` before judging colour.
 - **Shadows: lift them.** Overcast coast/water scenes and shaded foregrounds looked "dark overall".
 - **Forest/greenery: tint ~0.** Auto WB tends to drift purple there; mostly green is normal.
 - **Verticals must be vertical** (buildings, trees, poles, masts) unless the shot is at an obviously
