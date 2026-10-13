@@ -3,6 +3,8 @@
 #include "Export.h"
 #include "AiDenoise.h"
 #include "Heal.h"
+#include "LensCorrection.h"
+#include "Metadata.h"
 #include "RawDecoder.h"
 #include "Upright.h"
 #include "Geometry.h"
@@ -10,7 +12,10 @@
 
 #include <QDir>
 #include <QTemporaryDir>
+#include <QThreadPool>
+#include <QtConcurrent>
 #include <QtTest>
+#include <numeric>
 
 using namespace silma;
 
@@ -739,12 +744,58 @@ private slots:
         rotated.crop = autoCropRect(g, g.canvasSize().width() / g.canvasSize().height());
         exportPhoto(p, rotated, "x", 1, o, {}, &warnings);
         QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+        // A crop a pixel past the image (all round) leaves at most a pixel at the corners: not
+        // reported; 10 px is.
+        warnings.clear();
+        const QSizeF cs = g.canvasSize();
+        auto grown = [&](double px) {
+            const double dx = px / cs.width(), dy = px / cs.height();
+            return rotated.crop.adjusted(-dx, -dy, dx, dy);
+        };
+        QVERIFY(emptyCropBorders(g, grown(1)).depthPx > 0); // past the image, but not by 2 px
+        DevelopSettings past = rotated;
+        past.crop = grown(1);
+        exportPhoto(p, past, "x", 1, o, {}, &warnings);
+        QVERIFY2(warnings.isEmpty(), qPrintable(warnings.join('\n')));
+        past.crop = grown(10);
+        exportPhoto(p, past, "x", 1, o, {}, &warnings);
+        QCOMPARE(warnings.size(), 1);
+        QVERIFY2(warnings[0].contains("px wide along the edge"), qPrintable(warnings[0]));
+        warnings.clear();
         // So is a camera profile that is not installed.
         DevelopSettings withProfile;
         withProfile.profile = "No Such Profile";
         exportPhoto(p, withProfile, "x", 1, o, {}, &warnings);
         QCOMPARE(warnings.size(), 1);
         QVERIFY2(warnings[0].startsWith(p.fileName + ": camera profile \"No Such Profile\" is not installed"), qPrintable(warnings[0]));
+    }
+
+    void lensCorrectionInParallel()
+    {
+        // lensfun is not thread-safe: engines made at the same time (parallel exports) used to
+        // find no lens now and then, and rendered without lens corrections.
+        const QString f = testRaw("batch/DSC_0001.NEF");
+        if (f.isEmpty())
+            QSKIP("test raws not available");
+        const QString expected = DevelopEngine(f, {.halfSize = true}).lensDescription();
+        QVERIFY(expected.startsWith("lensfun"));
+        QList<int> runs(64);
+        std::iota(runs.begin(), runs.end(), 0);
+        QThreadPool pool;
+        pool.setMaxThreadCount(16);
+        const QStringList got = QtConcurrent::blockingMapped<QStringList>(&pool, runs, [&](int) {
+            RawImage raw = decodeRaw(f, {.halfSize = true});
+            LensQuery q;
+            q.cameraMake = raw.make;
+            q.cameraModel = raw.model;
+            const MetadataSummary md = readMetadataSummary(f);
+            q.lens = md.lens;
+            q.focalLength = md.focalLength;
+            q.aperture = md.fNumber;
+            return LensCorrection::build(raw, q)->description();
+        });
+        for (const QString& d : got)
+            QCOMPARE(d, expected);
     }
 
     void decodeKeepsUnclippedChannels()

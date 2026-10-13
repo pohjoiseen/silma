@@ -44,9 +44,13 @@ QRectF autoCropRect(const Geometry& canvasGeometry, double aspect);
 // also grows back; a crop set by hand stays as long as it shows no empty borders, else it
 // shrinks about its centre. A change that sets the crop itself is left alone.
 DevelopSettings constrainedCrop(const DevelopEngine& engine, const DevelopSettings& before, DevelopSettings after);
-// Share of the crop (normalized canvas coordinates) without image data, which renders
-// black: 0 when there is none, else at least 1e-4 (an empty sliver along an edge counts).
-double emptyCropFraction(const Geometry& canvasGeometry, const QRectF& crop);
+// Empty (black) borders a crop shows: the fraction of it (on a 100x100 grid) and how far in
+// from the edges they reach in full-resolution pixels (0: none).
+struct EmptyCrop {
+    double fraction = 0;
+    double depthPx = 0;
+};
+EmptyCrop emptyCropBorders(const Geometry& canvasGeometry, const QRectF& crop);
 // Whether constrainedCrop may change anything (cheap; no engine needed).
 bool cropConstraintApplies(const DevelopSettings& before, const DevelopSettings& after);
 

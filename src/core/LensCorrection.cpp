@@ -205,6 +205,10 @@ std::shared_ptr<const LensCorrection> LensCorrection::build(const RawImage& raw,
     // lensfun
     if (q.lens.isEmpty() || q.focalLength <= 0)
         return lc;
+    // lensfun's database lookups and modifiers are not thread-safe: photos decoded at the same
+    // time (parallel exports) randomly found no lens and went without corrections.
+    static std::mutex lensfunMutex;
+    std::lock_guard lensfunLock(lensfunMutex);
     lfDatabase* db = lensDatabase();
     QByteArray make = q.cameraMake.toUtf8(), model = q.cameraModel.toUtf8(), lensName = q.lens.toUtf8();
     const lfCamera** cams = db->FindCamerasExt(make.constData(), model.constData());

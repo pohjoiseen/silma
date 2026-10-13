@@ -413,17 +413,36 @@ QRectF autoCropRect(const Geometry& g, double aspect)
     return scaledAboutCentre(full, lo);
 }
 
-double emptyCropFraction(const Geometry& g, const QRectF& crop)
+EmptyCrop emptyCropBorders(const Geometry& g, const QRectF& crop)
 {
+    EmptyCrop r;
     const int n = 100;
     int empty = 0;
     for (int y = 0; y < n; ++y)
         for (int x = 0; x < n; ++x)
             empty += !g.canvasValid({crop.left() + crop.width() * (x + 0.5) / n, crop.top() + crop.height() * (y + 0.5) / n});
-    if (empty > 0)
-        return double(empty) / (n * n);
-    // Thinner than the grid: the edges (and corners) themselves.
-    return rectValid(g, crop) ? 0.0 : 1e-4;
+    r.fraction = double(empty) / (n * n);
+    // How far in from the edges the empty parts reach, in full-resolution pixels: the
+    // smallest inset (from the outermost pixels' centres, half a pixel in) that is all image.
+    const QSizeF cs = g.canvasSize();
+    if (cs.isEmpty())
+        return r;
+    auto inset = [&](double px) {
+        const double ix = px / cs.width(), iy = px / cs.height();
+        return crop.adjusted(ix, iy, -ix, -iy);
+    };
+    if (rectValid(g, inset(0.5)))
+        return r;
+    double lo = 0.5, hi = std::min(cs.width() * crop.width(), cs.height() * crop.height()) / 2;
+    if (!rectValid(g, inset(hi)))
+        lo = hi;
+    else
+        for (int it = 0; it < 24 && hi - lo > 0.25; ++it) {
+            const double mid = 0.5 * (lo + hi);
+            (rectValid(g, inset(mid)) ? hi : lo) = mid;
+        }
+    r.depthPx = hi - 0.5;
+    return r;
 }
 
 bool cropConstraintApplies(const DevelopSettings& before, const DevelopSettings& after)

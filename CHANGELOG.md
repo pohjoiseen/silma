@@ -34,6 +34,10 @@
   to the batch at the same time.
 
 ### Export
+- Parallel exports could render photos without lens corrections now and then (lensfun is not
+  thread-safe); those then also got "empty borders" warnings.
+- Empty-border warnings only for black edges of 2 px or more (constrained crops can end a
+  fraction of a pixel past the image, which shows nothing), and they say how wide they are.
 - When an exported file is there already, asks: Overwrite, Use Another Name ("-2"), Skip or
   Cancel Export, optionally for all such files. (Two photos of one export with the same
   name: the second gets another name, as before.)

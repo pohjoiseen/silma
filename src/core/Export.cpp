@@ -169,9 +169,11 @@ QString exportPhoto(const PhotoInfo& p, const DevelopSettings& s, const QString&
     DevelopEngine engine(p.path);
     addHealPatches(engine, patches);
     if (warnings) {
-        if (const double empty = emptyCropFraction(engine.geometry(s, true), s.crop); empty > 0) {
-            const QString amount = empty < 0.005 ? QStringLiteral("a sliver along the edge")
-                                                 : QStringLiteral("about %1% of the image").arg(empty * 100, 0, 'f', empty < 0.1 ? 1 : 0);
+        // Black edges of a pixel or so are invisible (constrained crops can end a fraction of a
+        // pixel past the image); from 2 pixels on they are reported.
+        if (const EmptyCrop e = emptyCropBorders(engine.geometry(s, true), s.crop); e.depthPx >= 2 || e.fraction >= 0.005) {
+            const QString amount = e.fraction >= 0.005 ? QStringLiteral("about %1% of the image").arg(e.fraction * 100, 0, 'f', e.fraction < 0.1 ? 1 : 0)
+                                                       : QStringLiteral("up to %1 px wide along the edge").arg(std::lround(e.depthPx));
             *warnings << p.fileName + QStringLiteral(": empty (black) borders in the crop, ") + amount;
         }
         if (!s.profile.isEmpty() && !engine.raw().rendered && !engine.profile(s).valid())
