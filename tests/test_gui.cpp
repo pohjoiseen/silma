@@ -491,7 +491,7 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(dlg.previewDone(), 60000);
         QVERIFY2(dlg.previewError().isEmpty(), qPrintable(dlg.previewError()));
         const QImage toned = dlg.previewImage();
-        QVERIFY(toned.width() > toned.height() && toned.width() >= 1000);
+        QVERIFY2(toned.width() > toned.height() * 1.4 && toned.width() >= 900, qPrintable(QString("%1x%2").arg(toned.width()).arg(toned.height())));
         const QRectF crop = dlg.previewCrop();
         QVERIFY(crop.width() > 0.7 && crop.width() < 1 && crop.height() > 0.6);
         // Options: auto tone switches the preview's rendering; both go to the merge.

@@ -269,7 +269,8 @@ RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts)
         DngJxlImage j = decodeDngJxl(dngFile);
         if (j.width != fullW || j.height != fullH)
             throw std::runtime_error("JPEG XL DNG: image size does not match the metadata");
-        // Same as LibRaw's output: white-balanced with appliedMul and clipped at 1.
+        // Same as LibRaw's output: white-balanced with appliedMul, each channel clipped at its
+        // own clip level (appliedMul[c]).
         const int f = opts.halfSize ? 2 : 1;
         out.image = ImageF(j.width / f, j.height / f);
         out.valid = j.valid;
@@ -283,7 +284,7 @@ RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts)
                     for (int dy = 0; dy < f; ++dy)
                         for (int dx = 0; dx < f; ++dx)
                             sum += j.data[(size_t(y * f + dy) * j.width + x * f + dx) * 3 + c];
-                    out.image.data[(size_t(y) * out.image.width + x) * 3 + c] = std::min(1.0f, sum * norm * mul[c]);
+                    out.image.data[(size_t(y) * out.image.width + x) * 3 + c] = std::min(1.0f, sum * norm) * mul[c];
                 }
     } else {
         out.hotPixels = removeHotPixels(*raw, out.color.asShotMul);
@@ -298,7 +299,7 @@ RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts)
         P.gamm[0] = 1.0;
         P.gamm[1] = 1.0;
         P.no_auto_bright = 1;
-        P.highlight = 0; // clip
+        P.highlight = 1; // unclipped: scaled by the largest multiplier, so no channel clips
         P.user_flip = 0; // orientation handled by us
         P.half_size = opts.halfSize ? 1 : 0;
         P.user_qual = 3; // AHD
@@ -316,7 +317,8 @@ RawImage decodeRaw(const QString& path, const RawDecodeOptions& opts)
         out.image = ImageF(img->width, img->height);
         const quint16* src = reinterpret_cast<const quint16*>(img->data);
         const size_t n = size_t(img->width) * img->height * 3;
-        constexpr float scale = 1.0f / 65535.0f;
+        // Back to green (the smallest multiplier) = 1 at its clip: channel c clips at appliedMul[c].
+        const float scale = float(std::max({out.color.appliedMul[0], out.color.appliedMul[1], out.color.appliedMul[2]})) / 65535.0f;
         float* dst = out.image.data.data();
 #pragma omp parallel for schedule(static)
         for (size_t i = 0; i < n; ++i)

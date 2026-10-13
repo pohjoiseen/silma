@@ -10,6 +10,7 @@
 #include <QByteArray>
 #include <QMap>
 #include <QRect>
+#include <array>
 
 namespace silma {
 
@@ -33,7 +34,9 @@ ImageF decodePatchData(const QByteArray& data, int width, int height);
 
 // Pastes a patch into an image covering the whole sensor at `scale` (1 = full res,
 // 0.5 = half-size decode), feathered around the stroke.
-void pasteHealPatch(ImageF& img, double scale, int sensorWidth, int sensorHeight, const HealSpot& spot, const HealPatch& patch);
+// `clip`: the image's clip level per channel (RawImage: color.appliedMul).
+void pasteHealPatch(ImageF& img, double scale, int sensorWidth, int sensorHeight, const HealSpot& spot, const HealPatch& patch,
+                    const std::array<double, 3>& clip = {1, 1, 1});
 
 class Batch;
 class DevelopEngine;

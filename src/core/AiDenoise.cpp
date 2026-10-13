@@ -530,7 +530,7 @@ ImageF AiDenoiser::denoise(const QRect& rectIn, const AiProgress& progress, cons
 #pragma omp parallel for schedule(static)
         for (size_t i = 0; i < den.pixelCount(); ++i)
             for (int c = 0; c < 3; ++c)
-                den.data[i * 3 + c] = std::clamp(den.data[i * 3 + c] * mul[c], 0.0f, 1.0f);
+                den.data[i * 3 + c] = std::clamp(den.data[i * 3 + c], 0.0f, 1.0f) * mul[c];
         if (!den.empty())
             return den;
     }
@@ -560,7 +560,7 @@ ImageF AiDenoiser::denoise(const QRect& rectIn, const AiProgress& progress, cons
         float* p = den.data.data() + i * 3;
         const Vec3 v = matMul(fromRec, Vec3{p[0] * gain, p[1] * gain, p[2] * gain});
         for (int c = 0; c < 3; ++c)
-            p[c] = std::clamp(float(v[c]), 0.0f, 1.0f);
+            p[c] = std::clamp(float(v[c]), 0.0f, mul[c]);
     }
     return den;
 }

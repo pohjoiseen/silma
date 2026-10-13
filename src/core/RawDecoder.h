@@ -38,7 +38,9 @@ struct DngOpcodes {
 };
 
 struct RawImage {
-    // Linear camera RGB, white-balanced with color.appliedMul, normalized so 1.0 = clip.
+    // Linear camera RGB, white-balanced with color.appliedMul; channel c clips at
+    // color.appliedMul[c] (the smallest multiplier, normally green's, is 1). Values up to 1 are
+    // the same as when everything was clipped at 1; brighter ones keep the unclipped channels.
     ImageF image;
     RawColorInfo color;
     DngOpcodes opcodes;

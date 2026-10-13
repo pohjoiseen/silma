@@ -266,8 +266,10 @@ ImageF decodePatchData(const QByteArray& data, int w, int h)
     return img;
 }
 
-void pasteHealPatch(ImageF& img, double scale, int sensorW, int sensorH, const HealSpot& spot, const HealPatch& patch)
+void pasteHealPatch(ImageF& img, double scale, int sensorW, int sensorH, const HealSpot& spot, const HealPatch& patch,
+                    const std::array<double, 3>& clip)
 {
+    const float clipF[3] = {float(clip[0]), float(clip[1]), float(clip[2])};
     if (patch.data.empty())
         return;
     const Stroke st(spot, sensorW * scale, sensorH * scale);
@@ -290,7 +292,7 @@ void pasteHealPatch(ImageF& img, double scale, int sensorW, int sensorH, const H
             sampleBilinear(patch.data, sx, sy, v);
             float* o = img.px(x, y);
             for (int c = 0; c < 3; ++c)
-                o[c] = float(o[c] * (1 - a) + std::min(v[c], 1.0f) * a);
+                o[c] = float(o[c] * (1 - a) + std::min(v[c], clipF[c]) * a);
         }
 }
 

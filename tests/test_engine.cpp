@@ -747,6 +747,24 @@ private slots:
         QVERIFY2(warnings[0].startsWith(p.fileName + ": camera profile \"No Such Profile\" is not installed"), qPrintable(warnings[0]));
     }
 
+    void decodeKeepsUnclippedChannels()
+    {
+        const QString f = testRaw("auto-tone/DSC_0251.NEF"); // overcast sky, about 11% blown
+        if (f.isEmpty())
+            QSKIP("test raws not available");
+        const RawImage raw = decodeRaw(f, {.halfSize = true});
+        // Channel c clips at appliedMul[c] (green at 1); red and blue keep their values above
+        // 1 where green is clipped (they were cut at 1 before 2026-10).
+        float mx[3] = {0, 0, 0};
+        for (size_t i = 0; i < raw.image.pixelCount(); ++i)
+            for (int c = 0; c < 3; ++c)
+                mx[c] = std::max(mx[c], raw.image.data[i * 3 + c]);
+        for (int c = 0; c < 3; ++c)
+            QVERIFY2(mx[c] <= raw.color.appliedMul[c] * 1.001, qPrintable(QString("%1: %2 > %3").arg(c).arg(mx[c]).arg(raw.color.appliedMul[c])));
+        QVERIFY(std::abs(mx[1] - 1.0f) < 0.01f);
+        QVERIFY2(std::max(mx[0], mx[2]) > 1.2f, qPrintable(QString("%1 %2").arg(mx[0]).arg(mx[2])));
+    }
+
     void highlightsKeepBlownAreasWhite()
     {
         const QString f = testRaw("auto-tone/DSC_0251.NEF"); // overcast sky, about 11% blown

@@ -322,8 +322,8 @@ HdrMerged mergeHdr(QList<MergeSource> sources, const HdrOptions& o, bool preview
         mx = std::max(mx, v);
     float scale = 1.0f;
     {
-        // Native clip level for white (the channel with the largest multiplier clips first).
-        double nativeClip = 1.0 / std::max({rc.appliedMul[0], rc.appliedMul[1], rc.appliedMul[2]});
+        // Native clip level: every channel clips at 1 in camera-native data.
+        const double nativeClip = 1.0;
         scale = float(std::max(1.0, mx / nativeClip));
     }
     HdrMerged m;
@@ -676,7 +676,7 @@ Stitched stitchPanorama(QList<MergeSource> sources, bool preview, bool autoCrop,
         if (r.width() > 10 && r.height() > 10)
             out.crop = QRectF(double(r.x() + 1) / small.cols, double(r.y() + 1) / small.rows, double(r.width() - 2) / small.cols, double(r.height() - 2) / small.rows);
     }
-    out.nativeClip = 1.0 / std::max({colors[ref].appliedMul[0], colors[ref].appliedMul[1], colors[ref].appliedMul[2]});
+    out.nativeClip = 1.0; // every channel clips at 1 in camera-native data
     out.pano = std::move(pano);
     out.valid = valid;
     out.refRaw = std::move(refRaw);

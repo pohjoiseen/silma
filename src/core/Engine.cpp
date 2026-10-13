@@ -209,7 +209,7 @@ void DevelopEngine::applyHeals(const DevelopSettings& s) const
         for (const auto& h : s.heals) {
             auto it = m_patches.find(h.patchId);
             if (it != m_patches.end())
-                pasteHealPatch(*base, scale, m_raw->fullWidth, m_raw->fullHeight, h, *it->second);
+                pasteHealPatch(*base, scale, m_raw->fullWidth, m_raw->fullHeight, h, *it->second, m_raw->color.appliedMul);
         }
     }
     // Readers holding the old levels keep them alive through their shared pointers.
@@ -383,12 +383,49 @@ void DevelopEngine::colorStage(ImageF& img, const DevelopSettings& s, const WbVa
     float ratio[3];
     for (int c = 0; c < 3; ++c)
         ratio[c] = float(wb.mul[c] / applied[c]);
-    // Data clipped at 1.0 per channel becomes ratio[c]; clip all channels at the lowest so
-    // blown highlights stay neutral instead of turning magenta/cyan.
-    const float clip = std::min({ratio[0], ratio[1], ratio[2]});
-    // Normalize so that the lowest-ratio channel keeps its scale (white stays at 1.0).
+    // Normalize so that the lowest-ratio channel keeps its scale.
+    const float minRatio = std::min({ratio[0], ratio[1], ratio[2]});
     for (float& r : ratio)
-        r /= clip;
+        r /= minRatio;
+    // Highlight reconstruction. Channel c clips at applied[c] in the decoded data; where some
+    // channels are (nearly) clipped and others not (often green in white clouds), the clipped
+    // ones get at least the mean of the others, so the unclipped channels' detail stays, and
+    // the colour fades to neutral; where all are clipped, white at the highest clip level. Blended in from just below the clip
+    // level: demosaicing leaves values a little under it next to clipped ones (a hard
+    // threshold leaves magenta fringes there).
+    float clipLo[3], clipHi[3], clipWb[3];
+    for (int c = 0; c < 3; ++c) {
+        clipLo[c] = float(applied[c]) * 0.90f;
+        clipHi[c] = float(applied[c]) * 0.995f;
+        clipWb[c] = float(applied[c]) * ratio[c];
+    }
+    const float maxClip = std::max({clipWb[0], clipWb[1], clipWb[2]});
+    auto balanced = [&](const float* p, float& r, float& g, float& b) {
+        float v[3] = {p[0] * ratio[0], p[1] * ratio[1], p[2] * ratio[2]};
+        if (p[0] > clipLo[0] || p[1] > clipLo[1] || p[2] > clipLo[2]) {
+            float w[3], ws = 0, es = 0;
+            for (int c = 0; c < 3; ++c) {
+                w[c] = smoothstep(clipLo[c], clipHi[c], p[c]);
+                ws += 1 - w[c];
+                es += (1 - w[c]) * v[c];
+            }
+            const float all = std::min({w[0], w[1], w[2]});
+            const float est = ws > 1e-4f ? es / ws : maxClip;
+            float most = 0, mean = 0;
+            for (int c = 0; c < 3; ++c) {
+                float t = v[c] + w[c] * (std::max(est, v[c]) - v[c]);
+                v[c] = std::min(t + all * (maxClip - t), std::max(maxClip, v[c]));
+                most = std::max(most, w[c]);
+                mean += v[c] / 3;
+            }
+            // The estimate keeps the brightness, not the colour: towards neutral as channels clip.
+            for (int c = 0; c < 3; ++c)
+                v[c] += most * (mean - v[c]);
+        }
+        r = v[0];
+        g = v[1];
+        b = v[2];
+    };
     double ev = s.exposure + m_raw->color.baselineExposure + defaultBaselineExposure(*m_raw);
     if (const ResolvedProfile prof = profile(s); prof.valid()) {
         // DNG profile: forward matrix to ProPhoto, hue/saturation map, exposure, look tables.
@@ -403,7 +440,8 @@ void DevelopEngine::colorStage(ImageF& img, const DevelopSettings& s, const WbVa
         for (int y = 0; y < img.height; ++y) {
             float* p = img.row(y);
             for (int x = 0; x < img.width; ++x, p += 3) {
-                float r = std::min(p[0] * ratio[0], 1.0f), g = std::min(p[1] * ratio[1], 1.0f), b = std::min(p[2] * ratio[2], 1.0f);
+                float r, g, b;
+                balanced(p, r, g, b);
                 float q[3] = {A[0] * r + A[1] * g + A[2] * b, A[3] * r + A[4] * g + A[5] * b, A[6] * r + A[7] * g + A[8] * b};
                 pt.applyHueSatMap(q);
                 q[0] *= gain;
@@ -426,7 +464,8 @@ void DevelopEngine::colorStage(ImageF& img, const DevelopSettings& s, const WbVa
     for (int y = 0; y < img.height; ++y) {
         float* p = img.row(y);
         for (int x = 0; x < img.width; ++x, p += 3) {
-            float r = std::min(p[0] * ratio[0], 1.0f), g = std::min(p[1] * ratio[1], 1.0f), b = std::min(p[2] * ratio[2], 1.0f);
+            float r, g, b;
+            balanced(p, r, g, b);
             p[0] = M[0] * r + M[1] * g + M[2] * b;
             p[1] = M[3] * r + M[4] * g + M[5] * b;
             p[2] = M[6] * r + M[7] * g + M[8] * b;
@@ -655,12 +694,19 @@ void textureStage(ImageF& img, const DevelopSettings& s, double outScale, double
 
 struct LocalTone {
     PlaneF baseA, baseB, clarA, clarB;
+    float topEv = -100; // log2 luminance of the brightest areas (99.9th percentile)
 };
 
 LocalTone computeLocalTone(const ImageF& ctx, const DevelopSettings& s)
 {
     LocalTone lt;
     PlaneF L = luminanceLog(ctx);
+    if (s.highlights < 0 && !L.data.empty()) {
+        std::vector<float> v = L.data;
+        const size_t k = std::min(v.size() - 1, size_t(v.size() * 0.999));
+        std::nth_element(v.begin(), v.begin() + k, v.end());
+        lt.topEv = v[k];
+    }
     int longEdge = std::max(ctx.width, ctx.height);
     if (s.highlights != 0 || s.shadows != 0)
         guidedFilterCoefficients(L, std::max(2, int(longEdge * 0.035)), 0.30f, lt.baseA, lt.baseB);
@@ -675,6 +721,10 @@ void toneStage(ImageF& img, const LocalTone& lt, const QRectF& roi, const Develo
     const float logWhite = float(std::log2(curve.whitePoint()));
     const bool local = !lt.baseA.empty(), clar = !lt.clarA.empty();
     const float sh = float(s.shadows / 100.0), hl = float(s.highlights / 100.0), cl = float(s.clarity / 100.0);
+    // Extra pull per EV above the upper midtones, bringing the brightest areas (topEv) from
+    // above white to just below it (at -100).
+    const float topX = lt.topEv - logWhite;
+    const float topSlope = topX > -0.7f + 0.1f ? std::max(0.0f, (topX + 0.05f - 1.0f) / (topX + 0.7f)) : 0.0f;
     const float lw[3] = {float(color::kRec2020Luma[0]), float(color::kRec2020Luma[1]), float(color::kRec2020Luma[2])};
     // Tone position LUT over log2 luminance for weights.
     constexpr int kPos = 512;
@@ -709,8 +759,14 @@ void toneStage(ImageF& img, const LocalTone& lt, const QRectF& roi, const Develo
                     if (hl < 0) {
                         // About an even pull from the upper midtones up, so that blown areas stay
                         // near white and clouds keep their brightness against the sky (fitted to
-                        // Lightroom's Highlights -100: 1 EV on skies and clouds, none on grass).
-                        dL += hl * smoothstep(-2.2f, -0.7f, B - logWhite);
+                        // Lightroom's Highlights -100: 1 EV on skies and clouds, none on grass),
+                        // more above the white point when the brightest areas are further up, so
+                        // that they come down to just below white with their detail.
+                        const float x = B - logWhite;
+                        float pull = smoothstep(-2.2f, -0.7f, x);
+                        if (x > -0.7f)
+                            pull += topSlope * (x + 0.7f);
+                        dL += hl * pull;
                     } else {
                         dL += hl * wh * 0.9f;
                     }
