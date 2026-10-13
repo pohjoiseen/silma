@@ -6,8 +6,8 @@ description: Cull and develop a shoot (or one day of it) with Silmä's CLI the w
 # Develop a batch with Silmä
 
 You cull and develop photos yourself through `silma`'s CLI, look at the results as rendered JPEGs, and
-hand the user a `.silma` batch to review in the GUI. Developed first on the Jakobstad trip
-(2026-10-10/11, `example-raws/jakobstad-claude/`); the user's review of that edit is folded in below.
+hand the user a `.silma` batch to review in the GUI. The user's reviews of earlier edits are folded
+in below.
 
 Don't add or change develop features while doing this. Building CLI features or automation for
 controlling Silmä is fine (commit those separately, with tests, as usual).
@@ -17,11 +17,10 @@ controlling Silmä is fine (commit those separately, with tests, as usual).
 - **Documentary, realistic, not artsy.** Good contrast (slightly exaggerated is fine when it helps),
   highlight detail brought back *only as far as it stays natural*. White balance may lean a little
   warm, very slightly.
-- **Highlights: don't overdo it.** A white overcast sky stays white. (Before 4e7e30b pulling
-  highlights down turned blown skies into flat grey or blue patches, the worst artefact of the
-  first edit; the slider now keeps blown areas near white, like Lightroom's.)
-- **Profile:** the user uses Lightroom's Adobe Color; when it is installed (`silma profiles PHOTO`),
-  `set P profile="Adobe Color"` before judging colour.
+- **Highlights: don't overdo it.** A white overcast sky stays white; detail in clouds is welcome
+  as long as it looks natural (no flat grey or blue patches).
+- **Profile:** the user uses Lightroom's Adobe Color; when it is installed (`$SIL profiles PHOTO`),
+  `set P profile="Adobe Color"` before judging colour (new imports may already have it).
 - **Shadows: lift them.** Overcast coast/water scenes and shaded foregrounds looked "dark overall".
 - **Forest/greenery: tint ~0.** Auto WB tends to drift purple there; mostly green is normal.
 - **Verticals must be vertical** (buildings, trees, poles, masts) unless the shot is at an obviously
@@ -40,17 +39,20 @@ controlling Silmä is fine (commit those separately, with tests, as usual).
 ## Setup
 
 ```bash
-SK=/home/agent/shared/Silmä/.claude/skills/develop-batch/scripts
-$SK/setup.sh                      # once: OpenCV venv in ~/.cache, imagemagick
-ninja -C /home/agent/shared/Silmä/build-vm   # current silma (build-vm/, never build/)
-export SILMA_BATCH=/path/to/New.silma WORK=<scratchpad>/develop SIL=/home/agent/shared/Silmä/build-vm/src/app/silma
+SK=<this skill's base directory>/scripts
+$SK/setup.sh                       # once: OpenCV venv in ~/.cache; checks for ImageMagick
+SIL=$($SK/which-silma.sh)          # silma built in the current Silmä checkout, else from $PATH
+export SIL SILMA_BATCH=/path/to/Batch.silma WORK=<scratch dir>/develop
 ```
 
-Run the loops in **bash** (`bash -c '...'` or script files): the interactive shell is zsh, which
-does not word-split `$VAR` lists and expands `!`.
+Working in a Silmä checkout: build it first so `which-silma.sh` finds the current code (it
+takes the most recently built `<build dir>/src/app/silma` that runs).
+
+Run the loops in **bash** (`bash -c '...'` or script files): other shells, e.g. zsh, do not
+word-split `$VAR` lists and may expand `!`.
 
 **Working in the user's own batch** (e.g. "process day 1 of this .silma"): first
-`sqlite3 X.silma ".backup '~/silma-work-NAME/backup/before.silma'"`, check which photos already have
+`sqlite3 X.silma ".backup '<work dir>/before.silma'"`, check which photos already have
 history beyond "Import" (`history` table), touch only the asked-for photos, and at the end diff
 `file_name|rejected|history_pos|count(history)` of the other photos against the backup. Keep work files in
 a home-directory folder (the session scratchpad can disappear on a restart).
@@ -70,9 +72,9 @@ relative to the `.silma` file: a copy of the batch (for experiments) must sit in
    stitching; the stitched DNG is added to the batch, and the source frames get rejected.
 2. **Cull**: for bursts render the subject at 1:1 (`render P out.jpg --size full --roi x,y,w,h`)
    side by side and compare sharpness *and* expression. `reject` the rest.
-3. **Auto tone**: `$SIL auto --tone P...` (keeps as-shot WB). Since a239564 it already gives about
-   the contrast/highlights/shadows the user wanted on Jakobstad; don't stack a blanket look on top
-   (a blanket `highlights-=10` caused the blue-sky patches). Use relative per-photo tweaks:
+3. **Auto tone**: `$SIL auto --tone P...` (keeps as-shot WB). It is tuned on the user's reviews and
+   gives about the contrast/highlights/shadows they want; don't stack a blanket look on top. Use
+   relative per-photo tweaks:
    `$SIL set P contrast+=10 shadows+=15 temperature+=150` (clamped to range).
    Warmth: at most ~+150..200 K, skip it for already warm light and greenery.
 4. **Perspective**, for every photo with verticals. For a whole day:
@@ -98,7 +100,8 @@ relative to the `.silma` file: a copy of the batch (for experiments) must sit in
 5. **Crop**: `$SIL crop P X,Y,W,H --aspect 3:2` - coordinates are of the current rendered view,
    so you can read them straight off a render. Re-render to check.
 6. **Specks**: render skies at 3000 px, `$SK/specks.sh imgs...`, crop each candidate (300 px) and
-   look; heal real ones with `SILMA_MODEL_DIR=~/silma-models $SIL heal P x,y,0.005` and check 1:1.
+   look; heal real ones with `$SIL heal P x,y,0.005` and check 1:1 (the AI models: `$SIL ai-models`;
+   keep `SILMA_MODEL_DIR` if the environment sets one).
 7. **Noise**: check ISO in `exiftool`/`$SIL list`; at 1:1 on shadows. Daylight ISO <= 800 needs none.
 8. **Review pass**: sheets of all accepted photos; then 1:1 crops of a few for halos/noise.
    Compare variants with `$SK/variant.sh P out.jpg KEY=V...` (renders, then undoes).
