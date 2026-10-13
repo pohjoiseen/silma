@@ -610,7 +610,7 @@ std::map<QString, Command> commands()
     m["reset"] = {"reset PHOTO...", "Reset develop settings to defaults (adds a history step)", {"import"}, {}, true, [](const Args& a, Batch* b, bool json) {
         auto ps = resolvePhotos(*b, a.positional(), a.value("import"));
         for (const auto& p : ps) {
-            DevelopSettings s = DevelopSettings::defaults(p.kind == PhotoKind::Rendered);
+            DevelopSettings s = newPhotoSettings(p.kind == PhotoKind::Rendered);
             s.quarterTurns = DevelopSettings::fromJsonString(b->settings(p.id)).quarterTurns; // kept, like in the GUI
             b->pushHistory(p.id, "Reset", s.toJsonString());
         }

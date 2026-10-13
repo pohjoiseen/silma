@@ -1,5 +1,6 @@
 #include "DevelopPanel.h"
 
+#include "CameraProfile.h"
 #include "Widgets.h"
 
 #include <QCheckBox>
@@ -82,6 +83,7 @@ DevelopPanel::DevelopPanel(QWidget* parent) : QWidget(parent)
             if (d.toString() == m_settings.profile)
                 return;
             m_settings.profile = d.toString();
+            setDefaultProfile(m_settings.profile); // new photos start with it
             emitEdit(tr("Profile: %1").arg(m_settings.profile.isEmpty() ? tr("Silmä") : m_settings.profile), true);
         });
         fillProfiles();

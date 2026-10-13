@@ -9,13 +9,14 @@
 - Highlights (pulled down) work like Lightroom's: skies and clouds come down about evenly,
   blown areas stay near white instead of turning flat grey, and clouds keep their brightness
   against the sky. Existing edits render with the new curve.
+- Auto tone holds highlights back less on blown skies (they now keep detail or stay white).
 - Highlight reconstruction: where only some channels are clipped (often green in white clouds)
   the others' detail is kept instead of everything being cut at the first clipped channel, so
   pulling highlights down brings back cloud detail like Lightroom does.
 - Camera profiles: Lightroom / Camera Raw profiles (Adobe Standard `.dcp`, look profiles such
   as Adobe Color `.xmp`) installed from your own copy can be chosen per photo (Profile in the
   White Balance panel). File › Install Camera Profiles copies them to
-  `~/.local/share/silma/profiles`.
+  `~/.local/share/silma/profiles`. New photos (and Reset) get the profile chosen last.
 
 ### Command line
 - `install-profiles FILE|DIR...`, `profiles [PHOTO]`, and `set PHOTO profile=NAME`.

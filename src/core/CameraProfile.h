@@ -68,6 +68,13 @@ QList<std::shared_ptr<const CameraProfile>> installedProfiles();
 // `errors` gets one line per skipped file.
 QStringList installProfiles(const QStringList& paths, QStringList* errors = nullptr);
 
+// The profile new photos start with: the one last chosen in the GUI (empty: Silmä's own colour).
+QString defaultProfile();
+void setDefaultProfile(const QString& name);
+// Settings of a photo as imported (and as Reset makes them): the defaults, with
+// defaultProfile() for raws.
+DevelopSettings newPhotoSettings(bool rendered);
+
 // What a profile name resolves to for one camera: the DCP and, for a look, the look on top.
 struct ResolvedProfile {
     std::shared_ptr<const CameraProfile> dcp, look;

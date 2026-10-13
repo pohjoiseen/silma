@@ -1055,14 +1055,14 @@ void MainWindow::resetSettings()
         if (m_photo && id == m_photo->id)
             continue;
         auto ph = m_batch.photo(id);
-        DevelopSettings s = DevelopSettings::defaults(ph && ph->kind == PhotoKind::Rendered);
+        DevelopSettings s = newPhotoSettings(ph && ph->kind == PhotoKind::Rendered);
         s.quarterTurns = DevelopSettings::fromJsonString(m_batch.settings(id)).quarterTurns; // a fix for the photo, not an edit
         m_batch.pushHistory(id, tr("Reset"), s.toJsonString());
         historyChanged(id);
         m_model->invalidateThumbnail(id);
         renderThumbnail(id);
     }
-    DevelopSettings s = DevelopSettings::defaults(m_photo && m_photo->kind == PhotoKind::Rendered);
+    DevelopSettings s = newPhotoSettings(m_photo && m_photo->kind == PhotoKind::Rendered);
     s.quarterTurns = m_settings.quarterTurns;
     commit(s, tr("Reset"));
 }

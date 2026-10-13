@@ -8,6 +8,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QtEndian>
 #include <algorithm>
@@ -471,6 +472,24 @@ QStringList installProfiles(const QStringList& paths, QStringList* errors)
         }
     }
     return names;
+}
+
+QString defaultProfile()
+{
+    return QSettings().value(QStringLiteral("develop/profile")).toString();
+}
+
+void setDefaultProfile(const QString& name)
+{
+    QSettings().setValue(QStringLiteral("develop/profile"), name);
+}
+
+DevelopSettings newPhotoSettings(bool rendered)
+{
+    DevelopSettings s = DevelopSettings::defaults(rendered);
+    if (!rendered)
+        s.profile = defaultProfile();
+    return s;
 }
 
 ResolvedProfile resolveProfile(const QString& name, const QString& make, const QString& model)

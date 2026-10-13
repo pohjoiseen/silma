@@ -617,11 +617,11 @@ private slots:
         const QString blownSky = testRaw("auto-tone/DSC_0251.NEF"), brightSky = testRaw("auto-tone/DSC_0160.NEF");
         if (blownSky.isEmpty() || brightSky.isEmpty())
             QSKIP("test raws not available");
-        // An overcast sky, about 11% blown: highlights hardly pulled down (a pull turns the
-        // sky into a flat grey or blue patch). Was -91, then -55.
+        // An overcast sky, about 11% blown: a moderate pull (the slider keeps blown areas near
+        // white, so it no longer turns the sky into a flat grey or blue patch). Was -91, -55, -8.
         DevelopEngine blown(blownSky, {.halfSize = true});
         const double hi = blown.autoTone({}).highlights;
-        QVERIFY2(hi >= -20 && hi <= 0, qPrintable(QString::number(hi)));
+        QVERIFY2(hi >= -45 && hi <= -20, qPrintable(QString::number(hi)));
         // Bright but nothing clipped: a moderate pull (-36), and some contrast.
         DevelopEngine bright(brightSky, {.halfSize = true});
         const DevelopSettings b = bright.autoTone({});

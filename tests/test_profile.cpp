@@ -1,8 +1,10 @@
 // Camera profiles (.dcp and Camera Raw look .xmp). Adobe's profiles cannot be part of the
 // repository, so the tests write small synthetic ones.
 
+#include "Batch.h"
 #include "CameraProfile.h"
 #include "Engine.h"
+#include "Importer.h"
 #include "TestRaws.h"
 
 #include <QFile>
@@ -185,6 +187,7 @@ private slots:
     {
         QVERIFY(m_dir.isValid());
         qputenv("SILMA_PROFILE_DIR", m_dir.filePath("profiles").toUtf8());
+        qputenv("XDG_CONFIG_HOME", m_dir.filePath("config").toUtf8()); // QSettings
     }
 
     void hueSatTableIdentityAndShift()
@@ -288,6 +291,25 @@ private slots:
         DevelopSettings src;
         src.profile = "X";
         QCOMPARE(copySettingsParts(DevelopSettings(), src, {"profile"}).profile, QString("X"));
+    }
+
+    void newPhotosGetTheLastProfile()
+    {
+        QCOMPARE(newPhotoSettings(false), DevelopSettings());
+        setDefaultProfile("Adobe Color");
+        QCOMPARE(defaultProfile(), QString("Adobe Color"));
+        QCOMPARE(newPhotoSettings(false).profile, QString("Adobe Color"));
+        QVERIFY(newPhotoSettings(true).profile.isEmpty()); // JPEG/HEIC: no camera profiles
+        const QString raw = testRaw("batch/DSC_0001.NEF");
+        if (!raw.isEmpty()) {
+            Batch b;
+            b.create(m_dir.filePath("import.silma"));
+            const ImportResult r = importFiles(b, {raw}, {});
+            QCOMPARE(r.added.size(), 1);
+            QCOMPARE(DevelopSettings::fromJsonString(b.settings(r.added[0])).profile, QString("Adobe Color"));
+        }
+        setDefaultProfile({});
+        QCOMPARE(newPhotoSettings(false), DevelopSettings());
     }
 
     void rendersWithProfile()

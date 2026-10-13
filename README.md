@@ -145,9 +145,10 @@ into `~/.local/share/silma/profiles`:
   a tone curve over a base `.dcp` (Adobe Standard), so both need to be installed. Creative
   profiles with RGB tables and monochrome profiles are not supported.
 
-A profile is rendered as the DNG specification describes (forward matrix, hue/saturation
-map and look table in linear ProPhoto RGB); Silmä's tone controls stay the same. A photo set
-to a profile that is not installed renders with Silmä's own colour.
+New photos (and Reset) get the profile chosen last in the GUI. A profile is rendered as the
+DNG specification describes (forward matrix, hue/saturation map and look table in linear
+ProPhoto RGB); Silmä's tone controls stay the same. A photo set to a profile that is not
+installed renders with Silmä's own colour.
 
 ## Export
 

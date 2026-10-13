@@ -1,5 +1,6 @@
 #include "Importer.h"
 
+#include "CameraProfile.h"
 #include "Develop.h"
 #include "Metadata.h"
 #include "RawDecoder.h"
@@ -261,7 +262,8 @@ ImportResult importFiles(Batch& batch, const QStringList& files, const ImportOpt
         p.fNumber = pr.meta.fNumber;
         p.focalLength = pr.meta.focalLength;
         try {
-            qint64 id = rendered ? batch.addPhoto(p, DevelopSettings::defaults(true).toJsonString()) : batch.addPhoto(p);
+            const DevelopSettings initial = newPhotoSettings(rendered);
+            qint64 id = initial == DevelopSettings() ? batch.addPhoto(p) : batch.addPhoto(p, initial.toJsonString());
             res.added << id;
             existing.insert(k);
             pending.append({id, dest, p.orientation});

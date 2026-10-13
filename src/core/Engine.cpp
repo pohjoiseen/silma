@@ -1102,15 +1102,16 @@ DevelopSettings DevelopEngine::autoTone(const DevelopSettings& in) const
     std::vector<float> v;
     v.reserve(L.data.size());
     size_t blown = 0;
+    const Vec3& clip = m_raw->color.appliedMul;
     for (size_t i = 0; i < L.data.size(); ++i) {
         const float* p = ctx.data.data() + i * 3;
         if (p[0] == 0 && p[1] == 0 && p[2] == 0)
             continue; // outside the image (transform borders)
         v.push_back(L.data[i]);
         const float* c = cam->data.data() + i * 3;
-        // Clipped in the raw: a channel at the clip plateau (1.0). Merged HDRs are scaled so
-        // that only their brightest value reaches 1.0, so large areas there are rare.
-        if (std::max({c[0], c[1], c[2]}) >= 0.98f)
+        // Clipped in the raw: a channel at its clip plateau. Merged HDRs are scaled so that
+        // only their brightest value reaches it, so large areas there are rare.
+        if (c[0] >= 0.98f * clip[0] || c[1] >= 0.98f * clip[1] || c[2] >= 0.98f * clip[2])
             ++blown;
     }
     if (v.size() < 64)
@@ -1134,9 +1135,10 @@ DevelopSettings DevelopEngine::autoTone(const DevelopSettings& in) const
     double spread = pct(0.95) - pct(0.05);
     // Highlights: pull down when the bright end goes past the white point.
     double highlights = std::clamp(-(hi - 2.0) * 30.0, -70.0, 0.0);
-    // Blown areas (a white sky) have nothing to recover and only turn into flat grey or blue
-    // patches when pulled down, even small ones: about 0.5x with 1.5% blown, 0.2x with 6%.
-    highlights /= 1.0 + double(blown) / v.size() / 0.015;
+    // Blown areas: somewhat less of a pull (a white overcast sky should stay white; the slider
+    // keeps it near white), though where only some channels are clipped there is detail to
+    // bring back: 0.5x with 10% blown.
+    highlights /= 1.0 + double(blown) / v.size() / 0.10;
     s.highlights = std::round(highlights);
     // Shadows: lift when a lot of the image sits deep in the shadows, or the darkest tenth
     // is well below grey (a shaded foreground).
