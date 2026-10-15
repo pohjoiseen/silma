@@ -394,7 +394,7 @@ ImageF DevelopEngine::warpCached(const Geometry& g, const DevelopSettings& s, in
     return *img;
 }
 
-void DevelopEngine::colorStage(ImageF& img, const DevelopSettings& s, const WbValues& wb) const
+void DevelopEngine::colorStage(ImageF& img, const DevelopSettings& s, const WbValues& wb, const ImageF& cam, const QRectF& roi) const
 {
     const Vec3& applied = m_raw->color.appliedMul;
     float ratio[3];
@@ -417,9 +417,59 @@ void DevelopEngine::colorStage(ImageF& img, const DevelopSettings& s, const WbVa
         clipWb[c] = float(applied[c]) * ratio[c];
     }
     const float maxClip = std::max({clipWb[0], clipWb[1], clipWb[2]});
-    auto balanced = [&](const float* p, float& r, float& g, float& b) {
+
+    // The colour of clipped highlights, from bright unclipped pixels around them (a sunset's glare
+    // around a blown sun): chromaticity (channels summing to 1) of the white-balanced image,
+    // averaged with weights favouring the brightest unclipped pixels, locally where there are
+    // enough of them and from further away where not; with a confidence.
+    PlaneF chr[3], conf;
+    bool anyClipped = false;
+    for (size_t i = 0; i < cam.pixelCount() && !anyClipped; ++i)
+        for (int c = 0; c < 3; ++c)
+            anyClipped |= cam.data[i * 3 + c] > clipLo[c];
+    if (anyClipped) {
+        PlaneF wr(cam.width, cam.height), wc[3] = {wr, wr, wr};
+        for (size_t i = 0; i < cam.pixelCount(); ++i) {
+            const float* p = cam.data.data() + i * 3;
+            const float v[3] = {p[0] * ratio[0], p[1] * ratio[1], p[2] * ratio[2]};
+            const float sum = v[0] + v[1] + v[2];
+            const bool clipped = p[0] > clipLo[0] || p[1] > clipLo[1] || p[2] > clipLo[2];
+            const float w = clipped || sum <= 0 ? 0.0f : std::pow(std::max(v[0], std::max(v[1], v[2])) / maxClip, 2.0f);
+            wr.data[i] = w;
+            for (int c = 0; c < 3; ++c)
+                wc[c].data[i] = w * (sum > 0 ? v[c] / sum : 0.0f);
+        }
+        const float edge = float(std::max(cam.width, cam.height));
+        PlaneF num[3], den(cam.width, cam.height);
+        for (int c = 0; c < 3; ++c)
+            num[c] = PlaneF(cam.width, cam.height);
+        float scaleWeight = 1;
+        for (float sigma : {0.01f, 0.04f, 0.15f}) {
+            const PlaneF d = gaussianBlur(wr, sigma * edge);
+            for (size_t i = 0; i < den.data.size(); ++i)
+                den.data[i] += scaleWeight * d.data[i];
+            for (int c = 0; c < 3; ++c) {
+                const PlaneF n = gaussianBlur(wc[c], sigma * edge);
+                for (size_t i = 0; i < den.data.size(); ++i)
+                    num[c].data[i] += scaleWeight * n.data[i];
+            }
+            scaleWeight *= 0.1f;
+        }
+        conf = PlaneF(cam.width, cam.height);
+        for (int c = 0; c < 3; ++c)
+            chr[c] = PlaneF(cam.width, cam.height);
+        for (size_t i = 0; i < den.data.size(); ++i) {
+            const float d = den.data[i];
+            conf.data[i] = smoothstep(0.0f, 0.02f, d);
+            for (int c = 0; c < 3; ++c)
+                chr[c].data[i] = d > 1e-9f ? num[c].data[i] / d : 1.0f / 3;
+        }
+    }
+
+    auto balanced = [&](const float* p, float u, float vv, float& r, float& g, float& b) {
         float v[3] = {p[0] * ratio[0], p[1] * ratio[1], p[2] * ratio[2]};
         if (p[0] > clipLo[0] || p[1] > clipLo[1] || p[2] > clipLo[2]) {
+            const float orig[3] = {v[0], v[1], v[2]};
             float w[3], ws = 0, es = 0;
             for (int c = 0; c < 3; ++c) {
                 w[c] = smoothstep(clipLo[c], clipHi[c], p[c]);
@@ -435,9 +485,35 @@ void DevelopEngine::colorStage(ImageF& img, const DevelopSettings& s, const WbVa
                 most = std::max(most, w[c]);
                 mean += v[c] / 3;
             }
-            // The estimate keeps the brightness, not the colour: towards neutral as channels clip.
+            // Without colour around: the estimate keeps the brightness, not the colour (towards
+            // neutral as channels clip).
+            float neutral[3];
             for (int c = 0; c < 3; ++c)
-                v[c] += most * (mean - v[c]);
+                neutral[c] = v[c] + most * (mean - v[c]);
+            const float k = conf.empty() ? 0.0f : sampleNormalized(conf, u, vv);
+            if (k > 0) {
+                // With colour around: the clipped channels from that colour, scaled to the
+                // unclipped ones, and never below their clip level; where all are clipped, the
+                // colour at the brightness it needs to reach the clip levels (within reason:
+                // brighter than about twice the highest clip level goes towards white).
+                const float h[3] = {std::max(sampleNormalized(chr[0], u, vv), 1e-4f), std::max(sampleNormalized(chr[1], u, vv), 1e-4f),
+                                    std::max(sampleNormalized(chr[2], u, vv), 1e-4f)};
+                float kn = 0, kh = 0, lb = 0;
+                for (int c = 0; c < 3; ++c) {
+                    kn += (1 - w[c]) * orig[c];
+                    kh += (1 - w[c]) * h[c];
+                    lb = std::max(lb, w[c] * orig[c] / h[c]);
+                }
+                const float scale = std::min(std::max(kh > 1e-4f ? kn / kh : 0.0f, lb), 2.0f * maxClip / std::max({h[0], h[1], h[2]}));
+                float colour[3];
+                for (int c = 0; c < 3; ++c)
+                    colour[c] = orig[c] + w[c] * (std::max(scale * h[c], orig[c]) - orig[c]);
+                for (int c = 0; c < 3; ++c)
+                    v[c] = neutral[c] + k * (colour[c] - neutral[c]);
+            } else {
+                for (int c = 0; c < 3; ++c)
+                    v[c] = neutral[c];
+            }
         }
         r = v[0];
         g = v[1];
@@ -457,9 +533,10 @@ void DevelopEngine::colorStage(ImageF& img, const DevelopSettings& s, const WbVa
 #pragma omp parallel for schedule(static)
         for (int y = 0; y < img.height; ++y) {
             float* p = img.row(y);
+            const float vv = float(roi.y() + (y + 0.5) / img.height * roi.height());
             for (int x = 0; x < img.width; ++x, p += 3) {
                 float r, g, b;
-                balanced(p, r, g, b);
+                balanced(p, float(roi.x() + (x + 0.5) / img.width * roi.width()), vv, r, g, b);
                 float q[3] = {A[0] * r + A[1] * g + A[2] * b, A[3] * r + A[4] * g + A[5] * b, A[6] * r + A[7] * g + A[8] * b};
                 pt.applyHueSatMap(q);
                 q[0] *= gain;
@@ -481,9 +558,10 @@ void DevelopEngine::colorStage(ImageF& img, const DevelopSettings& s, const WbVa
 #pragma omp parallel for schedule(static)
     for (int y = 0; y < img.height; ++y) {
         float* p = img.row(y);
+        const float vv = float(roi.y() + (y + 0.5) / img.height * roi.height());
         for (int x = 0; x < img.width; ++x, p += 3) {
             float r, g, b;
-            balanced(p, r, g, b);
+            balanced(p, float(roi.x() + (x + 0.5) / img.width * roi.width()), vv, r, g, b);
             p[0] = M[0] * r + M[1] * g + M[2] * b;
             p[1] = M[3] * r + M[4] * g + M[5] * b;
             p[2] = M[6] * r + M[7] * g + M[8] * b;
@@ -493,8 +571,9 @@ void DevelopEngine::colorStage(ImageF& img, const DevelopSettings& s, const WbVa
 
 ImageF DevelopEngine::contextImage(const DevelopSettings& s, const WbValues& wb, bool ignoreCrop) const
 {
-    ImageF ctx = *contextCamera(s, ignoreCrop);
-    colorStage(ctx, s, wb);
+    const auto cam = contextCamera(s, ignoreCrop);
+    ImageF ctx = *cam;
+    colorStage(ctx, s, wb, *cam, QRectF(0, 0, 1, 1));
     return ctx;
 }
 
@@ -732,8 +811,15 @@ LocalTone computeLocalTone(const ImageF& ctx, const DevelopSettings& s)
         lt.medianEv = pct(0.50);
     }
     int longEdge = std::max(ctx.width, ctx.height);
-    if (s.highlights != 0 || s.shadows != 0)
-        guidedFilterCoefficients(L, std::max(2, int(longEdge * 0.035)), 0.30f, lt.baseA, lt.baseB);
+    if (s.highlights != 0 || s.shadows != 0) {
+        // The base layer from luminance capped 1 EV above white: a small, far brighter light (the
+        // sun) would otherwise raise its surroundings' base and pull them down with it.
+        PlaneF Lc = L;
+        const float cap = float(std::log2(ToneCurve(s).whitePoint())) + 1.0f;
+        for (float& x : Lc.data)
+            x = std::min(x, cap);
+        guidedFilterCoefficients(Lc, std::max(2, int(longEdge * 0.035)), 0.30f, lt.baseA, lt.baseB);
+    }
     if (s.clarity != 0)
         guidedFilterCoefficients(L, std::max(1, int(longEdge * 0.012)), 0.06f, lt.clarA, lt.clarB);
     return lt;
@@ -762,6 +848,30 @@ void toneStage(ImageF& img, const LocalTone& lt, const QRectF& roi, const Develo
     const float topX = lt.topEv - logWhite;
     const float topSlope = topX > -0.7f + 0.1f ? std::max(0.0f, (topX + 0.05f - 1.0f) / (topX + 0.7f)) : 0.0f;
     const float hlK = highlightStrength(lt.topEv, lt.medianEv);
+    // Highlights pull (EV) over the base's position relative to white, tabulated so that it never
+    // takes away more than 0.8 EV per EV: brighter stays brighter. (With the sun in the frame the
+    // range-adaptive strength and the extra pull above white can add up to more than that, and
+    // the glare around the sun turned darker than the field around it.)
+    constexpr float kPullMin = -8, kPullMax = 8, kPullStep = 1.0f / 64;
+    constexpr int kPullN = int((kPullMax - kPullMin) / kPullStep) + 1;
+    std::vector<float> pullLut(kPullN, 0.0f);
+    if (s.highlights < 0) {
+        const float hlv = float(s.highlights / 100.0);
+        for (int i = 0; i < kPullN; ++i) {
+            const float x = kPullMin + i * kPullStep;
+            float pull = smoothstep(-2.2f, -0.7f, x) * hlK;
+            if (x > -0.7f)
+                pull += topSlope * (x + 0.7f);
+            pullLut[i] = hlv * pull;
+            if (i > 0)
+                pullLut[i] = std::max(pullLut[i], pullLut[i - 1] - 0.8f * kPullStep);
+        }
+    }
+    auto highlightPull = [&](float x) {
+        const float f = std::clamp((x - kPullMin) / kPullStep, 0.0f, float(kPullN - 1));
+        const int i = std::min(int(f), kPullN - 2);
+        return pullLut[i] + (f - i) * (pullLut[i + 1] - pullLut[i]);
+    };
     const float shK = shadowStrength(lt.p90Ev, logWhite);
     const float lw[3] = {float(color::kRec2020Luma[0]), float(color::kRec2020Luma[1]), float(color::kRec2020Luma[2])};
     // Tone position LUT over log2 luminance for weights.
@@ -800,11 +910,7 @@ void toneStage(ImageF& img, const LocalTone& lt, const QRectF& roi, const Develo
                         // that blown areas stay near white and clouds keep their brightness,
                         // more above the white point when the brightest areas are further up, so
                         // that they come down to just below white with their detail.
-                        const float x = B - logWhite;
-                        float pull = smoothstep(-2.2f, -0.7f, x) * hlK;
-                        if (x > -0.7f)
-                            pull += topSlope * (x + 0.7f);
-                        dL += hl * pull;
+                        dL += highlightPull(B - logWhite);
                     } else {
                         dL += hl * wh * 0.9f;
                     }
@@ -1057,7 +1163,7 @@ ImageF DevelopEngine::renderEncoded(const DevelopSettings& s, const RenderReques
     WbValues wb = effectiveWb(s);
     if (wbOut)
         *wbOut = wb;
-    colorStage(img, s, wb);
+    colorStage(img, s, wb, *contextCamera(s, req.ignoreCrop), req.roi);
     denoise(img, s, 1.0 / pxPer);
     const bool localTone = s.highlights != 0 || s.shadows != 0 || s.clarity != 0;
     ImageF ctx;

@@ -617,6 +617,36 @@ private slots:
             QVERIFY2(std::abs(diff[k] / n) < 3, qPrintable(QStringLiteral("channel %1 off by %2 levels").arg(k).arg(diff[k] / n)));
     }
 
+    void sunsetGlareStaysBrighter()
+    {
+        // A sunset with the sun in the frame, pulled hard (Lightroom-like settings of 2026-07-18
+        // DSC_0076): the highlights pull must not turn the glare right under the sun darker than
+        // the glare beside it (it did: a dark star around the sun).
+        const QString f = testRaw("sunset/DSC_0076.NEF");
+        if (f.isEmpty())
+            QSKIP("test raw sunset/DSC_0076.NEF not present");
+        DevelopEngine e(f, {.halfSize = true});
+        DevelopSettings s;
+        s.exposure = 1.88;
+        s.highlights = -90;
+        s.shadows = 61;
+        s.dehaze = 18;
+        const ImageF img = e.renderEncoded(s, {.width = 600, .height = 400});
+        auto lum = [&](double x, double y) {
+            double sum = 0;
+            int n = 0;
+            for (int dy = -4; dy <= 4; ++dy)
+                for (int dx = -4; dx <= 4; ++dx) {
+                    const float* p = img.px(int(x * img.width) + dx, int(y * img.height) + dy);
+                    sum += 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
+                    ++n;
+                }
+            return sum / n * 255;
+        };
+        const double below = lum(0.30, 0.47), beside = lum(0.36, 0.47);
+        QVERIFY2(below > beside + 3, qPrintable(QStringLiteral("below the sun %1, beside %2").arg(below).arg(beside)));
+    }
+
     void autoToneSparesBlownSkies()
     {
         const QString blownSky = testRaw("auto-tone/DSC_0251.NEF"), brightSky = testRaw("auto-tone/DSC_0160.NEF");

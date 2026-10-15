@@ -7,6 +7,13 @@
   Before, bright areas pulled down by Highlights took on the colour the table gives to
   near-white (a sunset's orange around the sun turned a ghostly green); warm highlights pulled
   down keep their colour now.
+- Blown highlights keep the colour around them: where channels are clipped (a sun in a sunset,
+  bright cloud edges in warm light), the missing channels come from the colour of the bright
+  unclipped pixels nearby instead of fading to white or neutral, so a blown sun blends
+  smoothly into its glare instead of being a flat white patch with an edge.
+- Highlights no longer turns very bright areas darker than slightly less bright ones next to
+  them (a dark star around the sun in sunsets with strong Highlights), and a small, far brighter
+  light no longer pulls down its surroundings.
 
 ## 1.1.1 (2026-10-15)
 

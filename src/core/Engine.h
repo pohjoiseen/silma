@@ -112,7 +112,9 @@ private:
     void applyHeals(const DevelopSettings& s) const;
     int levelFor(double srcPxPerOutPx) const;
     ImageF warpCached(const Geometry& g, const DevelopSettings& s, int lvl, int w, int h, const WarpOptions& o) const;
-    void colorStage(ImageF& img, const DevelopSettings& s, const WbValues& wb) const;
+    // `cam`: the whole (context) camera image, for the colour of clipped highlights; `roi`: the
+    // part of it that `img` shows.
+    void colorStage(ImageF& img, const DevelopSettings& s, const WbValues& wb, const ImageF& cam, const QRectF& roi) const;
     ImageF contextImage(const DevelopSettings& s, const WbValues& wb, bool ignoreCrop) const;
     // The context before the colour stage: camera RGB, 1.0 = clipped.
     std::shared_ptr<const ImageF> contextCamera(const DevelopSettings& s, bool ignoreCrop) const;
