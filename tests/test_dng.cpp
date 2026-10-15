@@ -138,6 +138,24 @@ private slots:
         }
     }
 
+    void jpegXlDngMapPolynomial()
+    {
+        // Lightroom panorama whose data is stored scaled per channel (and with a curve), mapped
+        // back by MapPolynomial opcodes in OpcodeList2; ignoring them made it magenta.
+        const QString f = testRaw("dng/DJI_0487-Pano.dng");
+        if (f.isEmpty())
+            QSKIP("test raw dng/DJI_0487-Pano.dng not present");
+        RawImage r = decodeRaw(f, {.halfSize = true});
+        double sum[3] = {0, 0, 0};
+        for (size_t i = 0; i < r.image.data.size(); ++i)
+            sum[i % 3] += r.image.data[i];
+        const double n = double(r.image.data.size() / 3);
+        // A snowy town, white-balanced: about neutral and as bright as the frames it was made of.
+        QVERIFY2(sum[1] / n > 0.1 && sum[1] / n < 0.35, qPrintable(QString::number(sum[1] / n)));
+        for (int c : {0, 2})
+            QVERIFY2(std::abs(sum[c] / sum[1] - 1) < 0.15, qPrintable(QStringLiteral("%1: %2").arg(c).arg(sum[c] / sum[1])));
+    }
+
     void hdrValuesAboveOne()
     {
         QTemporaryDir tmp;

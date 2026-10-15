@@ -2,6 +2,9 @@
 
 #include "TiffReader.h"
 
+#include <QDataStream>
+#include <QIODevice>
+
 #include <jxl/cms.h>
 #include <jxl/decode_cxx.h>
 #include <algorithm>
@@ -30,6 +33,7 @@ enum Tag : quint16 {
     TileByteCounts = 0x0145,
     BlackLevel = 0xC61A,
     WhiteLevel = 0xC61D,
+    OpcodeList2 = 0xC741,
 };
 
 constexpr quint32 kPhotometricRgb = 2, kPhotometricYCbCr = 6, kPhotometricLinearRaw = 34892;
@@ -138,6 +142,59 @@ std::vector<float> decodeIfd(const TiffReader& t, const TiffReader::Ifd& ifd, in
     return out;
 }
 
+// A MapPolynomial opcode (DNG OpcodeList2): output = sum k[d] * input^d, clipped to 0..1.
+struct MapPolynomial {
+    quint32 top = 0, left = 0, bottom = 0, right = 0, plane = 0, planes = 1, rowPitch = 1, colPitch = 1, degree = 0;
+    double k[9]{};
+};
+
+// The MapPolynomial opcodes of an opcode list; other opcodes are skipped.
+std::vector<MapPolynomial> mapPolynomials(const QByteArray& blob)
+{
+    std::vector<MapPolynomial> out;
+    if (blob.size() < 4)
+        return out;
+    QDataStream s(blob);
+    s.setByteOrder(QDataStream::BigEndian);
+    s.setFloatingPointPrecision(QDataStream::DoublePrecision);
+    quint32 count;
+    s >> count;
+    for (quint32 i = 0; i < count && s.status() == QDataStream::Ok; ++i) {
+        quint32 id, ver, flags, bytes;
+        s >> id >> ver >> flags >> bytes;
+        const qint64 start = s.device()->pos();
+        if (id == 8) {
+            MapPolynomial m;
+            s >> m.top >> m.left >> m.bottom >> m.right >> m.plane >> m.planes >> m.rowPitch >> m.colPitch >> m.degree;
+            if (m.degree > 8 || s.status() != QDataStream::Ok)
+                break;
+            for (quint32 d = 0; d <= m.degree; ++d)
+                s >> m.k[d];
+            if (s.status() == QDataStream::Ok)
+                out.push_back(m);
+        }
+        s.device()->seek(start + bytes);
+    }
+    return out;
+}
+
+void apply(const MapPolynomial& m, float* p, int width, int height, int channels)
+{
+    const int bottom = int(std::min<quint32>(m.bottom, quint32(height))), right = int(std::min<quint32>(m.right, quint32(width)));
+    const int rowPitch = int(std::max<quint32>(m.rowPitch, 1)), colPitch = int(std::max<quint32>(m.colPitch, 1));
+    const int c0 = int(std::min<quint32>(m.plane, quint32(channels))), c1 = int(std::min<quint32>(m.plane + m.planes, quint32(channels)));
+#pragma omp parallel for schedule(static)
+    for (int y = int(m.top); y < bottom; y += rowPitch)
+        for (int x = int(m.left); x < right; x += colPitch)
+            for (int c = c0; c < c1; ++c) {
+                float& v = p[(size_t(y) * width + x) * channels + c];
+                double r = 0;
+                for (int d = int(m.degree); d >= 0; --d)
+                    r = r * v + m.k[d];
+                v = float(std::clamp(r, 0.0, 1.0));
+            }
+}
+
 } // namespace
 
 bool isJxlDng(const QByteArray& file)
@@ -163,7 +220,12 @@ DngJxlImage decodeDngJxl(const QByteArray& file)
     img.height = int(t.uint(*m, ImageLength));
     if (img.width <= 0 || img.height <= 0 || qint64(img.width) * img.height > 1'000'000'000)
         throw std::runtime_error("JPEG XL DNG: bad image size");
-    img.data = decodeIfd(t, *m, img.width, img.height, 3, true);
+    // Lightroom's merged DNGs store the data with a curve and per channel scaled, and map it
+    // back to linear values with MapPolynomial opcodes; without them the codestream's own
+    // transfer curve is the one to undo.
+    const TiffReader::Entry* ops = m->find(OpcodeList2);
+    const std::vector<MapPolynomial> polys = ops ? mapPolynomials(t.blob(*ops)) : std::vector<MapPolynomial>{};
+    img.data = decodeIfd(t, *m, img.width, img.height, 3, polys.empty());
 
     // Back to the stored sample range, then black/white levels (per sample or one for all).
     const double range = double((1u << std::clamp<quint32>(t.uint(*m, BitsPerSample, 16), 8, 16)) - 1);
@@ -184,6 +246,8 @@ DngJxlImage decodeDngJxl(const QByteArray& file)
         const int c = int(i % 3);
         p[i] = float(std::max(0.0, (p[i] - black[c]) * scale[c]));
     }
+    for (const MapPolynomial& poly : polys)
+        apply(poly, p, img.width, img.height, 3);
 
     // Panoramas: areas outside the stitched photos hold smeared edge pixels and are marked
     // by a transparency mask; make them black like our own panoramas.

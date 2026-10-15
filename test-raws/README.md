@@ -19,6 +19,7 @@ unmodified copy from the shoot named below.
 | `auto-tone/DSC_0160.NEF` | 2026-10-10 (Jakobstad): bright, nothing clipped | auto tone: moderate highlight pull, some contrast |
 | `heal/DSC_0320.NEF` | 2026-10-10 (Jakobstad): school building, a small bird against an even cloudy sky | AI heal: the fill matches the sky's colour (with the LaMa model) |
 | `dng/DSC_0785-Pano.dng` | Lightroom panorama: DNG 1.7, JPEG XL compressed linear raw with a transparency mask | JPEG XL DNG decoding |
+| `dng/DJI_0487-Pano.dng` | Lightroom panorama from the drone (DJI FC7303), 2026-02-22: JPEG XL linear raw stored scaled, with MapPolynomial opcodes | MapPolynomial (OpcodeList2) decoding |
 
 The AI tests also need the models: run them with `SILMA_MODEL_DIR` pointing at the installed
 models, else they are skipped.

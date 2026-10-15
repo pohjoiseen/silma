@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+- Lightroom panoramas (and other merged DNGs) that Lightroom stores scaled per channel no
+  longer come out magenta or green: the DNG's MapPolynomial opcodes are applied.
+
 ## 1.1.0 (2026-10-13)
 
 Lightroom's camera profiles, highlights that behave like Lightroom's, and fixes found while
