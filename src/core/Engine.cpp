@@ -80,6 +80,21 @@ private:
     double m_white = 1;
 };
 
+// Highlights pull as far as the scene's range needs: none for flat scenes (overcast, snow
+// everywhere), more the further the brightest areas (topEv) reach above the median.
+// Fitted to Lightroom like the tone curve: 0.29 per EV of range above about 1.6 EV.
+float highlightStrength(float topEv, float medianEv)
+{
+    const float range = topEv - medianEv;
+    return 0.291f * 0.453f * std::log1p(std::exp((range - 1.612f) / 0.453f));
+}
+
+// Shadows lift more in bright images (upper tones near white) than in dark ones.
+float shadowStrength(float p90Ev, float logWhite)
+{
+    return 0.994f * std::exp2(0.664f * (p90Ev - logWhite + 1.5f));
+}
+
 QString geometryKey(const DevelopSettings& s, bool ignoreCrop)
 {
     return QStringLiteral("%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13")
@@ -734,13 +749,8 @@ void toneStage(ImageF& img, const LocalTone& lt, const QRectF& roi, const Develo
     // above white to just below it (at -100).
     const float topX = lt.topEv - logWhite;
     const float topSlope = topX > -0.7f + 0.1f ? std::max(0.0f, (topX + 0.05f - 1.0f) / (topX + 0.7f)) : 0.0f;
-    // Highlights pull as far as the scene's range needs: none for flat scenes (overcast, snow
-    // everywhere), more the further the brightest areas reach above the median.
-    // (Fitted to Lightroom like the tone curve: strength 0.29 per EV of range above ~1.6 EV.)
-    const float range = lt.topEv - lt.medianEv;
-    const float hlK = 0.291f * 0.453f * std::log1p(std::exp((range - 1.612f) / 0.453f));
-    // Shadows lift more in bright images (upper tones near white) than in dark ones.
-    const float shK = 0.994f * std::exp2(0.664f * (lt.p90Ev - logWhite + 1.5f));
+    const float hlK = highlightStrength(lt.topEv, lt.medianEv);
+    const float shK = shadowStrength(lt.p90Ev, logWhite);
     const float lw[3] = {float(color::kRec2020Luma[0]), float(color::kRec2020Luma[1]), float(color::kRec2020Luma[2])};
     // Tone position LUT over log2 luminance for weights.
     constexpr int kPos = 512;
@@ -1171,6 +1181,18 @@ DevelopSettings DevelopEngine::autoTone(const DevelopSettings& in) const
     s.blacks = std::round(std::clamp((-5.5 - lo) * 12.0, -40.0, 30.0));
     // Contrast: flat scenes get more, contrasty ones less; most look flat without some.
     s.contrast = std::round(std::clamp((6.0 - spread) * 6.0 + 18.0, -5.0, 45.0));
+
+    // The values above were tuned (on reviewed edits) for the sliders before they were
+    // calibrated to Lightroom's; give the same result with the calibrated ones.
+    const double ev = s.exposure; // what the old Exposure did
+    s.exposure = std::round(ev / 1.086 * 20) / 20;
+    s.contrast = std::round(std::clamp((0.6 * s.contrast + 100.0 * std::log2(1.4 / 1.346)) / 0.936, -100.0, 100.0));
+    s.whites = std::round(std::clamp((0.126 + s.whites * 0.0125) / 0.0275, -100.0, 100.0));
+    const float logWhite = float(std::log2(ToneCurve(s).whitePoint()));
+    const double hlK = highlightStrength(float(pct(0.999)), float(pct(0.5)));
+    const double shK = shadowStrength(float(pct(0.90) + ev), logWhite);
+    s.highlights = std::round(std::clamp(s.highlights / std::max(hlK, 0.01), -100.0, 0.0));
+    s.shadows = std::round(std::clamp(s.shadows * 1.7 / shK, 0.0, 100.0));
     return s;
 }
 

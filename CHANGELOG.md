@@ -11,6 +11,8 @@
   scenes, fully on bright clouds over a darker landscape), Shadows lifts more in bright
   photos than in dark ones. Whites is stronger, Contrast somewhat stronger. Existing edits
   render with the new sliders.
+- Auto tone gives about the same result as before with the recalibrated sliders (its slider
+  values differ: e.g. stronger Highlights on flat scenes, where the slider now does less).
 
 ### Fixes
 - Lightroom panoramas (and other merged DNGs) that Lightroom stores scaled per channel no

@@ -627,10 +627,11 @@ private slots:
         DevelopEngine blown(blownSky, {.halfSize = true});
         const double hi = blown.autoTone({}).highlights;
         QVERIFY2(hi >= -45 && hi <= -20, qPrintable(QString::number(hi)));
-        // Bright but nothing clipped: a moderate pull (-36), and some contrast.
+        // Bright but nothing clipped: a moderate pull (-36 before the sliders were calibrated to
+        // Lightroom's, -55 since: the same effect on this not very contrasty scene), and some contrast.
         DevelopEngine bright(brightSky, {.halfSize = true});
         const DevelopSettings b = bright.autoTone({});
-        QVERIFY2(b.highlights >= -45 && b.highlights <= -28, qPrintable(QString::number(b.highlights)));
+        QVERIFY2(b.highlights >= -65 && b.highlights <= -40, qPrintable(QString::number(b.highlights)));
         QVERIFY2(b.contrast >= 10, qPrintable(QString::number(b.contrast)));
     }
 
