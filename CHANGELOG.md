@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Develop
+- Tone sliders recalibrated against Lightroom: the same Exposure, Contrast, Highlights,
+  Shadows and Whites values now give about the same result as in Lightroom (fitted on 820
+  photos from six shoots with their Lightroom exports; the difference fell from about 7 to
+  4.7 L* on average). Like Lightroom's, Highlights and Shadows now adapt to the photo:
+  Highlights pulls only as far as the scene's range needs (little on overcast or snowy
+  scenes, fully on bright clouds over a darker landscape), Shadows lifts more in bright
+  photos than in dark ones. Whites is stronger, Contrast somewhat stronger. Existing edits
+  render with the new sliders.
+
 ### Fixes
 - Lightroom panoramas (and other merged DNGs) that Lightroom stores scaled per channel no
   longer come out magenta or green: the DNG's MapPolynomial opcodes are applied.

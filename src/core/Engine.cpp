@@ -31,8 +31,10 @@ public:
 
     explicit ToneCurve(const DevelopSettings& s)
     {
-        double c = 1.4 * std::pow(2.0, s.contrast / 100.0 * 0.6);
-        double whiteEv = 2.5 - s.whites / 100.0 * 1.25;
+        // Constants fitted to Lightroom renders of the same raws with the same slider values
+        // (820 photos from six shoots, 2026-10-15).
+        double c = 1.346 * std::pow(2.0, s.contrast / 100.0 * 0.936);
+        double whiteEv = 2.626 - s.whites / 100.0 * 2.75;
         m_white = kGrey * std::pow(2.0, whiteEv);
         double blackOff = -s.blacks / 100.0 * 0.006;
         const double gOut = 0.18; // middle grey stays middle grey (sRGB ~118)
@@ -426,7 +428,8 @@ void DevelopEngine::colorStage(ImageF& img, const DevelopSettings& s, const WbVa
         g = v[1];
         b = v[2];
     };
-    double ev = s.exposure + m_raw->color.baselineExposure + defaultBaselineExposure(*m_raw);
+    // Lightroom's Exposure moves the image a little more than a plain gain would.
+    double ev = s.exposure * 1.086 + m_raw->color.baselineExposure + defaultBaselineExposure(*m_raw);
     if (const ResolvedProfile prof = profile(s); prof.valid()) {
         // DNG profile: forward matrix to ProPhoto, hue/saturation map, exposure, look tables.
         const ProfileTransform pt(prof, m_raw->color, wb.mul);
@@ -695,17 +698,23 @@ void textureStage(ImageF& img, const DevelopSettings& s, double outScale, double
 struct LocalTone {
     PlaneF baseA, baseB, clarA, clarB;
     float topEv = -100; // log2 luminance of the brightest areas (99.9th percentile)
+    float medianEv = -100, p90Ev = -100; // and of the median and 90th percentile
 };
 
 LocalTone computeLocalTone(const ImageF& ctx, const DevelopSettings& s)
 {
     LocalTone lt;
     PlaneF L = luminanceLog(ctx);
-    if (s.highlights < 0 && !L.data.empty()) {
+    if ((s.highlights != 0 || s.shadows != 0) && !L.data.empty()) {
         std::vector<float> v = L.data;
-        const size_t k = std::min(v.size() - 1, size_t(v.size() * 0.999));
-        std::nth_element(v.begin(), v.begin() + k, v.end());
-        lt.topEv = v[k];
+        auto pct = [&](double q) {
+            const size_t k = std::min(v.size() - 1, size_t(v.size() * q));
+            std::nth_element(v.begin(), v.begin() + k, v.end());
+            return v[k];
+        };
+        lt.topEv = pct(0.999);
+        lt.p90Ev = pct(0.90);
+        lt.medianEv = pct(0.50);
     }
     int longEdge = std::max(ctx.width, ctx.height);
     if (s.highlights != 0 || s.shadows != 0)
@@ -725,6 +734,13 @@ void toneStage(ImageF& img, const LocalTone& lt, const QRectF& roi, const Develo
     // above white to just below it (at -100).
     const float topX = lt.topEv - logWhite;
     const float topSlope = topX > -0.7f + 0.1f ? std::max(0.0f, (topX + 0.05f - 1.0f) / (topX + 0.7f)) : 0.0f;
+    // Highlights pull as far as the scene's range needs: none for flat scenes (overcast, snow
+    // everywhere), more the further the brightest areas reach above the median.
+    // (Fitted to Lightroom like the tone curve: strength 0.29 per EV of range above ~1.6 EV.)
+    const float range = lt.topEv - lt.medianEv;
+    const float hlK = 0.291f * 0.453f * std::log1p(std::exp((range - 1.612f) / 0.453f));
+    // Shadows lift more in bright images (upper tones near white) than in dark ones.
+    const float shK = 0.994f * std::exp2(0.664f * (lt.p90Ev - logWhite + 1.5f));
     const float lw[3] = {float(color::kRec2020Luma[0]), float(color::kRec2020Luma[1]), float(color::kRec2020Luma[2])};
     // Tone position LUT over log2 luminance for weights.
     constexpr int kPos = 512;
@@ -753,17 +769,17 @@ void toneStage(ImageF& img, const LocalTone& lt, const QRectF& roi, const Develo
                 if (local) {
                     float B = sampleNormalized(lt.baseA, u, v) * L + sampleNormalized(lt.baseB, u, v);
                     float t = position(B);
-                    float ws = 1.0f - smoothstep(0.0f, 0.62f, t);
+                    float ws = 1.0f - smoothstep(0.0f, 0.779f, t);
                     float wh = smoothstep(0.38f, 1.0f, t);
-                    dL += sh * 1.7f * ws;
+                    dL += sh * shK * ws;
                     if (hl < 0) {
-                        // About an even pull from the upper midtones up, so that blown areas stay
-                        // near white and clouds keep their brightness against the sky (fitted to
-                        // Lightroom's Highlights -100: 1 EV on skies and clouds, none on grass),
+                        // About an even pull from the upper midtones up (hlK of it: about 1 EV on
+                        // skies and clouds in a high-contrast scene at -100, none on grass), so
+                        // that blown areas stay near white and clouds keep their brightness,
                         // more above the white point when the brightest areas are further up, so
                         // that they come down to just below white with their detail.
                         const float x = B - logWhite;
-                        float pull = smoothstep(-2.2f, -0.7f, x);
+                        float pull = smoothstep(-2.2f, -0.7f, x) * hlK;
                         if (x > -0.7f)
                             pull += topSlope * (x + 0.7f);
                         dL += hl * pull;
