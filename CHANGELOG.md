@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.1.1 (2026-10-15)
+
+Tone sliders that behave like Lightroom's, measured on 820 of your own photos against their
+Lightroom exports, and Lightroom panoramas that no longer come out magenta.
 
 ### Develop
 - Tone sliders recalibrated against Lightroom: the same Exposure, Contrast, Highlights,
