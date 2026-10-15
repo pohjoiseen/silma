@@ -16,7 +16,7 @@ unmodified copy from the shoot named below.
 | `merge/sequence/DSC_0010.NEF` … `DSC_0012.NEF` | 2026-08-08: handheld sequence (same as in `batch/` for `DSC_0010`) | HDR and panorama merges, merge dialog |
 | `merge/apart/DSC_0153.NEF`, `DSC_0160.NEF` | 2026-09-01: two photos that do not overlap | panorama preview refuses them |
 | `auto-tone/DSC_0251.NEF` | 2026-10-10 (Jakobstad): overcast sky, about 11% blown | auto tone hardly pulls blown skies down |
-| `auto-tone/DSC_0160.NEF` | 2026-10-10 (Jakobstad): bright, nothing clipped | auto tone: moderate highlight pull, some contrast; look table applied after highlights |
+| `auto-tone/DSC_0160.NEF` | 2026-10-10 (Jakobstad): bright, nothing clipped | auto tone: moderate highlight pull, some contrast; look table looks up brightness without most of Exposure |
 | `sunset/DSC_0076.NEF` | 2026-07-18 (Vörå): sunset with the sun in the frame, partly clipped | highlights pull keeps the glare under the sun brighter than beside it |
 | `heal/DSC_0320.NEF` | 2026-10-10 (Jakobstad): school building, a small bird against an even cloudy sky | AI heal: the fill matches the sky's colour (with the LaMa model) |
 | `dng/DSC_0785-Pano.dng` | Lightroom panorama: DNG 1.7, JPEG XL compressed linear raw with a transparency mask | JPEG XL DNG decoding |

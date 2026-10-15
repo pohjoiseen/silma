@@ -399,11 +399,11 @@ private slots:
         QVERIFY(render("Bright Look").second > mNeutral + 0.05);
     }
 
-    void lookTableAfterHighlights()
+    void lookTableBeforeExposure()
     {
-        // The look table applies after highlights/shadows (as in Lightroom): highlights pulled
-        // down from far above white get the table's colour for where they end up, not that of its
-        // top slice (applied before, a sunset's orange around the sun turned a ghostly green).
+        // The look table looks up the brightness without most of the user's Exposure (in Lightroom,
+        // Exposure rolls highlights off): brightening a photo must not move its colours into the
+        // table's slices for near-white (that turned a sunset's bright orange yellow-green).
         const QString raw = testRaw("auto-tone/DSC_0160.NEF");
         if (raw.isEmpty())
             QSKIP("test raws not available");
@@ -415,10 +415,6 @@ private slots:
         QStringList errors;
         installProfiles({dir}, &errors);
         QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
-        DevelopSettings s;
-        s.profile = "Top Grey";
-        s.exposure = 2.5;
-        const RenderRequest req{.width = 300, .height = 200};
         // Mean saturation ((max - min) / max) of the brighter pixels.
         auto saturation = [](const ImageF& img) {
             double sum = 0;
@@ -433,10 +429,19 @@ private slots:
             }
             return n ? sum / n : 0.0;
         };
-        const double before = saturation(e.renderEncoded(s, req));
-        s.highlights = -100;
-        const double pulled = saturation(e.renderEncoded(s, req));
-        QVERIFY2(pulled > before * 1.15, qPrintable(QStringLiteral("%1 -> %2").arg(before).arg(pulled)));
+        const RenderRequest req{.width = 300, .height = 200};
+        auto keptBy = [&](const QString& profile) {
+            DevelopSettings s;
+            s.profile = profile;
+            const double base = saturation(e.renderEncoded(s, req));
+            s.exposure = 2.0;
+            return saturation(e.renderEncoded(s, req)) / base;
+        };
+        const double neutral = keptBy("Neutral2"), topGrey = keptBy("Top Grey");
+        // (The look greys out gradually towards its top slice, so at Exposure 0 the brighter areas
+        // are already partly grey; with the table looking up the brightness without most of the
+        // Exposure, brightening does not grey them further: 1.34 vs 0.71, against 1.01 with it.)
+        QVERIFY2(topGrey > neutral * 1.6, qPrintable(QStringLiteral("neutral %1, top grey %2").arg(neutral).arg(topGrey)));
     }
 };
 

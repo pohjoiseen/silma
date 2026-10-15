@@ -830,6 +830,7 @@ LocalTone computeLocalTone(const ImageF& ctx, const DevelopSettings& s)
 // of the table's top slice (a ghostly green in a sunset's orange around the sun).
 void toneStage(ImageF& img, const LocalTone& lt, const QRectF& roi, const DevelopSettings& s, const ProfileTransform* look)
 {
+    const float lookIndexGain = float(std::exp2(s.exposure * 1.086 * 0.75));
     float toPP[9], fromPP[9];
     if (look) {
         const Mat3& m = color::proPhotoToRec2020();
@@ -929,7 +930,16 @@ void toneStage(ImageF& img, const LocalTone& lt, const QRectF& roi, const Develo
             }
             if (look) {
                 float q[3] = {toPP[0] * r + toPP[1] * g + toPP[2] * b, toPP[3] * r + toPP[4] * g + toPP[5] * b, toPP[6] * r + toPP[7] * g + toPP[8] * b};
+                // The table looks up the brightness without most of the user's Exposure: in
+                // Lightroom, Exposure rolls the highlights off rather than pushing them far above
+                // white, and a brightened sunset's sky used the table's slices for near-white
+                // (orange turning yellow-green). 75% fitted on 2026-07-18 sunsets; neutral on the
+                // 820 calibration photos.
+                for (float& c : q)
+                    c /= lookIndexGain;
                 look->applyLook(q);
+                for (float& c : q)
+                    c *= lookIndexGain;
                 r = std::max(0.0f, fromPP[0] * q[0] + fromPP[1] * q[1] + fromPP[2] * q[2]);
                 g = std::max(0.0f, fromPP[3] * q[0] + fromPP[4] * q[1] + fromPP[5] * q[2]);
                 b = std::max(0.0f, fromPP[6] * q[0] + fromPP[7] * q[1] + fromPP[8] * q[2]);

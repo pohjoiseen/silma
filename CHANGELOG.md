@@ -3,10 +3,10 @@
 ## Unreleased
 
 ### Develop
-- A camera profile's look table now applies after Highlights and Shadows, as in Lightroom.
-  Before, bright areas pulled down by Highlights took on the colour the table gives to
-  near-white (a sunset's orange around the sun turned a ghostly green); warm highlights pulled
-  down keep their colour now.
+- A camera profile's look table now applies after Highlights and Shadows, and looks up the
+  brightness without most of the Exposure (Lightroom's Exposure rolls highlights off). Before,
+  bright areas of a brightened sunset took on the colour the table gives to near-white (orange
+  around the sun and on cloud edges turned yellow-green); they keep their colour now.
 - Blown highlights keep the colour around them: where channels are clipped (a sun in a sunset,
   bright cloud edges in warm light), the missing channels come from the colour of the bright
   unclipped pixels nearby instead of fading to white or neutral, so a blown sun blends
