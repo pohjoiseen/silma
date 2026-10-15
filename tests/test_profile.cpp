@@ -163,6 +163,26 @@ void writeLook(const QString& path, const QString& name, const QString& base, fl
     f.write(xmp.toUtf8());
 }
 
+// A look whose table keeps colours up to mid value and greys out the brightest (top slice).
+void writeTopGreyLook(const QString& path, const QString& name, const QString& base)
+{
+    std::vector<float> entries = uniformTable(6, 4, 1, 0, 1, 1);
+    const std::vector<float> top = uniformTable(6, 4, 1, 0, 0, 1);
+    entries.insert(entries.end(), top.begin(), top.end());
+    const QString table = encodeBigTable(lookTableStream(6, 4, 2, entries));
+    const QString xmp = QStringLiteral(
+                            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n"
+                            " <rdf:Description rdf:about=\"\" xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\"\n"
+                            "   crs:PresetType=\"Look\" crs:CameraModelRestriction=\"\" crs:CameraProfile=\"%1\"\n"
+                            "   crs:LookTable=\"0123ABCE\" crs:Table_0123ABCE=\"%2\" crs:HasSettings=\"True\">\n"
+                            "  <crs:Name><rdf:Alt><rdf:li xml:lang=\"x-default\">%3</rdf:li></rdf:Alt></crs:Name>\n"
+                            " </rdf:Description></rdf:RDF></x:xmpmeta>\n")
+                            .arg(base, table.toHtmlEscaped(), name);
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write(xmp.toUtf8());
+}
+
 // Mean (max - min channel) and mean value of an encoded image.
 std::pair<double, double> chromaAndMean(const ImageF& img)
 {
@@ -377,6 +397,46 @@ private slots:
         }
         // The look's tone curve brightens the midtones.
         QVERIFY(render("Bright Look").second > mNeutral + 0.05);
+    }
+
+    void lookTableAfterHighlights()
+    {
+        // The look table applies after highlights/shadows (as in Lightroom): highlights pulled
+        // down from far above white get the table's colour for where they end up, not that of its
+        // top slice (applied before, a sunset's orange around the sun turned a ghostly green).
+        const QString raw = testRaw("auto-tone/DSC_0160.NEF");
+        if (raw.isEmpty())
+            QSKIP("test raws not available");
+        DevelopEngine e(raw, {.halfSize = true});
+        const QString dir = m_dir.filePath("cam2");
+        QDir().mkpath(dir);
+        writeDcp(dir + "/neutral2.dcp", e.raw().make + ' ' + e.raw().model, "Neutral2", 1.0f, e.raw().color.xyzToCam);
+        writeTopGreyLook(dir + "/topgrey.xmp", "Top Grey", "Neutral2");
+        QStringList errors;
+        installProfiles({dir}, &errors);
+        QVERIFY2(errors.isEmpty(), qPrintable(errors.join('\n')));
+        DevelopSettings s;
+        s.profile = "Top Grey";
+        s.exposure = 2.5;
+        const RenderRequest req{.width = 300, .height = 200};
+        // Mean saturation ((max - min) / max) of the brighter pixels.
+        auto saturation = [](const ImageF& img) {
+            double sum = 0;
+            int n = 0;
+            for (size_t i = 0; i < img.pixelCount(); ++i) {
+                const float* p = img.data.data() + i * 3;
+                const float mx = std::max({p[0], p[1], p[2]}), mn = std::min({p[0], p[1], p[2]});
+                if (mx > 0.3f) {
+                    sum += (mx - mn) / mx;
+                    ++n;
+                }
+            }
+            return n ? sum / n : 0.0;
+        };
+        const double before = saturation(e.renderEncoded(s, req));
+        s.highlights = -100;
+        const double pulled = saturation(e.renderEncoded(s, req));
+        QVERIFY2(pulled > before * 1.15, qPrintable(QStringLiteral("%1 -> %2").arg(before).arg(pulled)));
     }
 };
 

@@ -446,7 +446,7 @@ void DevelopEngine::colorStage(ImageF& img, const DevelopSettings& s, const WbVa
     // Lightroom's Exposure moves the image a little more than a plain gain would.
     double ev = s.exposure * 1.086 + m_raw->color.baselineExposure + defaultBaselineExposure(*m_raw);
     if (const ResolvedProfile prof = profile(s); prof.valid()) {
-        // DNG profile: forward matrix to ProPhoto, hue/saturation map, exposure, look tables.
+        // DNG profile: forward matrix to ProPhoto, hue/saturation map, exposure (look table: toneStage).
         const ProfileTransform pt(prof, m_raw->color, wb.mul);
         const float gain = float(std::pow(2.0, ev + pt.baselineExposureOffset()));
         float A[9], B[9];
@@ -465,7 +465,7 @@ void DevelopEngine::colorStage(ImageF& img, const DevelopSettings& s, const WbVa
                 q[0] *= gain;
                 q[1] *= gain;
                 q[2] *= gain;
-                pt.applyLook(q);
+                // (The look table comes later, in toneStage.)
                 p[0] = B[0] * q[0] + B[1] * q[1] + B[2] * q[2];
                 p[1] = B[3] * q[0] + B[4] * q[1] + B[5] * q[2];
                 p[2] = B[6] * q[0] + B[7] * q[1] + B[8] * q[2];
@@ -739,8 +739,20 @@ LocalTone computeLocalTone(const ImageF& ctx, const DevelopSettings& s)
     return lt;
 }
 
-void toneStage(ImageF& img, const LocalTone& lt, const QRectF& roi, const DevelopSettings& s)
+// `look`: the profile's look table, applied after highlights/shadows and before the curve, as
+// Lightroom does: applied before, highlights pulled down from far above white took on the colour
+// of the table's top slice (a ghostly green in a sunset's orange around the sun).
+void toneStage(ImageF& img, const LocalTone& lt, const QRectF& roi, const DevelopSettings& s, const ProfileTransform* look)
 {
+    float toPP[9], fromPP[9];
+    if (look) {
+        const Mat3& m = color::proPhotoToRec2020();
+        const Mat3 mi = matInverse(m);
+        for (int i = 0; i < 9; ++i) {
+            fromPP[i] = float(m[i / 3][i % 3]);
+            toPP[i] = float(mi[i / 3][i % 3]);
+        }
+    }
     const ToneCurve curve(s);
     const float logWhite = float(std::log2(curve.whitePoint()));
     const bool local = !lt.baseA.empty(), clar = !lt.clarA.empty();
@@ -808,6 +820,13 @@ void toneStage(ImageF& img, const LocalTone& lt, const QRectF& roi, const Develo
                 r *= k;
                 g *= k;
                 b *= k;
+            }
+            if (look) {
+                float q[3] = {toPP[0] * r + toPP[1] * g + toPP[2] * b, toPP[3] * r + toPP[4] * g + toPP[5] * b, toPP[6] * r + toPP[7] * g + toPP[8] * b};
+                look->applyLook(q);
+                r = std::max(0.0f, fromPP[0] * q[0] + fromPP[1] * q[1] + fromPP[2] * q[2]);
+                g = std::max(0.0f, fromPP[3] * q[0] + fromPP[4] * q[1] + fromPP[5] * q[2]);
+                b = std::max(0.0f, fromPP[6] * q[0] + fromPP[7] * q[1] + fromPP[8] * q[2]);
             }
             // Per-channel curve, then restore the hue of the input (mid channel ratio).
             float in[3] = {r, g, b};
@@ -1053,8 +1072,11 @@ ImageF DevelopEngine::renderEncoded(const DevelopSettings& s, const RenderReques
     LocalTone lt;
     if (localTone)
         lt = computeLocalTone(ctx, s);
-    toneStage(img, lt, req.roi, s);
     const ResolvedProfile prof = profile(s);
+    std::optional<ProfileTransform> pt;
+    if (prof.valid())
+        pt.emplace(prof, m_raw->color, wb.mul);
+    toneStage(img, lt, req.roi, s, pt ? &*pt : nullptr);
     presenceStage(img, s, prof.valid() ? 1.0f : kBaseChroma);
     outputStage(img, s, prof.look ? prof.look->toneCurve : CurvePoints{});
     sharpenStage(img, s, 1.0 / pxPer);

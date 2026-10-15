@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Develop
+- A camera profile's look table now applies after Highlights and Shadows, as in Lightroom.
+  Before, bright areas pulled down by Highlights took on the colour the table gives to
+  near-white (a sunset's orange around the sun turned a ghostly green); warm highlights pulled
+  down keep their colour now.
+
 ## 1.1.1 (2026-10-15)
 
 Tone sliders that behave like Lightroom's, measured on 820 of your own photos against their
