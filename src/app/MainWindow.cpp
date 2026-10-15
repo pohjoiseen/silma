@@ -122,6 +122,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
 
     m_model = new PhotoListModel(this);
     m_model->setBatch(&m_batch);
+    // The place in the filmstrip changes when photos come or go.
+    connect(m_model, &QAbstractItemModel::modelReset, this, &MainWindow::updateStatusText);
+    connect(m_model, &QAbstractItemModel::layoutChanged, this, &MainWindow::updateStatusText);
+    connect(m_model, &QAbstractItemModel::rowsInserted, this, &MainWindow::updateStatusText);
+    connect(m_model, &QAbstractItemModel::rowsRemoved, this, &MainWindow::updateStatusText);
     createDocks();
     createActions();
 
@@ -184,6 +189,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
             m_pane->update();
     });
     m_status = new QLabel(this);
+    m_status->setObjectName(QStringLiteral("photoStatus"));
     statusBar()->addPermanentWidget(m_status);
 
     connect(&m_engines, &EngineCache::engineReady, this, &MainWindow::onEngineReady);
@@ -777,7 +783,7 @@ void MainWindow::showCurrentPhoto()
     m_panel->setEnabled(true);
     m_panel->setSettings(m_settings);
     m_panel->setPhotoInfo(QStringLiteral("ISO %1   %2 mm   f/%3   %4").arg(p.iso).arg(p.focalLength).arg(p.fNumber).arg(exposureText(p.exposureTime)));
-    m_status->setText(QStringLiteral("%1   %2   %3").arg(p.fileName, p.captureTime.toString(QStringLiteral("yyyy-MM-dd HH:mm")), (p.make + ' ' + p.model).trimmed()));
+    updateStatusText();
     reloadHistory();
     auto engine = m_engines.get(p.path);
     QImage thumb;
@@ -795,6 +801,19 @@ void MainWindow::showCurrentPhoto()
         m_panel->setProfiles(engine->profileChoices());
     }
     updatePanes();
+}
+
+// Status bar: the photo's place in the filmstrip (e.g. 42/275), file name, capture time, camera.
+void MainWindow::updateStatusText()
+{
+    if (!m_photo) {
+        m_status->clear();
+        return;
+    }
+    const PhotoInfo& p = *m_photo;
+    const int row = m_model->rowOf(p.id);
+    const QString place = row >= 0 ? QStringLiteral("%1/%2   ").arg(row + 1).arg(m_model->rowCount()) : QString();
+    m_status->setText(place + QStringLiteral("%1   %2   %3").arg(p.fileName, p.captureTime.toString(QStringLiteral("yyyy-MM-dd HH:mm")), (p.make + ' ' + p.model).trimmed()));
 }
 
 void MainWindow::installCameraProfiles()

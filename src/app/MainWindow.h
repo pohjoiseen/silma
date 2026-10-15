@@ -114,6 +114,7 @@ private:
     void selectImport(std::optional<qint64> importId, bool all, qint64 preferredPhoto = 0);
     void selectPhoto(qint64 id);
     void showCurrentPhoto();
+    void updateStatusText();
     void navigate(int delta);
     void updateTitle();
     void updateRecentMenu();

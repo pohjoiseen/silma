@@ -7,6 +7,7 @@
 #include "Widgets.h"
 #include "TaskbarProgress.h"
 #include "TestRaws.h"
+#include <QLabel>
 #include <QProgressDialog>
 #include <QThread>
 #include "HealTool.h"
@@ -275,6 +276,22 @@ private slots:
         // Shift+click still selects a range.
         QTest::mouseClick(strip->viewport(), Qt::LeftButton, Qt::ShiftModifier, b);
         QCOMPARE(strip->selectionModel()->selectedIndexes().size(), 3);
+    }
+
+    void statusShowsPlaceInFilmstrip()
+    {
+        MainWindow w;
+        w.resize(1400, 900);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QVERIFY(w.openBatch(freshBatch("statusShowsPlaceInFilmstrip", 5)));
+        auto* strip = w.findChild<Filmstrip*>();
+        auto* status = w.findChild<QLabel*>(QStringLiteral("photoStatus"));
+        QVERIFY(status);
+        strip->setCurrentIndex(strip->model()->index(2, 0));
+        QTRY_VERIFY2(status->text().startsWith(QStringLiteral("3/5 ")), qPrintable(status->text()));
+        strip->setCurrentIndex(strip->model()->index(4, 0));
+        QTRY_VERIFY2(status->text().startsWith(QStringLiteral("5/5 ")), qPrintable(status->text()));
     }
 
     void filmstripDoesNotJumpOnClick()

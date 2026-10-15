@@ -14,6 +14,9 @@
 - Auto tone gives about the same result as before with the recalibrated sliders (its slider
   values differ: e.g. stronger Highlights on flat scenes, where the slider now does less).
 
+### Interface
+- The status bar shows the photo's place in the filmstrip, e.g. 42/275.
+
 ### Fixes
 - Lightroom panoramas (and other merged DNGs) that Lightroom stores scaled per channel no
   longer come out magenta or green: the DNG's MapPolynomial opcodes are applied.
