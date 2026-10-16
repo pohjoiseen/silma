@@ -22,6 +22,11 @@
   colour (worse the higher the Exposure), and at +30 to +50 skies and snow came out blown and
   bluish with a dark ring around trees. Positive Whites now brighten the upper tones smoothly,
   measured against Lightroom on the photos that use it.
+- Clipped highlights get a better colour: a blown part of a blue sky (where only some channels
+  clipped) is rebuilt blue instead of a flat grey-white patch, and the colour of a blown area
+  now comes only from the bright pixels right around it, so a bit of sky between leaves or next
+  to a roof no longer turns cyan or green, thin things in a blown sky get no coloured halo, and a
+  sun blown through haze stays white instead of glowing pink. Sunsets keep their glare colour.
 - Blue skies are no longer more saturated than in Lightroom: with a camera profile (Adobe
   Color, Standard, Landscape), blues and purples lose some saturation the brighter they are,
   as Lightroom renders them. Clear skies come out within about 1% of Lightroom (were about 10%

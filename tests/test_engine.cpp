@@ -617,6 +617,57 @@ private slots:
             QVERIFY2(std::abs(diff[k] / n) < 3, qPrintable(QStringLiteral("channel %1 off by %2 levels").arg(k).arg(diff[k] / n)));
     }
 
+    void clippedSkyStaysBlue()
+    {
+        // Green and blue clipped in a blue sky near the sun, red not: rebuilt from red with the
+        // colour of the sky around it (it came out a flat grey-white patch, with a cyan edge).
+        const QString raw = testRaw("highlights/DSC_0775.NEF");
+        if (raw.isEmpty())
+            QSKIP("test raws not available");
+        DevelopEngine e(raw, {.halfSize = true});
+        DevelopSettings s;
+        s.exposure = -1.07;
+        s.highlights = -94;
+        s.shadows = 100;
+        const ImageF img = e.renderEncoded(s, {.width = 600, .height = 400});
+        double sum[3] = {};
+        int n = 0;
+        for (int y = int(img.height * 0.05); y < int(img.height * 0.30); ++y)
+            for (int x = int(img.width * 0.66); x < int(img.width * 0.84); ++x, ++n)
+                for (int c = 0; c < 3; ++c)
+                    sum[c] += img.px(x, y)[c];
+        const double r = sum[0] / n, b = sum[2] / n;
+        QVERIFY2(b > r + 0.08, qPrintable(QStringLiteral("clipped sky r %1 b %2").arg(r).arg(b)));
+    }
+
+    void blownHazeNotPink()
+    {
+        // The sun blown through haze behind trees (green clips first on this sensor): the blown
+        // area stays neutral, not pink.
+        const QString raw = testRaw("highlights/DSC_0789.NEF");
+        if (raw.isEmpty())
+            QSKIP("test raws not available");
+        DevelopEngine e(raw, {.halfSize = true});
+        DevelopSettings s;
+        s.exposure = -0.21;
+        s.highlights = -94;
+        s.shadows = 78;
+        const ImageF img = e.renderEncoded(s, {.width = 600, .height = 400});
+        double sum[3] = {};
+        int n = 0;
+        for (size_t i = 0; i < img.pixelCount(); ++i) {
+            const float* p = img.data.data() + i * 3;
+            if (0.2126f * p[0] + 0.7152f * p[1] + 0.0722f * p[2] < 0.8f)
+                continue;
+            for (int c = 0; c < 3; ++c)
+                sum[c] += p[c];
+            ++n;
+        }
+        QVERIFY(n > 200);
+        const double g = sum[1] / n, magenta = (sum[0] + sum[2]) / (2 * n) - g;
+        QVERIFY2(magenta < 0.025, qPrintable(QStringLiteral("bright areas: magenta %1 (%2 px)").arg(magenta).arg(n)));
+    }
+
     void whitesNeverDarken()
     {
         // Strong Whites with a brightened photo: every pixel at least as bright as with Whites 0

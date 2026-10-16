@@ -435,51 +435,103 @@ void DevelopEngine::colorStage(ImageF& img, const DevelopSettings& s, const WbVa
     }
     const float maxClip = std::max({clipWb[0], clipWb[1], clipWb[2]});
 
-    // The colour of clipped highlights, from bright unclipped pixels around them (a sunset's glare
-    // around a blown sun): chromaticity (channels summing to 1) of the white-balanced image,
-    // averaged with weights favouring the brightest unclipped pixels, locally where there are
-    // enough of them and from further away where not; with a confidence.
+    // The colour of clipped highlights, from the bright unclipped pixels right around them (a
+    // sunset's glare around a blown sun, the sky next to a blown part of it): per connected clipped
+    // area, one chromaticity (channels summing to 1, white-balanced) from a thin ring of unclipped
+    // pixels around it, weighted towards the brightest; with a confidence from how bright that
+    // ring is (a blown overcast sky bordered by dark trees stays neutral). One colour per area: from
+    // whatever is nearest, thin dark things inside a blown sky (an antenna) made blotches of their
+    // own colour, and bright walls next to it tinted it.
     PlaneF chr[3], conf;
     bool anyClipped = false;
     for (size_t i = 0; i < cam.pixelCount() && !anyClipped; ++i)
         for (int c = 0; c < 3; ++c)
             anyClipped |= cam.data[i * 3 + c] > clipLo[c];
     if (anyClipped) {
-        PlaneF wr(cam.width, cam.height), wc[3] = {wr, wr, wr};
-        for (size_t i = 0; i < cam.pixelCount(); ++i) {
+        const int W = cam.width, H = cam.height;
+        const size_t N = cam.pixelCount();
+        auto isClipped = [&](size_t i) {
             const float* p = cam.data.data() + i * 3;
+            return p[0] > clipLo[0] || p[1] > clipLo[1] || p[2] > clipLo[2];
+        };
+        // Connected clipped areas (8-neighbour), then every pixel labelled with the nearest area
+        // (breadth-first from all of them at once), with its distance.
+        std::vector<int> label(N, -1), dist(N, -1);
+        std::vector<int> queue;
+        queue.reserve(N);
+        int areas = 0;
+        for (size_t i0 = 0; i0 < N; ++i0) {
+            if (label[i0] >= 0 || !isClipped(i0))
+                continue;
+            const size_t q0 = queue.size();
+            queue.push_back(int(i0));
+            label[i0] = areas;
+            dist[i0] = 0;
+            for (size_t q = q0; q < queue.size(); ++q) {
+                const int x = queue[q] % W, y = queue[q] / W;
+                for (int dy = -1; dy <= 1; ++dy)
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        const int nx = x + dx, ny = y + dy;
+                        if (nx < 0 || ny < 0 || nx >= W || ny >= H)
+                            continue;
+                        const size_t j = size_t(ny) * W + nx;
+                        if (label[j] < 0 && isClipped(j)) {
+                            label[j] = areas;
+                            dist[j] = 0;
+                            queue.push_back(int(j));
+                        }
+                    }
+            }
+            ++areas;
+        }
+        for (size_t q = 0; q < queue.size(); ++q) {
+            const int x = queue[q] % W, y = queue[q] / W;
+            const int nbr[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+            for (const auto& d : nbr) {
+                const int nx = x + d[0], ny = y + d[1];
+                if (nx < 0 || ny < 0 || nx >= W || ny >= H)
+                    continue;
+                const size_t j = size_t(ny) * W + nx;
+                if (dist[j] < 0) {
+                    dist[j] = dist[queue[q]] + 1;
+                    label[j] = label[queue[q]];
+                    queue.push_back(int(j));
+                }
+            }
+        }
+        // The ring: unclipped pixels within about 0.5% of the long edge of an area. Only those
+        // close to clipping themselves count (lit by the same light: the sky next to a blown part
+        // of it, snow next to blown snow, a sunset's glare), the brightest most; leaves around a
+        // bit of blown sky between them tinted it green.
+        const int ring = std::max(2, int(std::max(W, H) * 0.005f));
+        std::vector<double> sw(areas, 0.0), sc(size_t(areas) * 3, 0.0);
+        std::vector<int> count(areas, 0);
+        for (size_t i = 0; i < N; ++i) {
+            if (dist[i] < 1 || dist[i] > ring)
+                continue;
+            const int a = label[i];
+            ++count[a];
+            const float* p = cam.data.data() + i * 3;
+            const float level = std::max({p[0] / float(applied[0]), p[1] / float(applied[1]), p[2] / float(applied[2])});
             const float v[3] = {p[0] * ratio[0], p[1] * ratio[1], p[2] * ratio[2]};
             const float sum = v[0] + v[1] + v[2];
-            const bool clipped = p[0] > clipLo[0] || p[1] > clipLo[1] || p[2] > clipLo[2];
-            const float w = clipped || sum <= 0 ? 0.0f : std::pow(std::max(v[0], std::max(v[1], v[2])) / maxClip, 2.0f);
-            wr.data[i] = w;
+            if (level < 0.6f || sum <= 0)
+                continue;
+            const double w = std::pow((level - 0.6f) / 0.3f, 2.0f);
+            sw[a] += w;
             for (int c = 0; c < 3; ++c)
-                wc[c].data[i] = w * (sum > 0 ? v[c] / sum : 0.0f);
+                sc[size_t(a) * 3 + c] += w * v[c] / sum;
         }
-        const float edge = float(std::max(cam.width, cam.height));
-        PlaneF num[3], den(cam.width, cam.height);
+        conf = PlaneF(W, H);
         for (int c = 0; c < 3; ++c)
-            num[c] = PlaneF(cam.width, cam.height);
-        float scaleWeight = 1;
-        for (float sigma : {0.01f, 0.04f, 0.15f}) {
-            const PlaneF d = gaussianBlur(wr, sigma * edge);
-            for (size_t i = 0; i < den.data.size(); ++i)
-                den.data[i] += scaleWeight * d.data[i];
-            for (int c = 0; c < 3; ++c) {
-                const PlaneF n = gaussianBlur(wc[c], sigma * edge);
-                for (size_t i = 0; i < den.data.size(); ++i)
-                    num[c].data[i] += scaleWeight * n.data[i];
-            }
-            scaleWeight *= 0.1f;
-        }
-        conf = PlaneF(cam.width, cam.height);
-        for (int c = 0; c < 3; ++c)
-            chr[c] = PlaneF(cam.width, cam.height);
-        for (size_t i = 0; i < den.data.size(); ++i) {
-            const float d = den.data[i];
-            conf.data[i] = smoothstep(0.0f, 0.02f, d);
+            chr[c] = PlaneF(W, H);
+        for (size_t i = 0; i < N; ++i) {
+            const int a = label[i];
+            const bool ok = a >= 0 && sw[a] > 1e-9;
+            // Confident when a good part of the ring is that bright.
+            conf.data[i] = ok ? smoothstep(0.03f, 0.15f, float(sw[a] / count[a])) : 0.0f;
             for (int c = 0; c < 3; ++c)
-                chr[c].data[i] = d > 1e-9f ? num[c].data[i] / d : 1.0f / 3;
+                chr[c].data[i] = ok ? float(sc[size_t(a) * 3 + c] / sw[a]) : 1.0f / 3;
         }
     }
 
@@ -507,7 +559,7 @@ void DevelopEngine::colorStage(ImageF& img, const DevelopSettings& s, const WbVa
             float neutral[3];
             for (int c = 0; c < 3; ++c)
                 neutral[c] = v[c] + most * (mean - v[c]);
-            const float k = conf.empty() ? 0.0f : sampleNormalized(conf, u, vv);
+            float k = conf.empty() ? 0.0f : sampleNormalized(conf, u, vv);
             if (k > 0) {
                 // With colour around: the clipped channels from that colour, scaled to the
                 // unclipped ones, and never below their clip level; where all are clipped, the
@@ -515,6 +567,12 @@ void DevelopEngine::colorStage(ImageF& img, const DevelopSettings& s, const WbVa
                 // brighter than about twice the highest clip level goes towards white).
                 const float h[3] = {std::max(sampleNormalized(chr[0], u, vv), 1e-4f), std::max(sampleNormalized(chr[1], u, vv), 1e-4f),
                                     std::max(sampleNormalized(chr[2], u, vv), 1e-4f)};
+                // Where all channels are clipped, only a clear colour around carries over (a sunset's
+                // glare, a blue sky); a nearly neutral one (hazy light around a sun behind trees) is
+                // too unsure, and the area goes to white: its faint tint turned pink once Highlights
+                // pulled it down. Where some channel is unclipped, the colour is anchored to it.
+                const float hMax = std::max({h[0], h[1], h[2]}), hSat = (hMax - std::min({h[0], h[1], h[2]})) / hMax;
+                k *= 1.0f - all * (1.0f - smoothstep(0.15f, 0.35f, hSat));
                 float kn = 0, kh = 0, lb = 0;
                 for (int c = 0; c < 3; ++c) {
                     kn += (1 - w[c]) * orig[c];
