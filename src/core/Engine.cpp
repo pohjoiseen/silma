@@ -904,6 +904,10 @@ void toneStage(ImageF& img, const LocalTone& lt, const QRectF& roi, const Develo
                 float dL = 0;
                 if (local) {
                     float B = sampleNormalized(lt.baseA, u, v) * L + sampleNormalized(lt.baseB, u, v);
+                    // No more than 0.5 EV below the pixel itself: next to thin dark structures (branches
+                    // against a bright sky) the base is darker than the sky, which then got lifted and
+                    // pulled less as if in shadow, a bright halo around the branches.
+                    B = std::max(B, L - 0.5f);
                     float t = position(B);
                     float ws = 1.0f - smoothstep(0.0f, 0.779f, t);
                     float wh = smoothstep(0.38f, 1.0f, t);

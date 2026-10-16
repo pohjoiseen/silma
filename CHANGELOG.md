@@ -16,6 +16,8 @@
   light no longer pulls down its surroundings.
 - Highlights keeps sun rays crisp: they no longer merge with the field between them into an
   orange glow.
+- Less of a bright halo around dark branches against a bright sky with strong Shadows and
+  Highlights.
 
 ## 1.1.1 (2026-10-15)
 
