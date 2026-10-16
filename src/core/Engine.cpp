@@ -34,8 +34,16 @@ public:
         // Constants fitted to Lightroom renders of the same raws with the same slider values
         // (820 photos from six shoots, 2026-10-15).
         double c = 1.346 * std::pow(2.0, s.contrast / 100.0 * 0.936);
-        double whiteEv = 2.626 - s.whites / 100.0 * 2.75;
+        // Negative Whites move the white point up. Positive Whites brighten the upper tones with a
+        // smooth gain instead (the white point coming down as far as the gain reaches): moving the
+        // white point down towards middle grey broke this curve from about +35 on (bright areas
+        // turned black). Fitted 2026-10-16 on the 28 calibration photos with positive Whites: 1.08
+        // EV at +100, from 2.6 EV below middle grey up.
+        double whiteEv = 2.626 - std::min(s.whites, 0.0) / 100.0 * 2.75;
         m_white = kGrey * std::pow(2.0, whiteEv);
+        const double logWhite = std::log2(m_white), gain = std::max(s.whites, 0.0) / 100.0 * 1.08;
+        const double rampLo = std::log2(double(kGrey)) - 2.6, rampHi = std::max(logWhite - gain, rampLo + 0.5);
+        auto lift = [&](double ev) { return ev + gain * double(smoothstep(float(rampLo), float(rampHi), float(ev))); };
         double blackOff = -s.blacks / 100.0 * 0.006;
         const double gOut = 0.18; // middle grey stays middle grey (sRGB ~118)
         double a = std::pow(double(kGrey), c), b = std::pow(m_white, c);
@@ -46,14 +54,23 @@ public:
         };
         double fw = f(m_white);
         m_lut.resize(kSize);
+        double effWhite = 0, prevEv = 0, prevLifted = 0;
         for (int i = 0; i < kSize; ++i) {
             double ev = kMinEv + (kMaxEv - kMinEv) * i / (kSize - 1);
-            double x = std::pow(2.0, ev);
+            const double lifted = lift(ev);
+            if (effWhite == 0 && lifted >= logWhite)
+                effWhite = i == 0 ? ev : prevEv + (logWhite - prevLifted) / (lifted - prevLifted) * (ev - prevEv);
+            prevEv = ev;
+            prevLifted = lifted;
+            double x = std::pow(2.0, lifted);
             // Black point shift keeps the white point fixed.
             double xb = (x - blackOff) / (1 - blackOff / m_white);
             m_lut[i] = float(std::clamp(f(xb) / fw, 0.0, 1.0));
         }
         m_zero = float(std::clamp(f(-blackOff / (1 - blackOff / m_white)) / fw, 0.0, 1.0));
+        // Where the output reaches white (what Highlights pulls the brightest areas below).
+        if (gain > 0)
+            m_white = std::pow(2.0, effWhite);
     }
 
     float operator()(float x) const
@@ -1364,7 +1381,9 @@ DevelopSettings DevelopEngine::autoTone(const DevelopSettings& in) const
     const double ev = s.exposure; // what the old Exposure did
     s.exposure = std::round(ev / 1.086 * 20) / 20;
     s.contrast = std::round(std::clamp((0.6 * s.contrast + 100.0 * std::log2(1.4 / 1.346)) / 0.936, -100.0, 100.0));
-    s.whites = std::round(std::clamp((0.126 + s.whites * 0.0125) / 0.0275, -100.0, 100.0));
+    // (White point shift in EV; positive Whites lower it by 1.08 EV per 100, negative raise it by 2.75.)
+    const double whiteShift = 0.126 + s.whites * 0.0125;
+    s.whites = std::round(std::clamp(whiteShift / (whiteShift > 0 ? 0.0108 : 0.0275), -100.0, 100.0));
     const float logWhite = float(std::log2(ToneCurve(s).whitePoint()));
     const double hlK = highlightStrength(float(pct(0.999)), float(pct(0.5)));
     const double shK = shadowStrength(float(pct(0.90) + ev), logWhite);

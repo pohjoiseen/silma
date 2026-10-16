@@ -617,6 +617,32 @@ private slots:
             QVERIFY2(std::abs(diff[k] / n) < 3, qPrintable(QStringLiteral("channel %1 off by %2 levels").arg(k).arg(diff[k] / n)));
     }
 
+    void whitesNeverDarken()
+    {
+        // Strong Whites with a brightened photo: every pixel at least as bright as with Whites 0
+        // (from about +35 on, the tone curve used to break and turn bright areas black).
+        const QString raw = testRaw("auto-tone/DSC_0160.NEF");
+        if (raw.isEmpty())
+            QSKIP("test raws not available");
+        DevelopEngine e(raw, {.halfSize = true});
+        DevelopSettings s;
+        s.exposure = 2.0;
+        const RenderRequest req{.width = 300, .height = 200};
+        const ImageF base = e.renderEncoded(s, req);
+        for (double whites : {40.0, 70.0, 100.0}) {
+            s.whites = whites;
+            const ImageF img = e.renderEncoded(s, req);
+            int darker = 0;
+            for (size_t i = 0; i < img.pixelCount(); ++i) {
+                const float* p = img.data.data() + i * 3;
+                const float* q = base.data.data() + i * 3;
+                if (p[0] + p[1] + p[2] < q[0] + q[1] + q[2] - 0.03f)
+                    ++darker;
+            }
+            QVERIFY2(darker < int(img.pixelCount() / 1000), qPrintable(QStringLiteral("Whites %1: %2 pixels darker").arg(whites).arg(darker)));
+        }
+    }
+
     void profileBlueChromaOnlyBrightBlues()
     {
         // With a camera profile, bright blue sky loses some saturation (as in Lightroom); dark
