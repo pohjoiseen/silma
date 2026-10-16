@@ -99,11 +99,13 @@ private:
 
 // Highlights pull as far as the scene's range needs: none for flat scenes (overcast, snow
 // everywhere), more the further the brightest areas (topEv) reach above the median.
-// Fitted to Lightroom like the tone curve: 0.29 per EV of range above about 1.6 EV.
+// Fitted to Lightroom like the tone curve: 0.24 per EV of range above about 1.55 EV, at most
+// 1.1 (a sun in the frame made the range so large that the pull darkened the sunset's glare
+// beyond Lightroom's).
 float highlightStrength(float topEv, float medianEv)
 {
     const float range = topEv - medianEv;
-    return 0.291f * 0.453f * std::log1p(std::exp((range - 1.612f) / 0.453f));
+    return std::min(1.105f, 0.241f * 0.453f * std::log1p(std::exp((range - 1.554f) / 0.453f)));
 }
 
 // Shadows lift more in bright images (upper tones near white) than in dark ones.
@@ -956,7 +958,7 @@ void toneStage(ImageF& img, const LocalTone& lt, const QRectF& roi, const Develo
         const float hlv = float(s.highlights / 100.0);
         for (int i = 0; i < kPullN; ++i) {
             const float x = kPullMin + i * kPullStep;
-            float pull = smoothstep(-2.2f, -0.7f, x) * hlK;
+            float pull = smoothstep(-3.05f, -0.7f, x) * hlK;
             if (x > -0.7f)
                 pull += topSlope * (x + 0.7f);
             pullLut[i] = hlv * pull;

@@ -22,6 +22,10 @@
   colour (worse the higher the Exposure), and at +30 to +50 skies and snow came out blown and
   bluish with a dark ring around trees. Positive Whites now brighten the upper tones smoothly,
   measured against Lightroom on the photos that use it.
+- Highlights reaches further down, into the upper midtones (from about 3 EV below white instead
+  of 2.2): sunlit walls and faces in contrasty sunny scenes come down as in Lightroom instead
+  of staying bright and flat. Its strength levels off for scenes with a huge range (the sun in
+  the frame), so sunsets keep their glare as bright as in Lightroom.
 - Previews rendered smaller than the photo (and `silma render`) no longer show coloured moire
   on fine patterns such as rods, fences or fabric, and are a little sharper: they are now
   downscaled with Lanczos instead of sampling a larger pyramid level directly. Exports were not
