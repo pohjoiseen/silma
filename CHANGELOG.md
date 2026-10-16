@@ -14,6 +14,8 @@
 - Highlights no longer turns very bright areas darker than slightly less bright ones next to
   them (a dark star around the sun in sunsets with strong Highlights), and a small, far brighter
   light no longer pulls down its surroundings.
+- Highlights keeps sun rays crisp: they no longer merge with the field between them into an
+  orange glow.
 
 ## 1.1.1 (2026-10-15)
 

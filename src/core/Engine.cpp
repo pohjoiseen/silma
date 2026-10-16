@@ -813,12 +813,15 @@ LocalTone computeLocalTone(const ImageF& ctx, const DevelopSettings& s)
     int longEdge = std::max(ctx.width, ctx.height);
     if (s.highlights != 0 || s.shadows != 0) {
         // The base layer from luminance capped 1 EV above white: a small, far brighter light (the
-        // sun) would otherwise raise its surroundings' base and pull them down with it.
+        // sun) would otherwise raise its surroundings' base and pull them down with it. Not too
+        // edge-aware (eps 1.0): with 0.30, sun rays counted as bright areas of their own and were
+        // pulled down more than the field between them, merging into an orange glow (Lightroom
+        // keeps them crisp); 1% further from Lightroom on the 820 calibration photos.
         PlaneF Lc = L;
         const float cap = float(std::log2(ToneCurve(s).whitePoint())) + 1.0f;
         for (float& x : Lc.data)
             x = std::min(x, cap);
-        guidedFilterCoefficients(Lc, std::max(2, int(longEdge * 0.035)), 0.30f, lt.baseA, lt.baseB);
+        guidedFilterCoefficients(Lc, std::max(2, int(longEdge * 0.035)), 1.0f, lt.baseA, lt.baseB);
     }
     if (s.clarity != 0)
         guidedFilterCoefficients(L, std::max(1, int(longEdge * 0.012)), 0.06f, lt.clarA, lt.clarB);
