@@ -617,6 +617,24 @@ private slots:
             QVERIFY2(std::abs(diff[k] / n) < 3, qPrintable(QStringLiteral("channel %1 off by %2 levels").arg(k).arg(diff[k] / n)));
     }
 
+    void profileBlueChromaOnlyBrightBlues()
+    {
+        // With a camera profile, bright blue sky loses some saturation (as in Lightroom); dark
+        // blue, and greens and oranges at any brightness, keep theirs.
+        auto factor = [](float r, float g, float b, float ev) {
+            const float rgb[3] = {r, g, b};
+            float lab[3];
+            rec2020ToOklab(rgb, lab);
+            return profileBlueChroma(lab, ev);
+        };
+        const float sky = factor(0.25f, 0.4f, 0.8f, -0.5f);
+        QVERIFY2(sky > 0.75f && sky < 0.9f, qPrintable(QString::number(sky)));
+        QVERIFY(factor(0.25f, 0.4f, 0.8f, -6.0f) > 0.999f);
+        QVERIFY(factor(0.25f, 0.4f, 0.8f, -2.5f) > sky);
+        QVERIFY(factor(0.2f, 0.5f, 0.1f, -0.5f) > 0.99f);
+        QVERIFY(factor(0.8f, 0.4f, 0.1f, -0.5f) > 0.99f);
+    }
+
     void sunsetGlareStaysBrighter()
     {
         // A sunset with the sun in the frame, pulled hard (Lightroom-like settings of 2026-07-18

@@ -18,6 +18,11 @@
   orange glow.
 - Less of a bright halo around dark branches against a bright sky with strong Shadows and
   Highlights.
+- Blue skies are no longer more saturated than in Lightroom: with a camera profile (Adobe
+  Color, Standard, Landscape), blues and purples lose some saturation the brighter they are,
+  as Lightroom renders them. Clear skies come out within about 1% of Lightroom (were about 10%
+  more saturated, bright ones up to 30%), and overcast skies and snow lose the blue-grey cast
+  they had. Other colours are unchanged.
 
 ## 1.1.1 (2026-10-15)
 

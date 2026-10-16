@@ -828,6 +828,24 @@ LocalTone computeLocalTone(const ImageF& ctx, const DevelopSettings& s)
     return lt;
 }
 
+} // namespace
+
+float profileBlueChroma(const float* oklab, float evFromWhite)
+{
+    // With a camera profile, blues and purples are less saturated the brighter they are (by up to
+    // 25% at white), as Lightroom renders them with the same profile: blue skies were about 10%
+    // more saturated than in Lightroom (bright ones up to 30%), and overcast skies and snow took
+    // on a blue-grey cast. Fitted on the 820 calibration photos (2026-10-16); other colours keep
+    // their saturation.
+    constexpr float kAmount = 0.25f, kHue = float(-70.0 * M_PI / 180), kWidth = float(59.0 * M_PI / 180);
+    if (std::hypot(oklab[1], oklab[2]) < 1e-6f)
+        return 1.0f;
+    const float dh = std::remainder(std::atan2(oklab[2], oklab[1]) - kHue, 2.0f * float(M_PI));
+    return 1.0f - kAmount * std::exp(-(dh * dh) / (kWidth * kWidth)) * smoothstep(-5.25f, 0.15f, evFromWhite);
+}
+
+namespace {
+
 // `look`: the profile's look table, applied after highlights/shadows and before the curve, as
 // Lightroom does: applied before, highlights pulled down from far above white took on the colour
 // of the table's top slice (a ghostly green in a sunset's orange around the sun).
@@ -950,6 +968,20 @@ void toneStage(ImageF& img, const LocalTone& lt, const QRectF& roi, const Develo
                 r = std::max(0.0f, fromPP[0] * q[0] + fromPP[1] * q[1] + fromPP[2] * q[2]);
                 g = std::max(0.0f, fromPP[3] * q[0] + fromPP[4] * q[1] + fromPP[5] * q[2]);
                 b = std::max(0.0f, fromPP[6] * q[0] + fromPP[7] * q[1] + fromPP[8] * q[2]);
+            }
+            if (look) {
+                // Brighter blues less saturated, as Lightroom renders them (profileBlueChroma).
+                float rgb[3] = {r, g, b}, lab[3];
+                rec2020ToOklab(rgb, lab);
+                const float k = profileBlueChroma(lab, std::log2(std::max(lw[0] * r + lw[1] * g + lw[2] * b, 1e-8f)) - logWhite);
+                if (k < 1.0f) {
+                    lab[1] *= k;
+                    lab[2] *= k;
+                    oklabToRec2020(lab, rgb);
+                    r = std::max(rgb[0], 0.0f);
+                    g = std::max(rgb[1], 0.0f);
+                    b = std::max(rgb[2], 0.0f);
+                }
             }
             // Per-channel curve, then restore the hue of the input (mid channel ratio).
             float in[3] = {r, g, b};

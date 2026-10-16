@@ -147,6 +147,11 @@ double defaultBaselineExposure(const RawImage& raw);
 // data that default settings render back unchanged.
 void undoDefaultLook(ImageF& displayLinear);
 
+// Chroma factor for a colour (Oklab) rendered with a camera profile, `evFromWhite` its luminance
+// relative to the tone curve's white point (EV): below 1 for blues and purples, more so the
+// brighter they are.
+float profileBlueChroma(const float* oklab, float evFromWhite);
+
 // Converts encoded float sRGB to an 8-bit QImage (RGB888) and fills a histogram.
 QImage toQImage(const ImageF& encoded, Histogram* hist = nullptr);
 
