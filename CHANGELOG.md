@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.1.2 (2026-10-16)
+
+Highlights, Whites and blue skies closer to Lightroom, checked side by side on all 820
+calibration photos: blown highlights keep their colour, sunsets keep their glare, strong Whites
+no longer break the picture, and previews have no coloured moire.
 
 ### Develop
 - A camera profile's look table now applies after Highlights and Shadows, and looks up the
