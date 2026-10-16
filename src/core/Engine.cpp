@@ -1278,11 +1278,18 @@ ImageF DevelopEngine::renderEncoded(const DevelopSettings& s, const RenderReques
     WarpOptions wo;
     wo.roi = req.roi;
     wo.bicubic = req.highQuality;
+    // Sampled at about the level's own resolution and Lanczos-downscaled to the output size:
+    // sampling a level up to twice as large as the output directly skipped pixels, and fine
+    // patterns (rods, fabric, fences) turned into coloured moire.
+    const double levelPxPer = pxPer / std::exp2(lvl);
+    const int ws = levelPxPer > 1.05 ? int(std::ceil(w * levelPxPer)) : w, hs = levelPxPer > 1.05 ? int(std::ceil(h * levelPxPer)) : h;
     ImageF img;
     if (req.ignoreCrop)
-        img = warp(*level(lvl), g, w, h, wo);
+        img = warp(*level(lvl), g, ws, hs, wo);
     else
-        img = warpCached(g, s, lvl, w, h, wo);
+        img = warpCached(g, s, lvl, ws, hs, wo);
+    if (ws != w || hs != h)
+        img = resizeLanczos(img, w, h);
 
     WbValues wb = effectiveWb(s);
     if (wbOut)

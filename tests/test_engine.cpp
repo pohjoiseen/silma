@@ -1,6 +1,7 @@
 #include "Color.h"
 #include "Engine.h"
 #include "Export.h"
+#include "Filters.h"
 #include "AiDenoise.h"
 #include "Heal.h"
 #include "LensCorrection.h"
@@ -666,6 +667,35 @@ private slots:
         QVERIFY(n > 200);
         const double g = sum[1] / n, magenta = (sum[0] + sum[2]) / (2 * n) - g;
         QVERIFY2(magenta < 0.025, qPrintable(QStringLiteral("bright areas: magenta %1 (%2 px)").arg(magenta).arg(n)));
+    }
+
+    void downscaledRenderHasNoMoire()
+    {
+        // A wall of fine rods rendered small: no coloured moire (the render sampled a pyramid
+        // level up to twice its size directly, skipping pixels).
+        const QString raw = testRaw("moire/DSC_0193.NEF");
+        if (raw.isEmpty())
+            QSKIP("test raws not available");
+        DevelopEngine e(raw);
+        DevelopSettings s;
+        const ImageF img = e.renderEncoded(s, {.width = 900, .height = 600});
+        // Colour variation (red and blue against green) around its local mean, over the rods.
+        PlaneF cr(img.width, img.height), cb(img.width, img.height);
+        for (size_t i = 0; i < img.pixelCount(); ++i) {
+            const float* p = img.data.data() + i * 3;
+            cr.data[i] = p[0] - p[1];
+            cb.data[i] = p[2] - p[1];
+        }
+        const PlaneF mr = gaussianBlur(cr, 15), mb = gaussianBlur(cb, 15);
+        double sum = 0;
+        int n = 0;
+        for (int y = int(img.height * 0.25); y < int(img.height * 0.75); ++y)
+            for (int x = 0; x < int(img.width * 0.6); ++x, ++n) {
+                const double dr = cr.at(x, y) - mr.at(x, y), db = cb.at(x, y) - mb.at(x, y);
+                sum += dr * dr + db * db;
+            }
+        const double rms = std::sqrt(sum / n);
+        QVERIFY2(rms < 0.052, qPrintable(QStringLiteral("colour variation on the rods %1").arg(rms)));
     }
 
     void whitesNeverDarken()

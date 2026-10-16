@@ -20,6 +20,7 @@ unmodified copy from the shoot named below.
 | `sunset/DSC_0076.NEF` | 2026-07-18 (Vörå): sunset with the sun in the frame, partly clipped | highlights pull keeps the glare under the sun brighter than beside it |
 | `highlights/DSC_0775.NEF` | 2026-06-01: street, blue sky with green and blue clipped near the sun, red not | the clipped sky is rebuilt blue, not grey |
 | `highlights/DSC_0789.NEF` | 2026-06-01: park, the sun blown through haze behind trees | the blown haze stays neutral, not pink |
+| `moire/DSC_0193.NEF` | 2026-02-21: dark interior, a wall of fine vertical rods | a downscaled render shows no coloured moire on the rods |
 | `heal/DSC_0320.NEF` | 2026-10-10 (Jakobstad): school building, a small bird against an even cloudy sky | AI heal: the fill matches the sky's colour (with the LaMa model) |
 | `dng/DSC_0785-Pano.dng` | Lightroom panorama: DNG 1.7, JPEG XL compressed linear raw with a transparency mask | JPEG XL DNG decoding |
 | `dng/DJI_0487-Pano.dng` | Lightroom panorama from the drone (DJI FC7303), 2026-02-22: JPEG XL linear raw stored scaled, with MapPolynomial opcodes | MapPolynomial (OpcodeList2) decoding |
