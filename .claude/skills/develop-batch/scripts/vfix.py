@@ -36,7 +36,7 @@ for i in range(iters):
     if f is None and hz is None: break
     r, k, n, _ = f if f else (0, 0, 0, 0)
     log.append(f'it{i}: rotate={rot:.2f} vertical={ver:.0f} -> r={r:+.2f} k={k:+.2f} n={n}' + (f' horizon={hz:+.2f}' if hz is not None else ''))
-    err_r = -hz if horizon else r          # residual roll (deg): +r means rotate down
+    err_r = -hz if hz is not None else r   # residual roll (deg): +r means rotate down; no horizon -> verticals
     usek = not nokey and n >= 8
     if abs(err_r) < 0.12 and (not usek or abs(k) < 0.5): break
     if prev and usek and abs(ver - prev[0]) > 0.5:
